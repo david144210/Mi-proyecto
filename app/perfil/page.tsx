@@ -45,7 +45,7 @@ export default function Perfil() {
     }
   }
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = (e: any) => {
     if (e.key === 'Enter') handleLogin()
   }
 
