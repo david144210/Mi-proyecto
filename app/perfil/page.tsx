@@ -60,7 +60,7 @@ export default function Perfil() {
     return d.toLocaleDateString('es-BO', { day: '2-digit', month: 'long', year: 'numeric' })
   }
 
-  const  formatDate = (dateStr: any) => {
+  const formatMoney = (amount: any) => {
     if (amount === null || amount === undefined) return '—'
     return 'Bs. ' + Number(amount).toLocaleString('es-BO', { minimumFractionDigits: 2 })
   }
