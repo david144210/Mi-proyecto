@@ -93,6 +93,7 @@ export default function Home() {
           <a href="#mision" onClick={() => setMenuAbierto(false)} style={{ color: 'white', textDecoration: 'none' }}>Mision y Vision</a>
           <a href="#ubicacion" onClick={() => setMenuAbierto(false)} style={{ color: 'white', textDecoration: 'none' }}>Ubicacion</a>
           <a href="/cotizador" onClick={() => setMenuAbierto(false)} style={{ color: 'white', textDecoration: 'none' }}>Cotizador</a>
+          <a href="/productos" style={{ color: 'white', textDecoration: 'none' }}>Productos</a>
 
           {/* LOGIN EN MENU MOVIL */}
           <div className={`nav-login${menuAbierto ? ' abierto' : ''}`} style={{ display: 'none' }}>
