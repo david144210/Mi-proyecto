@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase'
 
 export default function Perfil() {
   const [inputCarnet, setInputCarnet] = useState('')
-  const [usuario, setUsuario] = useState(null)
+  const [usuario, setUsuario] = useState<any>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
