@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 export default function Home() {
   const [carnet, setCarnet] = useState('')
   const [error, setError] = useState('')
-  const [usuario, setUsuario] = useState(null)
+  const [usuario, setUsuario] = useState<any>(null)
   const [showLogin, setShowLogin] = useState(false)
 
   useEffect(() => {
