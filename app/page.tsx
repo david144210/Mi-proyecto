@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
 export default function Home() {
@@ -7,6 +7,22 @@ export default function Home() {
   const [error, setError] = useState('')
   const [usuario, setUsuario] = useState(null)
   const [showLogin, setShowLogin] = useState(false)
+
+  useEffect(() => {
+    const carnetGuardado = localStorage.getItem('carnet')
+    if (carnetGuardado) {
+      setCarnet(carnetGuardado)
+      supabase
+        .from('personal')
+        .select('*')
+        .eq('carnet', carnetGuardado)
+        .eq('estado', true)
+        .single()
+        .then(({ data }) => {
+          if (data) setUsuario(data)
+        })
+    }
+  }, [])
 
   const handleLogin = async () => {
     const { data, error } = await supabase
@@ -23,7 +39,15 @@ export default function Home() {
       setError('')
       setUsuario(data)
       setShowLogin(false)
+      localStorage.setItem('carnet', carnet)
     }
+  }
+
+  const handleCerrarSesion = () => {
+    setUsuario(null)
+    setCarnet('')
+    setShowLogin(false)
+    localStorage.removeItem('carnet')
   }
 
   return (
@@ -44,35 +68,52 @@ export default function Home() {
         boxSizing: 'border-box'
       }}>
         <div style={{ fontWeight: 'bold', fontSize: '20px' }}>Muebles is Better</div>
-        
+
         {/* MENU */}
         <div style={{ display: 'flex', gap: '30px' }}>
           <a href="#productos" style={{ color: 'white', textDecoration: 'none' }}>Productos</a>
-          <a href="#mision" style={{ color: 'white', textDecoration: 'none' }}>Misión y Visión</a>
-          <a href="#ubicacion" style={{ color: 'white', textDecoration: 'none' }}>Ubicación</a>
+          <a href="#mision" style={{ color: 'white', textDecoration: 'none' }}>Mision y Vision</a>
+          <a href="#ubicacion" style={{ color: 'white', textDecoration: 'none' }}>Ubicacion</a>
+          <a href="/cotizador" style={{ color: 'white', textDecoration: 'none' }}>Cotizador</a>
         </div>
 
         {/* BOTON LOGIN */}
         <div style={{ position: 'relative' }}>
           {usuario ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-        <span style={{ color: '#2c6d2e', fontWeight: 'bold' }}> {usuario.nombre}👤</span>
-        <button
-          onClick={() => { setUsuario(null); setCarnet(''); }}
-          style={{
-        backgroundColor: 'white',
-        color: '#ff4444',
-        border: '1px solid #ff4444',
-        padding: '5px 12px',
-        borderRadius: '20px',
-        cursor: 'pointer',
-        fontSize: '12px'
-        }}
-     >
-      Cerrar Sesión
-    </button>
-  </div>
-) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ color: '#2c6d2e', fontWeight: 'bold' }}>
+                {usuario.nombre} 👤
+              </span>
+              <a
+                href="/perfil"
+                style={{
+                  backgroundColor: '#087e0b',
+                  color: 'white',
+                  padding: '5px 14px',
+                  borderRadius: '20px',
+                  fontSize: '12px',
+                  textDecoration: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                Mi Perfil
+              </a>
+              <button
+                onClick={handleCerrarSesion}
+                style={{
+                  backgroundColor: 'white',
+                  color: '#ff4444',
+                  border: '1px solid #ff4444',
+                  padding: '5px 12px',
+                  borderRadius: '20px',
+                  cursor: 'pointer',
+                  fontSize: '12px'
+                }}
+              >
+                Cerrar Sesion
+              </button>
+            </div>
+          ) : (
             <button
               onClick={() => setShowLogin(!showLogin)}
               style={{
@@ -85,7 +126,7 @@ export default function Home() {
                 fontSize: '14px'
               }}
             >
-              Iniciar Sesión
+              Iniciar Sesion
             </button>
           )}
 
@@ -103,10 +144,10 @@ export default function Home() {
               color: '#333'
             }}>
               <h3 style={{ marginBottom: '5px' }}>Bienvenido</h3>
-              <p style={{ fontSize: '13px', color: '#666', marginBottom: '15px' }}>Ingrese su código de acceso</p>
+              <p style={{ fontSize: '13px', color: '#666', marginBottom: '15px' }}>Ingrese su codigo de acceso</p>
               <input
-                type="text"
-                placeholder="Código de acceso"
+                type="password"
+                placeholder="Codigo de acceso"
                 value={carnet}
                 onChange={(e) => setCarnet(e.target.value)}
                 style={{
@@ -134,11 +175,14 @@ export default function Home() {
               >
                 Ingresar
               </button>
-              {error && <p style={{ color: 'red', marginTop: '10px', fontSize: '13px' }}>{error}</p>}
+              {error && (
+                <p style={{ color: 'red', marginTop: '10px', fontSize: '13px' }}>{error}</p>
+              )}
             </div>
           )}
         </div>
       </nav>
+
 
       {/* IMAGEN PORTADA */}
       <div style={{ paddingTop: '60px' }}>
@@ -152,20 +196,70 @@ export default function Home() {
       {/* PRODUCTOS */}
       <div id="productos" style={{ padding: '60px 40px', backgroundColor: '#f9f9f9', textAlign: 'center' }}>
         <h2>Nuestros Productos</h2>
-        <p>Aquí irán los productos próximamente.</p>
+        <p>Aqui iran los productos proximamente.</p>
       </div>
 
       {/* MISION Y VISION */}
       <div id="mision" style={{ padding: '60px 40px', textAlign: 'center' }}>
-        <h2>Misión y Visión</h2>
-        <p><strong>Misión:</strong> Ofrecer muebles de calidad a precios accesibles.</p>
-        <p><strong>Visión:</strong> Ser la empresa líder en muebles de Bolivia.</p>
+        <h2>Mision y Vision</h2>
+        <p><strong>Mision:</strong> Ofrecer muebles de calidad a precios accesibles.</p>
+        <p><strong>Vision:</strong> Ser la empresa lider en muebles de Bolivia.</p>
       </div>
 
       {/* UBICACION */}
       <div id="ubicacion" style={{ padding: '60px 40px', backgroundColor: '#f9f9f9', textAlign: 'center' }}>
-        <h2>¿Dónde Ubicarnos?</h2>
-        <p>Aquí irá el mapa próximamente.</p>
+        <h2 style={{ marginBottom: '10px' }}>Donde Encontrarnos</h2>
+        <p style={{ color: '#666', marginBottom: '40px' }}>Visitanos en cualquiera de nuestras 4 sucursales</p>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+          gap: '24px',
+          maxWidth: '1100px',
+          margin: '0 auto 50px auto'
+        }}>
+
+          <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 12px rgba(0,0,0,0.1)', textAlign: 'left' }}>
+            <div style={{ fontSize: '28px', marginBottom: '8px' }}>📍</div>
+            <h3 style={{ margin: '0 0 6px 0', color: '#222' }}>Sucursal El Alto</h3>
+            <p style={{ color: '#666', fontSize: '14px', margin: '0 0 16px 0' }}>C. L. de la Vega 3623, El Alto</p>
+            <a href="https://maps.app.goo.gl/S6gJuAURM7S2WEzu5" target="_blank" rel="noopener noreferrer"
+              style={{ display: 'inline-block', backgroundColor: '#087e0b', color: 'white', padding: '8px 18px', borderRadius: '20px', textDecoration: 'none', fontSize: '13px' }}>
+              Ver en Google Maps
+            </a>
+          </div>
+
+          <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 12px rgba(0,0,0,0.1)', textAlign: 'left' }}>
+            <div style={{ fontSize: '28px', marginBottom: '8px' }}>📍</div>
+            <h3 style={{ margin: '0 0 6px 0', color: '#222' }}>Sucursal La Paz</h3>
+            <p style={{ color: '#666', fontSize: '14px', margin: '0 0 16px 0' }}>Zona Bella Vista, C. Ignacio Sanjines, La Paz</p>
+            <a href="https://maps.app.goo.gl/tA2KuW5a2yU66USm7" target="_blank" rel="noopener noreferrer"
+              style={{ display: 'inline-block', backgroundColor: '#087e0b', color: 'white', padding: '8px 18px', borderRadius: '20px', textDecoration: 'none', fontSize: '13px' }}>
+              Ver en Google Maps
+            </a>
+          </div>
+
+          <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 12px rgba(0,0,0,0.1)', textAlign: 'left' }}>
+            <div style={{ fontSize: '28px', marginBottom: '8px' }}>📍</div>
+            <h3 style={{ margin: '0 0 6px 0', color: '#222' }}>Sucursal Santa Cruz</h3>
+            <p style={{ color: '#666', fontSize: '14px', margin: '0 0 16px 0' }}>Av. Napoleon Gomez Landivar, Radial 21, Santa Cruz</p>
+            <a href="https://maps.app.goo.gl/f9xnUphWpvmgmLxv5" target="_blank" rel="noopener noreferrer"
+              style={{ display: 'inline-block', backgroundColor: '#087e0b', color: 'white', padding: '8px 18px', borderRadius: '20px', textDecoration: 'none', fontSize: '13px' }}>
+              Ver en Google Maps
+            </a>
+          </div>
+
+          <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 12px rgba(0,0,0,0.1)', textAlign: 'left' }}>
+            <div style={{ fontSize: '28px', marginBottom: '8px' }}>📍</div>
+            <h3 style={{ margin: '0 0 6px 0', color: '#222' }}>Sucursal Cochabamba</h3>
+            <p style={{ color: '#666', fontSize: '14px', margin: '0 0 16px 0' }}>Av. Segunda Circunvalacion, Cochabamba</p>
+            <a href="https://maps.app.goo.gl/WoCYUfsSXSPRB7Vc9" target="_blank" rel="noopener noreferrer"
+              style={{ display: 'inline-block', backgroundColor: '#087e0b', color: 'white', padding: '8px 18px', borderRadius: '20px', textDecoration: 'none', fontSize: '13px' }}>
+              Ver en Google Maps
+            </a>
+          </div>
+
+        </div>
       </div>
 
     </div>
