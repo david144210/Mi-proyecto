@@ -110,8 +110,8 @@ export default function Perfil() {
             Ingresa tu carnet para ver tus datos
           </p>
           <input
-            type="text"
-            placeholder="Numero de carnet"
+            type="password"
+            placeholder="Codigo de acceso"
             value={inputCarnet}
             onChange={(e) => setInputCarnet(e.target.value)}
             onKeyDown={handleKeyDown}
