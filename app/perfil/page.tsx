@@ -85,11 +85,23 @@ export default function Perfil() {
       flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
-      padding: '40px 20px',
+      padding: '40px 16px',
     }}>
 
+      <style>{`
+        @media (max-width: 768px) {
+          .perfil-card { padding: 20px !important; }
+          .perfil-campo { padding: 14px 16px !important; }
+          .perfil-valor { max-width: 140px !important; font-size: 13px !important; }
+          .perfil-label { font-size: 13px !important; }
+          .perfil-avatar { width: 48px !important; height: 48px !important; font-size: 22px !important; }
+          .perfil-titulo { font-size: 18px !important; }
+          .perfil-max { max-width: 100% !important; }
+        }
+      `}</style>
+
       {/* HEADER */}
-      <div style={{ textAlign: 'center', marginBottom: '48px' }}>
+      <div style={{ textAlign: 'center', marginBottom: '40px' }}>
         <a href="/" style={{
           color: '#a3c47d',
           textDecoration: 'none',
@@ -101,18 +113,10 @@ export default function Perfil() {
         }}>
           Volver al inicio
         </a>
-        <h1 style={{
-          fontSize: '36px',
-          fontWeight: 'normal',
-          letterSpacing: '1px',
-          margin: '0 0 8px 0',
-          color: '#ffffff'
-        }}>
+        <h1 style={{ fontSize: '32px', fontWeight: 'normal', margin: '0 0 8px 0', color: '#ffffff' }}>
           Mi Perfil
         </h1>
-        <p style={{ color: '#888', fontSize: '14px', margin: 0 }}>
-          Muebles is Better
-        </p>
+        <p style={{ color: '#888', fontSize: '14px', margin: 0 }}>Muebles is Better</p>
       </div>
 
       {/* LOGIN CARD */}
@@ -125,6 +129,7 @@ export default function Perfil() {
           width: '100%',
           maxWidth: '380px',
           boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+          boxSizing: 'border-box',
         }}>
           <p style={{ color: '#aaa', fontSize: '14px', marginBottom: '24px', textAlign: 'center' }}>
             Ingresa tu carnet para ver tus datos
@@ -166,18 +171,16 @@ export default function Perfil() {
             {loading ? 'Buscando...' : 'Ver mis datos'}
           </button>
           {error && (
-            <p style={{ color: '#ff6b6b', marginTop: '14px', fontSize: '13px', textAlign: 'center' }}>
-              {error}
-            </p>
+            <p style={{ color: '#ff6b6b', marginTop: '14px', fontSize: '13px', textAlign: 'center' }}>{error}</p>
           )}
         </div>
       )}
 
       {/* PERFIL CARD */}
       {usuario && (
-        <div style={{ width: '100%', maxWidth: '560px' }}>
+        <div className="perfil-max" style={{ width: '100%', maxWidth: '560px' }}>
 
-          <div style={{
+          <div className="perfil-card" style={{
             backgroundColor: '#1a1a1a',
             border: '1px solid #2a2a2a',
             borderRadius: '16px',
@@ -188,7 +191,7 @@ export default function Perfil() {
             gap: '20px',
             boxShadow: '0 10px 40px rgba(0,0,0,0.4)',
           }}>
-            <div style={{
+            <div className="perfil-avatar" style={{
               width: '64px',
               height: '64px',
               borderRadius: '50%',
@@ -202,12 +205,10 @@ export default function Perfil() {
               👤
             </div>
             <div>
-              <h2 style={{ margin: '0 0 4px 0', fontSize: '22px', fontWeight: 'normal' }}>
+              <h2 className="perfil-titulo" style={{ margin: '0 0 4px 0', fontSize: '22px', fontWeight: 'normal' }}>
                 {usuario.cargo || 'Personal'}
               </h2>
-              <p style={{ margin: 0, color: '#888', fontSize: '14px' }}>
-                Carnet: {usuario.carnet}
-              </p>
+              <p style={{ margin: 0, color: '#888', fontSize: '14px' }}>Carnet: {usuario.carnet}</p>
             </div>
           </div>
 
@@ -219,18 +220,18 @@ export default function Perfil() {
             boxShadow: '0 10px 40px rgba(0,0,0,0.4)',
           }}>
             {campos.map((campo, i) => (
-              <div key={i} style={{
+              <div key={i} className="perfil-campo" style={{
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 padding: '18px 28px',
                 borderBottom: i < campos.length - 1 ? '1px solid #222' : 'none',
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{ fontSize: '18px' }}>{campo.icon}</span>
-                  <span style={{ color: '#888', fontSize: '14px' }}>{campo.label}</span>
+                  <span className="perfil-label" style={{ color: '#888', fontSize: '14px' }}>{campo.label}</span>
                 </div>
-                <span style={{
+                <span className="perfil-valor" style={{
                   fontSize: '14px',
                   fontWeight: '500',
                   color: campo.highlight === true ? '#a3c47d' : '#f0ece4',
