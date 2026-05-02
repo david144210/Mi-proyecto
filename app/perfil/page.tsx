@@ -54,13 +54,13 @@ export default function Perfil() {
     window.location.replace('/')
   }
 
-  const formatDate = (dateStr) => {
+  const formatDate = (dateStr: any) => {
     if (!dateStr) return '—'
     const d = new Date(dateStr)
     return d.toLocaleDateString('es-BO', { day: '2-digit', month: 'long', year: 'numeric' })
   }
 
-  const formatMoney = (amount) => {
+  const const formatDate = (dateStr: any) => {
     if (amount === null || amount === undefined) return '—'
     return 'Bs. ' + Number(amount).toLocaleString('es-BO', { minimumFractionDigits: 2 })
   }
