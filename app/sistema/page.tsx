@@ -26,6 +26,10 @@ export default function Sistema() {
 
   const nombreMostrar = usuario?.nombre || usuario?.usuario || usuario?.carnet || 'Usuario'
 
+  // Permisos derivados del cargo
+  const esAdmin        = !!usuario?.cargos?.es_admin
+  const puedeVerVentas = !!usuario?.cargos?.puede_ver_cotizador || esAdmin
+
   return (
     <div style={{ fontFamily: 'Arial, sans-serif', minHeight: '100vh', backgroundColor: '#f5f5f5' }}>
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 40px', backgroundColor: '#222', color: 'white', boxSizing: 'border-box' as const }}>
@@ -55,12 +59,26 @@ export default function Sistema() {
             <h3 style={{ margin: 0 }}>Clientes</h3>
           </a>
 
-          {usuario?.cargos?.es_admin && (
-              <a href="/personal" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
+          {/* Ventas — visible para usuarios con puede_ver_cotizador o es_admin */}
+          {puedeVerVentas && (
+            <a href="/ventas" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, position: 'relative' as const }}>
+              <div style={{ fontSize: '40px', marginBottom: '12px' }}>📦</div>
+              <h3 style={{ margin: 0 }}>Ventas</h3>
+              {esAdmin && (
+                <span style={{ position: 'absolute' as const, top: '12px', right: '12px', backgroundColor: '#1565c0', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+                  EDITAR
+                </span>
+              )}
+            </a>
+          )}
+
+          {esAdmin && (
+            <a href="/personal" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
               <div style={{ fontSize: '40px', marginBottom: '12px' }}>🏢</div>
               <h3 style={{ margin: 0 }}>Personal</h3>
-              </a>
+            </a>
           )}
+
           {/* Aqui agregaras mas aplicaciones */}
 
         </div>
