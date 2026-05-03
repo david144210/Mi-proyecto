@@ -23,6 +23,8 @@ export default function GestionPersonal() {
   const [personal, setPersonal] = useState<any[]>([])
   const [cargos, setCargos] = useState<any[]>([])
   const [busqueda, setBusqueda] = useState('')
+
+  // Modal
   const [modalAbierto, setModalAbierto] = useState(false)
   const [modoEditar, setModoEditar] = useState(false)
   const [idEditando, setIdEditando] = useState<number | null>(null)
@@ -34,6 +36,7 @@ export default function GestionPersonal() {
   useEffect(() => {
     const carnetGuardado = localStorage.getItem('carnet')
     if (!carnetGuardado) { window.location.replace('/'); return }
+
     supabase.from('personal').select('*, cargos(*)').eq('carnet', carnetGuardado).eq('estado', true).single()
       .then(({ data }) => {
         if (!data || (!data.cargos?.es_admin && data.rol !== 'admin')) {
@@ -99,7 +102,7 @@ export default function GestionPersonal() {
   const handleGuardar = async () => {
     if (!form.carnet) { setErrorModal('El carnet es obligatorio'); return }
     if (!form.usuario) { setErrorModal('El usuario es obligatorio'); return }
-    if (!modoEditar && !form.password_nuevo) { setErrorModal('La contrasena es obligatoria para nuevos usuarios'); return }
+    if (!modoEditar && !form.password_nuevo) { setErrorModal('La contraseña es obligatoria para nuevos usuarios'); return }
 
     setGuardando(true)
     setErrorModal('')
@@ -120,59 +123,45 @@ export default function GestionPersonal() {
       }
 
       if (modoEditar && idEditando) {
-        // EDITAR
-        const { error: errorUpdate } = await supabase.from('personal').update(datosBase).eq('id', idEditando)
-        if (errorUpdate) {
-          setErrorModal('Error al actualizar: ' + errorUpdate.message)
-          setGuardando(false)
-          return
-        }
+        const { error } = await supabase.from('personal').update(datosBase).eq('id', idEditando)
+console.log('Error update:', error)
+console.log('Datos enviados:', datosBase)
+console.log('ID editando:', idEditando)
+if (error) { setErrorModal('Error al actualizar: ' + error.message); setGuardando(false); return }
+        
+        if (form.password_nuevo) {
+  console.log('ID:', idEditando)
+  console.log('Password enviado:', form.password_nuevo)
+  const { data: resPass, error: errPass } = await supabase.rpc('actualizar_password', {
+    p_id: idEditando,
+    p_password: form.password_nuevo
+  })
+  console.log('Resultado RPC:', resPass, errPass)
+  if (errPass) { setErrorModal('Error al cambiar password: ' + errPass.message); setGuardando(false); return }
+}
 
-        // Cambiar password solo si se escribio uno nuevo
-        if (form.password_nuevo.trim()) {
-          const { error: errorPass } = await supabase.rpc('actualizar_password', {
-            p_id: idEditando,
-            p_password: form.password_nuevo.trim()
-          })
-          if (errorPass) {
-            setErrorModal('Usuario actualizado pero error al cambiar contrasena: ' + errorPass.message)
-            setGuardando(false)
-            return
-          }
+console.log('Error password:', errPass)
+if (errPass) { setErrorModal('Error password: ' + errPass.message); setGuardando(false); return }
         }
-
         setExito('Usuario actualizado correctamente')
-
       } else {
-        // CREAR NUEVO
-        const { data: nuevo, error: errorInsert } = await supabase.from('personal').insert(datosBase).select().single()
-        if (errorInsert) {
-          setErrorModal('Error al crear: ' + errorInsert.message)
-          setGuardando(false)
-          return
-        }
+        const { data: nuevo, error } = await supabase.from('personal').insert(datosBase).select().single()
+        if (error) { setErrorModal('Error al crear: ' + error.message); setGuardando(false); return }
 
-        if (form.password_nuevo.trim() && nuevo) {
-          const { error: errorPass } = await supabase.rpc('actualizar_password', {
+        if (form.password_nuevo && nuevo) {
+          await supabase.rpc('actualizar_password', {
             p_id: nuevo.id,
-            p_password: form.password_nuevo.trim()
+            p_password: form.password_nuevo
           })
-          if (errorPass) {
-            setErrorModal('Usuario creado pero error al asignar contrasena: ' + errorPass.message)
-            setGuardando(false)
-            return
-          }
         }
-
         setExito('Usuario creado correctamente')
       }
 
       await cargarDatos()
       setGuardando(false)
       setTimeout(() => cerrarModal(), 1500)
-
-    } catch (e: any) {
-      setErrorModal('Error inesperado: ' + (e?.message || ''))
+    } catch (e) {
+      setErrorModal('Error inesperado')
       setGuardando(false)
     }
   }
@@ -210,7 +199,9 @@ export default function GestionPersonal() {
 
       {/* NAVBAR */}
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 40px', backgroundColor: '#222', color: 'white', position: 'fixed', top: 0, width: '100%', zIndex: 1000, boxSizing: 'border-box' }}>
-        <a href="/sistema" style={{ fontWeight: 'bold', fontSize: '18px', color: 'white', textDecoration: 'none' }}>Muebles is Better</a>
+        <a href="/sistema" style={{ fontWeight: 'bold', fontSize: '18px', color: 'white', textDecoration: 'none' }}>
+          Muebles is Better
+        </a>
         <span style={{ color: '#a3c47d', fontWeight: 'bold' }}>Gestion de Personal</span>
         <span style={{ color: '#2c6d2e', fontSize: '14px' }}>{usuario.usuario} 👤</span>
       </nav>
@@ -223,7 +214,7 @@ export default function GestionPersonal() {
             <h1 style={{ margin: '0 0 4px 0', fontSize: '24px' }}>Personal</h1>
             <p style={{ margin: 0, color: '#888', fontSize: '14px' }}>{personal.length} usuarios registrados</p>
           </div>
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' as const }}>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
             <input
               type="text"
               placeholder="Buscar por CI, usuario, cargo..."
@@ -233,7 +224,7 @@ export default function GestionPersonal() {
             />
             <button
               onClick={abrirModalNuevo}
-              style={{ padding: '10px 20px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', whiteSpace: 'nowrap' as const }}
+              style={{ padding: '10px 20px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', whiteSpace: 'nowrap' }}
             >
               + Nuevo Usuario
             </button>
@@ -257,7 +248,9 @@ export default function GestionPersonal() {
             <tbody>
               {personalFiltrado.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ padding: '40px', textAlign: 'center', color: '#bbb' }}>No se encontraron usuarios</td>
+                  <td colSpan={7} style={{ padding: '40px', textAlign: 'center', color: '#bbb' }}>
+                    No se encontraron usuarios
+                  </td>
                 </tr>
               ) : (
                 personalFiltrado.map((p, i) => (
@@ -268,12 +261,19 @@ export default function GestionPersonal() {
                     <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>{p.sucursal || '—'}</td>
                     <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>{p.distrito || '—'}</td>
                     <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>
-                      <span style={{ backgroundColor: p.estado ? '#e8f5e9' : '#ffebee', color: p.estado ? '#2e7d32' : '#c62828', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold' }}>
+                      <span style={{
+                        backgroundColor: p.estado ? '#e8f5e9' : '#ffebee',
+                        color: p.estado ? '#2e7d32' : '#c62828',
+                        padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold'
+                      }}>
                         {p.estado ? 'Activo' : 'Inactivo'}
                       </span>
                     </td>
                     <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>
-                      <button onClick={() => abrirModalEditar(p)} style={{ backgroundColor: '#087e0b', color: 'white', border: 'none', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
+                      <button
+                        onClick={() => abrirModalEditar(p)}
+                        style={{ backgroundColor: '#087e0b', color: 'white', border: 'none', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}
+                      >
                         Editar
                       </button>
                     </td>
@@ -287,14 +287,25 @@ export default function GestionPersonal() {
 
       {/* MODAL */}
       {modalAbierto && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', boxSizing: 'border-box' }}>
-          <div className="gp-modal-inner" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '32px', width: '600px', maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-
+        <div style={{
+          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+          zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '20px', boxSizing: 'border-box'
+        }}>
+          <div className="gp-modal-inner" style={{
+            backgroundColor: 'white', borderRadius: '16px', padding: '32px',
+            width: '600px', maxWidth: '100%', maxHeight: '90vh',
+            overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+          }}>
+            {/* HEADER MODAL */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-              <h2 style={{ margin: 0, fontSize: '20px' }}>{modoEditar ? 'Editar Usuario' : 'Nuevo Usuario'}</h2>
+              <h2 style={{ margin: 0, fontSize: '20px' }}>
+                {modoEditar ? 'Editar Usuario' : 'Nuevo Usuario'}
+              </h2>
               <button onClick={cerrarModal} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: '#999' }}>✕</button>
             </div>
 
+            {/* FORMULARIO */}
             <div className="gp-grid-dos" style={gridDos}>
               <div>
                 <label style={labelStyle}>Carnet (CI) *</label>
@@ -307,8 +318,8 @@ export default function GestionPersonal() {
             </div>
 
             <div style={{ marginBottom: '16px' }}>
-              <label style={labelStyle}>{modoEditar ? 'Nueva Contrasena (dejar vacio para no cambiar)' : 'Contrasena *'}</label>
-              <input type="password" value={form.password_nuevo} onChange={(e) => handleChange('password_nuevo', e.target.value)} style={inputStyle} placeholder={modoEditar ? 'Nueva contrasena...' : 'Contrasena'} />
+              <label style={labelStyle}>{modoEditar ? 'Nueva Contraseña (dejar vacio para no cambiar)' : 'Contraseña *'}</label>
+              <input type="password" value={form.password_nuevo} onChange={(e) => handleChange('password_nuevo', e.target.value)} style={inputStyle} placeholder={modoEditar ? 'Nueva contraseña...' : 'Contraseña'} />
             </div>
 
             <div className="gp-grid-dos" style={gridDos}>
@@ -372,7 +383,12 @@ export default function GestionPersonal() {
 
             <div style={{ marginBottom: '24px' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
-                <input type="checkbox" checked={form.estado} onChange={(e) => handleChange('estado', e.target.checked)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
+                <input
+                  type="checkbox"
+                  checked={form.estado}
+                  onChange={(e) => handleChange('estado', e.target.checked)}
+                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                />
                 <span>Usuario activo</span>
               </label>
             </div>
@@ -393,7 +409,11 @@ export default function GestionPersonal() {
               <button onClick={cerrarModal} style={{ padding: '10px 20px', backgroundColor: 'transparent', border: '1px solid #ccc', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>
                 Cancelar
               </button>
-              <button onClick={handleGuardar} disabled={guardando} style={{ padding: '10px 24px', backgroundColor: guardando ? '#ccc' : '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: guardando ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold' }}>
+              <button
+                onClick={handleGuardar}
+                disabled={guardando}
+                style={{ padding: '10px 24px', backgroundColor: guardando ? '#ccc' : '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: guardando ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold' }}
+              >
                 {guardando ? 'Guardando...' : modoEditar ? 'Actualizar' : 'Crear Usuario'}
               </button>
             </div>
