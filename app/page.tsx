@@ -4,18 +4,19 @@ import { supabase } from '../lib/supabase'
 
 export default function Home() {
   const [carnet, setCarnet] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [usuario, setUsuario] = useState<any>(null)
   const [showLogin, setShowLogin] = useState(false)
   const [menuAbierto, setMenuAbierto] = useState(false)
+  const [cargando, setCargando] = useState(false)
 
   useEffect(() => {
     const carnetGuardado = localStorage.getItem('carnet')
     if (carnetGuardado) {
-      setCarnet(carnetGuardado)
       supabase
         .from('personal')
-        .select('*')
+        .select('*, cargos(*)')
         .eq('carnet', carnetGuardado)
         .eq('estado', true)
         .single()
@@ -26,31 +27,74 @@ export default function Home() {
   }, [])
 
   const handleLogin = async () => {
-    const { data, error } = await supabase
+    if (!carnet || !password) {
+      setError('Ingrese su CI y contraseña')
+      return
+    }
+    setCargando(true)
+    setError('')
+
+    const { data: persona, error: errPersona } = await supabase
       .from('personal')
-      .select('*')
+      .select('*, cargos(*)')
       .eq('carnet', carnet)
       .eq('estado', true)
       .single()
 
-    if (error || !data) {
-      setError('Carnet no encontrado o usuario inactivo')
-      setUsuario(null)
-    } else {
-      setError('')
-      setUsuario(data)
-      setShowLogin(false)
-      setMenuAbierto(false)
-      localStorage.setItem('carnet', carnet)
+    if (errPersona || !persona) {
+      setError('CI no encontrado o usuario inactivo')
+      setCargando(false)
+      return
     }
+
+    if (!persona.password_hash) {
+      setError('Este usuario no tiene contraseña asignada')
+      setCargando(false)
+      return
+    }
+
+    const { data: valido, error: errPass } = await supabase
+      .rpc('verificar_password', {
+        password_input: password,
+        hash_guardado: persona.password_hash
+      })
+
+    if (errPass || !valido) {
+      setError('Contraseña incorrecta')
+      setCargando(false)
+      return
+    }
+
+    setUsuario(persona)
+    setShowLogin(false)
+    setMenuAbierto(false)
+    setPassword('')
+    setError('')
+    localStorage.setItem('carnet', carnet)
+    setCargando(false)
   }
 
   const handleCerrarSesion = () => {
     setUsuario(null)
     setCarnet('')
+    setPassword('')
     setShowLogin(false)
     setMenuAbierto(false)
     localStorage.removeItem('carnet')
+  }
+
+  const inputDesktop = {
+    padding: '10px', width: '100%', borderRadius: '8px',
+    border: '1px solid #ccc', backgroundColor: 'white',
+    color: '#333', marginBottom: '8px',
+    boxSizing: 'border-box' as const, fontSize: '14px'
+  }
+
+  const inputMovil = {
+    padding: '10px', width: '100%', borderRadius: '8px',
+    border: '1px solid #555', backgroundColor: '#333',
+    color: 'white', marginBottom: '8px',
+    boxSizing: 'border-box' as const, fontSize: '14px'
   }
 
   return (
@@ -61,63 +105,74 @@ export default function Home() {
           .nav-menu { display: none !important; }
           .nav-menu.abierto { display: flex !important; flex-direction: column; position: fixed; top: 60px; left: 0; width: 100%; background: #222; padding: 20px; gap: 20px; z-index: 999; box-sizing: border-box; }
           .hamburger { display: flex !important; }
-          .nav-login { display: none !important; }
-          .nav-login.abierto { display: flex !important; flex-direction: column; align-items: flex-start; }
+          .nav-login-desktop { display: none !important; }
+          .nav-login-movil { display: flex !important; }
           .portada-img { height: 250px !important; }
           .section-padding { padding: 40px 20px !important; }
         }
         @media (min-width: 769px) {
           .hamburger { display: none !important; }
+          .nav-login-movil { display: none !important; }
         }
       `}</style>
 
       {/* NAVBAR */}
       <nav style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '15px 40px',
-        backgroundColor: '#222',
-        color: 'white',
-        position: 'fixed',
-        top: 0,
-        width: '100%',
-        zIndex: 1000,
-        boxSizing: 'border-box'
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        padding: '15px 40px', backgroundColor: '#222', color: 'white',
+        position: 'fixed', top: 0, width: '100%', zIndex: 1000, boxSizing: 'border-box'
       }}>
         <div style={{ fontWeight: 'bold', fontSize: '20px' }}>Muebles is Better</div>
 
-        {/* MENU DESKTOP */}
+        {/* MENU */}
         <div className={`nav-menu${menuAbierto ? ' abierto' : ''}`} style={{ display: 'flex', gap: '30px' }}>
           <a href="#productos" onClick={() => setMenuAbierto(false)} style={{ color: 'white', textDecoration: 'none' }}>Productos</a>
           <a href="#mision" onClick={() => setMenuAbierto(false)} style={{ color: 'white', textDecoration: 'none' }}>Mision y Vision</a>
           <a href="#ubicacion" onClick={() => setMenuAbierto(false)} style={{ color: 'white', textDecoration: 'none' }}>Ubicacion</a>
           <a href="/cotizador" onClick={() => setMenuAbierto(false)} style={{ color: 'white', textDecoration: 'none' }}>Cotizador</a>
-          <a href="/productos" style={{ color: 'white', textDecoration: 'none' }}>Productos</a>
+          <a href="/productos" onClick={() => setMenuAbierto(false)} style={{ color: 'white', textDecoration: 'none' }}>Catalogo</a>
 
-          {/* LOGIN EN MENU MOVIL */}
-          <div className={`nav-login${menuAbierto ? ' abierto' : ''}`} style={{ display: 'none' }}>
+          {/* LOGIN MOVIL dentro del menu */}
+          <div className="nav-login-movil" style={{ display: 'none', flexDirection: 'column' }}>
             {usuario ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <span style={{ color: '#2c6d2e', fontWeight: 'bold' }}>{usuario.nombre} 👤</span>
-                <a href="/perfil" style={{ backgroundColor: '#087e0b', color: 'white', padding: '8px 14px', borderRadius: '20px', fontSize: '13px', textDecoration: 'none', textAlign: 'center' }}>
-                  Mi Perfil
+                <span style={{ color: '#a3c47d', fontWeight: 'bold' }}>{usuario.nombre} 👤</span>
+                {usuario.cargos?.nombre && (
+                  <span style={{ color: '#aaa', fontSize: '12px' }}>{usuario.cargos.nombre}</span>
+                )}
+                <a href="/sistema"
+                  style={{ display: 'inline-block', backgroundColor: '#087e0b', color: 'white', padding: '8px 14px', borderRadius: '20px', fontSize: '13px', textDecoration: 'none', textAlign: 'center' }}>
+                  Ingresar al Sistema
                 </a>
-                <button onClick={handleCerrarSesion} style={{ backgroundColor: 'white', color: '#ff4444', border: '1px solid #ff4444', padding: '8px 12px', borderRadius: '20px', cursor: 'pointer', fontSize: '13px' }}>
+                <button onClick={handleCerrarSesion} style={{ backgroundColor: 'transparent', color: '#ff6b6b', border: '1px solid #ff6b6b', padding: '8px 12px', borderRadius: '20px', cursor: 'pointer', fontSize: '13px' }}>
                   Cerrar Sesion
                 </button>
               </div>
             ) : (
               <div style={{ width: '100%' }}>
+                <p style={{ color: '#aaa', fontSize: '13px', marginBottom: '10px' }}>Ingresa con tu CI</p>
                 <input
-                  type="password"
-                  placeholder="Codigo de acceso"
+                  type="text"
+                  placeholder="Carnet de identidad (CI)"
                   value={carnet}
                   onChange={(e) => setCarnet(e.target.value)}
-                  style={{ padding: '10px', width: '100%', borderRadius: '8px', border: '1px solid #555', backgroundColor: '#333', color: 'white', marginBottom: '10px', boxSizing: 'border-box', fontSize: '14px' }}
+                  onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                  style={inputMovil}
                 />
-                <button onClick={handleLogin} style={{ width: '100%', padding: '10px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>
-                  Ingresar
+                <input
+                  type="password"
+                  placeholder="Contraseña"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                  style={{ ...inputMovil, marginBottom: '10px' }}
+                />
+                <button
+                  onClick={handleLogin}
+                  disabled={cargando}
+                  style={{ width: '100%', padding: '10px', backgroundColor: cargando ? '#555' : '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: cargando ? 'not-allowed' : 'pointer', fontSize: '14px' }}
+                >
+                  {cargando ? 'Verificando...' : 'Ingresar'}
                 </button>
                 {error && <p style={{ color: '#ff6b6b', marginTop: '8px', fontSize: '13px' }}>{error}</p>}
               </div>
@@ -125,39 +180,70 @@ export default function Home() {
           </div>
         </div>
 
-        {/* BOTON LOGIN DESKTOP */}
-        <div className="nav-login abierto" style={{ position: 'relative' }}>
+        {/* LOGIN DESKTOP */}
+        <div className="nav-login-desktop" style={{ position: 'relative' }}>
           {usuario ? (
+            // ✅ USUARIO LOGUEADO: muestra nombre, cargo, botón sistema y cerrar sesión
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ color: '#2c6d2e', fontWeight: 'bold' }}>{usuario.nombre} 👤</span>
-              <a href="/perfil" style={{ backgroundColor: '#087e0b', color: 'white', padding: '5px 14px', borderRadius: '20px', fontSize: '12px', textDecoration: 'none' }}>
-                Mi Perfil
+              <div style={{ textAlign: 'right' }}>
+                <p style={{ margin: 0, color: 'white', fontWeight: 'bold', fontSize: '14px' }}>{usuario.nombre} 👤</p>
+                {usuario.cargos?.nombre && (
+                  <p style={{ margin: 0, color: '#a3c47d', fontSize: '11px' }}>{usuario.cargos.nombre}</p>
+                )}
+              </div>
+              <a href="/sistema"
+                style={{ backgroundColor: '#087e0b', color: 'white', padding: '6px 14px', borderRadius: '20px', fontSize: '12px', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                Ingresar al Sistema
               </a>
-              <button onClick={handleCerrarSesion} style={{ backgroundColor: 'white', color: '#ff4444', border: '1px solid #ff4444', padding: '5px 12px', borderRadius: '20px', cursor: 'pointer', fontSize: '12px' }}>
+              <button onClick={handleCerrarSesion}
+                style={{ backgroundColor: 'transparent', color: '#ff6b6b', border: '1px solid #ff6b6b', padding: '5px 12px', borderRadius: '20px', cursor: 'pointer', fontSize: '12px' }}>
                 Cerrar Sesion
               </button>
             </div>
           ) : (
-            <button onClick={() => setShowLogin(!showLogin)} style={{ backgroundColor: '#087e0b', color: 'white', border: 'none', padding: '8px 20px', borderRadius: '20px', cursor: 'pointer', fontSize: '14px' }}>
+            // 🔒 NO LOGUEADO: muestra botón iniciar sesión
+            <button
+              onClick={() => setShowLogin(!showLogin)}
+              style={{ backgroundColor: '#087e0b', color: 'white', border: 'none', padding: '8px 20px', borderRadius: '20px', cursor: 'pointer', fontSize: '14px' }}
+            >
               Iniciar Sesion
             </button>
           )}
 
-          {showLogin && (
-            <div style={{ position: 'absolute', right: 0, top: '45px', backgroundColor: 'white', padding: '25px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', width: '280px', color: '#333', zIndex: 1001 }}>
-              <h3 style={{ marginBottom: '5px' }}>Bienvenido</h3>
-              <p style={{ fontSize: '13px', color: '#666', marginBottom: '15px' }}>Ingrese su codigo de acceso</p>
+          {/* DROPDOWN LOGIN - solo cuando NO está logueado */}
+          {showLogin && !usuario && (
+            <div style={{
+              position: 'absolute', right: 0, top: '45px',
+              backgroundColor: 'white', padding: '25px', borderRadius: '12px',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.3)', width: '300px',
+              color: '#333', zIndex: 1001
+            }}>
+              <h3 style={{ margin: '0 0 4px 0' }}>Bienvenido</h3>
+              <p style={{ fontSize: '13px', color: '#666', marginBottom: '16px' }}>Ingrese su CI y contraseña</p>
               <input
-                type="password"
-                placeholder="Codigo de acceso"
+                type="text"
+                placeholder="Carnet de identidad (CI)"
                 value={carnet}
                 onChange={(e) => setCarnet(e.target.value)}
-                style={{ padding: '10px', width: '100%', borderRadius: '8px', border: '1px solid #ccc', marginBottom: '10px', boxSizing: 'border-box', fontSize: '14px' }}
+                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                style={inputDesktop}
               />
-              <button onClick={handleLogin} style={{ width: '100%', padding: '10px', backgroundColor: '#201717', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>
-                Ingresar
+              <input
+                type="password"
+                placeholder="Contraseña"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                style={{ ...inputDesktop, marginBottom: '10px' }}
+              />
+              <button
+                onClick={handleLogin}
+                disabled={cargando}
+                style={{ width: '100%', padding: '10px', backgroundColor: cargando ? '#555' : '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: cargando ? 'not-allowed' : 'pointer', fontSize: '14px' }}
+              >
+                {cargando ? 'Verificando...' : 'Ingresar'}
               </button>
-              {error && <p style={{ color: 'red', marginTop: '10px', fontSize: '13px' }}>{error}</p>}
+              {error && <p style={{ color: 'red', marginTop: '8px', fontSize: '13px' }}>{error}</p>}
             </div>
           )}
         </div>
@@ -199,9 +285,7 @@ export default function Home() {
       <div id="ubicacion" className="section-padding" style={{ padding: '60px 40px', backgroundColor: '#f9f9f9', textAlign: 'center' }}>
         <h2 style={{ marginBottom: '10px' }}>Donde Encontrarnos</h2>
         <p style={{ color: '#666', marginBottom: '40px' }}>Visitanos en cualquiera de nuestras 4 sucursales</p>
-
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '24px', maxWidth: '1100px', margin: '0 auto 50px auto' }}>
-
           <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 12px rgba(0,0,0,0.1)', textAlign: 'left' }}>
             <div style={{ fontSize: '28px', marginBottom: '8px' }}>📍</div>
             <h3 style={{ margin: '0 0 6px 0', color: '#222' }}>Sucursal El Alto</h3>
@@ -211,7 +295,6 @@ export default function Home() {
               Ver en Google Maps
             </a>
           </div>
-
           <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 12px rgba(0,0,0,0.1)', textAlign: 'left' }}>
             <div style={{ fontSize: '28px', marginBottom: '8px' }}>📍</div>
             <h3 style={{ margin: '0 0 6px 0', color: '#222' }}>Sucursal La Paz</h3>
@@ -221,7 +304,6 @@ export default function Home() {
               Ver en Google Maps
             </a>
           </div>
-
           <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 12px rgba(0,0,0,0.1)', textAlign: 'left' }}>
             <div style={{ fontSize: '28px', marginBottom: '8px' }}>📍</div>
             <h3 style={{ margin: '0 0 6px 0', color: '#222' }}>Sucursal Santa Cruz</h3>
@@ -231,7 +313,6 @@ export default function Home() {
               Ver en Google Maps
             </a>
           </div>
-
           <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 12px rgba(0,0,0,0.1)', textAlign: 'left' }}>
             <div style={{ fontSize: '28px', marginBottom: '8px' }}>📍</div>
             <h3 style={{ margin: '0 0 6px 0', color: '#222' }}>Sucursal Cochabamba</h3>
@@ -241,7 +322,6 @@ export default function Home() {
               Ver en Google Maps
             </a>
           </div>
-
         </div>
       </div>
 
