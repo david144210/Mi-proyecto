@@ -17,8 +17,8 @@ interface Venta {
   anticipo: number | null
   forma_pago: string | null
   cod_transaccion: string | null
-  personal_cliente?: { nombre: string } | null
-  personal_vendedor?: { nombre: string } | null
+  nombre_cliente?: string
+  nombre_vendedor?: string
 }
 
 interface DetalleVenta {
@@ -66,20 +66,18 @@ const badgePago: Record<string, { bg: string; color: string }> = {
 export default function Ventas() {
   const [usuario, setUsuario] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [accesoDenegado, setAccesoDenegado] = useState(false)
 
-  // Lista
   const [ventas, setVentas] = useState<Venta[]>([])
   const [loadingVentas, setLoadingVentas] = useState(false)
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(0)
   const [vendedores, setVendedores] = useState<{ id: number; nombre: string }[]>([])
 
-  // Filtros
   const [filtros, setFiltros] = useState<FiltrosState>({
     busqueda: '', fecha_desde: '', fecha_hasta: '', forma_pago: '', vendedor: '',
   })
 
-  // Modal detalle / edición
   const [ventaSel, setVentaSel] = useState<Venta | null>(null)
   const [detalle, setDetalle] = useState<DetalleVenta[]>([])
   const [loadingDetalle, setLoadingDetalle] = useState(false)
@@ -89,32 +87,31 @@ export default function Ventas() {
   const [guardando, setGuardando] = useState(false)
   const [mensajeGuardado, setMensajeGuardado] = useState('')
 
-  // ── Auth ─────────────────────────────────────────────────────────────────
+  // ── Auth ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     const carnet = localStorage.getItem('carnet')
     if (!carnet) { window.location.replace('/'); return }
     supabase.from('personal').select('*, cargos(*)')
       .eq('carnet', carnet).eq('estado', true).single()
       .then(({ data }) => {
-        if (!data) window.location.replace('/')
-        else {
-          setUsuario(data)
-          setLoading(false)
-        }
+        if (!data) { window.location.replace('/'); return }
+        setUsuario(data)
+        // Verificar permisos
+        const puedeVer = data?.cargos?.puede_ver_cotizador || data?.cargos?.es_admin || data?.rol === 'admin'
+        if (!puedeVer) { setAccesoDenegado(true) }
+        setLoading(false)
       })
   }, [])
 
-  // ── Cargar vendedores para filtro ─────────────────────────────────────────
+  // ── Cargar vendedores ─────────────────────────────────────────────────────
   useEffect(() => {
-    supabase.from('personal').select('id, nombre').eq('estado', true)
-      .then(({ data }) => setVendedores(data || []))
+    supabase.from('personal').select('id, usuario').eq('estado', true)
+      .then(({ data }) => setVendedores((data || []).map((p: any) => ({ id: p.id, nombre: p.usuario || p.id }))))
   }, [])
 
-  // ── Permisos ──────────────────────────────────────────────────────────────
-  const puedeVerVentas = usuario?.cargos?.puede_ver_cotizador || usuario?.cargos?.es_admin
-  const puedeEditar    = usuario?.cargos?.es_admin
+  const puedeEditar = usuario?.cargos?.es_admin || usuario?.rol === 'admin'
 
-  // ── Cargar ventas ─────────────────────────────────────────────────────────
+  // ── Cargar ventas sin foreign keys ────────────────────────────────────────
   const cargarVentas = useCallback(async (p: number, f: FiltrosState) => {
     setLoadingVentas(true)
     const from = p * PAGE_SIZE
@@ -122,11 +119,7 @@ export default function Ventas() {
 
     let query = supabase
       .from('ventas')
-      .select(`
-        *,
-        personal_cliente:personal!ventas_cod_cliente_fkey(nombre),
-        personal_vendedor:personal!ventas_cod_vendedor_fkey(nombre)
-      `, { count: 'exact' })
+      .select('*', { count: 'exact' })
       .order('cod_venta', { ascending: false })
       .range(from, to)
 
@@ -140,16 +133,38 @@ export default function Ventas() {
     if (f.vendedor)    query = query.eq('cod_vendedor', parseInt(f.vendedor))
 
     const { data, count, error } = await query
-    if (!error) {
-      setVentas(data || [])
+
+    if (!error && data) {
+      // Enriquecer con nombres de personal
+      const ids = [...new Set([
+        ...data.map((v: any) => v.cod_cliente).filter(Boolean),
+        ...data.map((v: any) => v.cod_vendedor).filter(Boolean),
+      ])]
+
+      let nombresMap: Record<number, string> = {}
+      if (ids.length > 0) {
+        const { data: personal } = await supabase
+          .from('personal').select('id, usuario').in('id', ids)
+        if (personal) {
+          personal.forEach((p: any) => { nombresMap[p.id] = p.usuario || `ID ${p.id}` })
+        }
+      }
+
+      const ventasEnriquecidas = data.map((v: any) => ({
+        ...v,
+        nombre_cliente: v.cod_cliente ? (nombresMap[v.cod_cliente] || `ID ${v.cod_cliente}`) : '—',
+        nombre_vendedor: v.cod_vendedor ? (nombresMap[v.cod_vendedor] || `ID ${v.cod_vendedor}`) : '—',
+      }))
+
+      setVentas(ventasEnriquecidas)
       setTotalCount(count || 0)
     }
     setLoadingVentas(false)
   }, [])
 
   useEffect(() => {
-    if (!loading && puedeVerVentas) cargarVentas(page, filtros)
-  }, [loading, page, filtros, puedeVerVentas, cargarVentas])
+    if (!loading && !accesoDenegado) cargarVentas(page, filtros)
+  }, [loading, page, filtros, accesoDenegado, cargarVentas])
 
   // ── Abrir detalle ─────────────────────────────────────────────────────────
   const abrirDetalle = async (v: Venta) => {
@@ -158,15 +173,11 @@ export default function Ventas() {
     setMensajeGuardado('')
     setLoadingDetalle(true)
     const { data } = await supabase
-      .from('detalle_venta')
-      .select('*')
-      .eq('cod_venta', v.cod_venta)
-      .order('item')
+      .from('detalle_venta').select('*').eq('cod_venta', v.cod_venta).order('item')
     setDetalle(data || [])
     setLoadingDetalle(false)
   }
 
-  // ── Activar edición ───────────────────────────────────────────────────────
   const activarEdicion = () => {
     if (!ventaSel) return
     setFormVenta({ ...ventaSel })
@@ -180,66 +191,65 @@ export default function Ventas() {
     setGuardando(true)
     setMensajeGuardado('')
 
-    // Update cabecera venta
     const { error: eVenta } = await supabase
       .from('ventas')
       .update({
-        cod_cliente:      formVenta.cod_cliente,
-        cod_vendedor:     formVenta.cod_vendedor,
-        fecha_pedido:     formVenta.fecha_pedido || null,
-        fecha_entrega:    formVenta.fecha_entrega || null,
-        hora_entrega:     formVenta.hora_entrega || null,
+        cod_cliente:       formVenta.cod_cliente,
+        cod_vendedor:      formVenta.cod_vendedor,
+        fecha_pedido:      formVenta.fecha_pedido || null,
+        fecha_entrega:     formVenta.fecha_entrega || null,
+        hora_entrega:      formVenta.hora_entrega || null,
         delivery_cotizado: formVenta.delivery_cotizado,
-        delivery_pagado:  formVenta.delivery_pagado,
-        total_venta:      formVenta.total_venta,
-        anticipo:         formVenta.anticipo,
-        forma_pago:       formVenta.forma_pago || null,
-        cod_transaccion:  formVenta.cod_transaccion || null,
+        delivery_pagado:   formVenta.delivery_pagado,
+        total_venta:       formVenta.total_venta,
+        anticipo:          formVenta.anticipo,
+        forma_pago:        formVenta.forma_pago || null,
+        cod_transaccion:   formVenta.cod_transaccion || null,
       })
       .eq('cod_venta', ventaSel.cod_venta)
 
     if (eVenta) {
-      setMensajeGuardado('❌ Error al guardar la venta: ' + eVenta.message)
+      setMensajeGuardado('Error al guardar la venta: ' + eVenta.message)
       setGuardando(false)
       return
     }
 
-    // Update cada línea de detalle
     for (const d of formDetalle) {
       const subtotal = (d.precio_vendido || 0) * (d.cantidad || 0)
       await supabase.from('detalle_venta').update({
-        cod_producto:    d.cod_producto,
-        precio_cotizado: d.precio_cotizado,
-        precio_vendido:  d.precio_vendido,
-        cantidad:        d.cantidad,
+        cod_producto:     d.cod_producto,
+        precio_cotizado:  d.precio_cotizado,
+        precio_vendido:   d.precio_vendido,
+        cantidad:         d.cantidad,
         subtotal,
-        dimensiones:     d.dimensiones,
+        dimensiones:      d.dimensiones,
         color_estructura: d.color_estructura,
-        color_melamina:  d.color_melamina,
+        color_melamina:   d.color_melamina,
       }).eq('id', d.id)
     }
 
-    // Refrescar
     const { data: ventaActualizada } = await supabase
-      .from('ventas')
-      .select(`*, personal_cliente:personal!ventas_cod_cliente_fkey(nombre), personal_vendedor:personal!ventas_cod_vendedor_fkey(nombre)`)
-      .eq('cod_venta', ventaSel.cod_venta)
-      .single()
+      .from('ventas').select('*').eq('cod_venta', ventaSel.cod_venta).single()
 
     const { data: detalleActualizado } = await supabase
       .from('detalle_venta').select('*').eq('cod_venta', ventaSel.cod_venta).order('item')
 
     if (ventaActualizada) {
-      setVentaSel(ventaActualizada)
-      setVentas(prev => prev.map(v => v.cod_venta === ventaSel.cod_venta ? ventaActualizada : v))
+      const vActual = {
+        ...ventaActualizada,
+        nombre_cliente: ventaSel.nombre_cliente,
+        nombre_vendedor: ventaSel.nombre_vendedor,
+      }
+      setVentaSel(vActual)
+      setVentas(prev => prev.map(v => v.cod_venta === ventaSel.cod_venta ? vActual : v))
     }
     setDetalle(detalleActualizado || [])
     setModoEdicion(false)
-    setMensajeGuardado('✅ Cambios guardados correctamente')
+    setMensajeGuardado('Cambios guardados correctamente')
     setGuardando(false)
   }
 
-  // ── Estilos reutilizables ─────────────────────────────────────────────────
+  // ── Estilos ───────────────────────────────────────────────────────────────
   const inputStyle: React.CSSProperties = {
     padding: '8px 12px', borderRadius: '8px', border: '1px solid #ddd',
     fontSize: '13px', width: '100%', boxSizing: 'border-box', backgroundColor: 'white',
@@ -256,14 +266,14 @@ export default function Ventas() {
   }
 
   // ── Guards ────────────────────────────────────────────────────────────────
-  if (loading) return <p style={{ textAlign: 'center', marginTop: '100px' }}>Cargando...</p>
+  if (loading) return <p style={{ textAlign: 'center', marginTop: '100px', fontFamily: 'Arial' }}>Cargando...</p>
 
-  if (!puedeVerVentas) return (
+  if (accesoDenegado) return (
     <div style={{ fontFamily: 'Arial, sans-serif', minHeight: '100vh', backgroundColor: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ textAlign: 'center', backgroundColor: 'white', borderRadius: '16px', padding: '48px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
         <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔒</div>
         <h2 style={{ margin: '0 0 8px' }}>Acceso restringido</h2>
-        <p style={{ color: '#888', margin: '0 0 24px' }}>No tienes permisos para ver esta sección.</p>
+        <p style={{ color: '#888', margin: '0 0 24px' }}>No tienes permisos para ver esta seccion.</p>
         <a href="/sistema" style={{ backgroundColor: '#087e0b', color: 'white', padding: '10px 24px', borderRadius: '8px', textDecoration: 'none', fontSize: '14px' }}>
           Volver al sistema
         </a>
@@ -272,7 +282,7 @@ export default function Ventas() {
   )
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE)
-  const nombreMostrar = usuario?.nombre || usuario?.carnet || 'Usuario'
+  const nombreMostrar = usuario?.usuario || usuario?.carnet || 'Usuario'
 
   return (
     <div style={{ fontFamily: 'Arial, sans-serif', minHeight: '100vh', backgroundColor: '#f5f5f5' }}>
@@ -282,7 +292,7 @@ export default function Ventas() {
           .ventas-container { padding: 16px !important; }
           .filtros-grid { grid-template-columns: 1fr 1fr !important; }
           .tabla-wrap { font-size: 11px !important; }
-          .modal-inner { margin: 16px !important; padding: 20px !important; }
+          .modal-inner { margin: 8px !important; padding: 16px !important; }
           .detalle-grid { grid-template-columns: 1fr 1fr !important; }
         }
         .fila-venta:hover { background-color: #f0fff0 !important; cursor: pointer; }
@@ -293,13 +303,13 @@ export default function Ventas() {
         .btn-danger { background-color: transparent; color: #e53935; border: 1px solid #e53935; border-radius: 8px; padding: 9px 20px; font-size: 13px; cursor: pointer; }
         .btn-edit { background-color: #1565c0; color: white; border: none; border-radius: 8px; padding: 9px 20px; font-size: 13px; font-weight: bold; cursor: pointer; }
         .btn-edit:hover { background-color: #0d47a1; }
-        input:focus, select:focus, textarea:focus { outline: 2px solid #087e0b; border-color: #087e0b; }
+        input:focus, select:focus { outline: 2px solid #087e0b; border-color: #087e0b; }
       `}</style>
 
       {/* NAVBAR */}
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 40px', backgroundColor: '#222', color: 'white', boxSizing: 'border-box', position: 'sticky', top: 0, zIndex: 100 }}>
         <a href="/sistema" style={{ fontWeight: 'bold', fontSize: '20px', color: 'white', textDecoration: 'none' }}>Muebles is Better</a>
-        <span style={{ color: '#a3c47d', fontWeight: 'bold' }}>📦 Ventas</span>
+        <span style={{ color: '#a3c47d', fontWeight: 'bold' }}>Ventas</span>
         <span style={{ color: '#a3c47d', fontSize: '14px' }}>{nombreMostrar} 👤</span>
       </nav>
 
@@ -311,7 +321,7 @@ export default function Ventas() {
             <h1 style={{ margin: '0 0 4px', fontSize: '24px' }}>Ventas</h1>
             <p style={{ margin: 0, color: '#888', fontSize: '13px' }}>
               {totalCount.toLocaleString()} registros encontrados
-              {puedeEditar && <span style={{ marginLeft: '10px', color: '#1565c0', fontSize: '12px' }}>● Modo administrador — edición habilitada</span>}
+              {puedeEditar && <span style={{ marginLeft: '10px', color: '#1565c0', fontSize: '12px' }}>Modo administrador</span>}
             </p>
           </div>
         </div>
@@ -321,12 +331,9 @@ export default function Ventas() {
           <div className="filtros-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px', alignItems: 'end' }}>
             <div>
               <label style={labelStyle}>Buscar por # venta</label>
-              <input
-                type="number" placeholder="Ej: 26250"
-                value={filtros.busqueda}
+              <input type="number" placeholder="Ej: 26250" value={filtros.busqueda}
                 onChange={e => { setPage(0); setFiltros(f => ({ ...f, busqueda: e.target.value })) }}
-                style={inputStyle}
-              />
+                style={inputStyle} />
             </div>
             <div>
               <label style={labelStyle}>Fecha desde</label>
@@ -367,7 +374,7 @@ export default function Ventas() {
             <div style={{ marginTop: '12px' }}>
               <button className="btn-secondary" style={{ fontSize: '12px', padding: '6px 14px' }}
                 onClick={() => { setPage(0); setFiltros({ busqueda: '', fecha_desde: '', fecha_hasta: '', forma_pago: '', vendedor: '' }) }}>
-                ✕ Limpiar filtros
+                Limpiar filtros
               </button>
             </div>
           )}
@@ -380,7 +387,7 @@ export default function Ventas() {
           ) : ventas.length === 0 ? (
             <div style={{ padding: '60px', textAlign: 'center', color: '#bbb' }}>
               <div style={{ fontSize: '40px', marginBottom: '12px' }}>📭</div>
-              <p style={{ margin: 0 }}>No se encontraron ventas con los filtros aplicados.</p>
+              <p style={{ margin: 0 }}>No se encontraron ventas.</p>
             </div>
           ) : (
             <div className="tabla-wrap" style={{ overflowX: 'auto' }}>
@@ -396,20 +403,18 @@ export default function Ventas() {
                     <th style={{ ...thStyle, textAlign: 'right' }}>Anticipo</th>
                     <th style={{ ...thStyle, textAlign: 'right' }}>Total</th>
                     <th style={thStyle}>Pago</th>
-                    <th style={thStyle}>Transacción</th>
                   </tr>
                 </thead>
                 <tbody>
                   {ventas.map((v, i) => {
                     const bp = badgePago[v.forma_pago || ''] || { bg: '#f5f5f5', color: '#666' }
-                    const esTruncado = v.cod_transaccion?.startsWith('TRUNCADO_')
                     return (
                       <tr key={v.id} className="fila-venta"
                         style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}
                         onClick={() => abrirDetalle(v)}>
                         <td style={{ ...tdStyle, fontWeight: 'bold', color: '#087e0b' }}>#{v.cod_venta}</td>
-                        <td style={tdStyle}>{v.personal_cliente?.nombre || <span style={{ color: '#bbb' }}>ID {v.cod_cliente}</span>}</td>
-                        <td style={tdStyle}>{v.personal_vendedor?.nombre || <span style={{ color: '#bbb' }}>—</span>}</td>
+                        <td style={tdStyle}>{v.nombre_cliente || `ID ${v.cod_cliente}`}</td>
+                        <td style={tdStyle}>{v.nombre_vendedor || '—'}</td>
                         <td style={tdStyle}>{fmtFecha(v.fecha_pedido)}</td>
                         <td style={tdStyle}>{fmtFecha(v.fecha_entrega)}</td>
                         <td style={tdStyle}>{v.hora_entrega || '—'}</td>
@@ -422,11 +427,6 @@ export default function Ventas() {
                             </span>
                           ) : <span style={{ color: '#bbb' }}>—</span>}
                         </td>
-                        <td style={{ ...tdStyle, fontSize: '11px', color: esTruncado ? '#e65100' : '#555', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {esTruncado
-                            ? <span title="Dato truncado por Excel — valor original irrecuperable">⚠️ {v.cod_transaccion?.replace('TRUNCADO_', '')}</span>
-                            : (v.cod_transaccion || '—')}
-                        </td>
                       </tr>
                     )
                   })}
@@ -437,72 +437,64 @@ export default function Ventas() {
 
           {/* PAGINACION */}
           {totalPages > 1 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderTop: '1px solid #f0f0f0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderTop: '1px solid #f0f0f0', flexWrap: 'wrap', gap: '8px' }}>
               <span style={{ fontSize: '13px', color: '#888' }}>
-                Página {page + 1} de {totalPages} — {totalCount.toLocaleString()} registros
+                Pagina {page + 1} de {totalPages} — {totalCount.toLocaleString()} registros
               </span>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button className="btn-secondary" style={{ padding: '7px 16px', fontSize: '12px' }}
-                  disabled={page === 0} onClick={() => setPage(0)}>« Primera</button>
+                  disabled={page === 0} onClick={() => setPage(0)}>Primera</button>
                 <button className="btn-secondary" style={{ padding: '7px 16px', fontSize: '12px' }}
-                  disabled={page === 0} onClick={() => setPage(p => p - 1)}>‹ Anterior</button>
+                  disabled={page === 0} onClick={() => setPage(p => p - 1)}>Anterior</button>
                 <button className="btn-secondary" style={{ padding: '7px 16px', fontSize: '12px' }}
-                  disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Siguiente ›</button>
+                  disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Siguiente</button>
                 <button className="btn-secondary" style={{ padding: '7px 16px', fontSize: '12px' }}
-                  disabled={page >= totalPages - 1} onClick={() => setPage(totalPages - 1)}>Última »</button>
+                  disabled={page >= totalPages - 1} onClick={() => setPage(totalPages - 1)}>Ultima</button>
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* ════════════════════════════════════════════════════════════════════ */}
-      {/* MODAL DETALLE / EDICION                                             */}
-      {/* ════════════════════════════════════════════════════════════════════ */}
+      {/* MODAL DETALLE / EDICION */}
       {ventaSel && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, overflowY: 'auto', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '20px' }}>
           <div className="modal-inner" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '32px', width: '100%', maxWidth: '820px', boxShadow: '0 8px 40px rgba(0,0,0,0.2)', marginTop: '20px', marginBottom: '20px' }}>
 
             {/* Header modal */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '10px' }}>
               <div>
                 <h2 style={{ margin: '0 0 4px', fontSize: '20px' }}>
                   Venta #{ventaSel.cod_venta}
-                  {modoEdicion && <span style={{ marginLeft: '10px', fontSize: '13px', color: '#1565c0', fontWeight: 'normal' }}>— Modo edición</span>}
+                  {modoEdicion && <span style={{ marginLeft: '10px', fontSize: '13px', color: '#1565c0', fontWeight: 'normal' }}>Modo edicion</span>}
                 </h2>
-                <p style={{ margin: 0, color: '#888', fontSize: '13px' }}>
-                  {ventaSel.personal_cliente?.nombre || `Cliente ID ${ventaSel.cod_cliente}`}
-                </p>
+                <p style={{ margin: 0, color: '#888', fontSize: '13px' }}>{ventaSel.nombre_cliente}</p>
               </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 {puedeEditar && !modoEdicion && (
-                  <button className="btn-edit" onClick={activarEdicion}>✏️ Editar</button>
+                  <button className="btn-edit" onClick={activarEdicion}>Editar</button>
                 )}
-                <button className="btn-secondary" onClick={() => { setVentaSel(null); setModoEdicion(false); setMensajeGuardado('') }}>✕ Cerrar</button>
+                <button className="btn-secondary" onClick={() => { setVentaSel(null); setModoEdicion(false); setMensajeGuardado('') }}>
+                  Cerrar
+                </button>
               </div>
             </div>
 
             {mensajeGuardado && (
-              <div style={{ backgroundColor: mensajeGuardado.startsWith('✅') ? '#e8f5e9' : '#ffebee', border: `1px solid ${mensajeGuardado.startsWith('✅') ? '#a5d6a7' : '#ef9a9a'}`, borderRadius: '8px', padding: '10px 16px', marginBottom: '20px', fontSize: '13px', color: mensajeGuardado.startsWith('✅') ? '#2e7d32' : '#c62828' }}>
+              <div style={{ backgroundColor: mensajeGuardado.startsWith('Error') ? '#ffebee' : '#e8f5e9', border: `1px solid ${mensajeGuardado.startsWith('Error') ? '#ef9a9a' : '#a5d6a7'}`, borderRadius: '8px', padding: '10px 16px', marginBottom: '20px', fontSize: '13px', color: mensajeGuardado.startsWith('Error') ? '#c62828' : '#2e7d32' }}>
                 {mensajeGuardado}
               </div>
             )}
 
-            {/* ── CAMPOS CABECERA ────────────────────────────────────────── */}
             {modoEdicion ? (
               <>
                 <h3 style={{ margin: '0 0 16px', fontSize: '15px', color: '#444', borderBottom: '1px solid #eee', paddingBottom: '8px' }}>Datos de la venta</h3>
                 <div className="detalle-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', marginBottom: '24px' }}>
                   <div>
-                    <label style={labelStyle}>Cliente (ID)</label>
-                    <input type="number" value={formVenta.cod_cliente || ''} style={inputStyle}
-                      onChange={e => setFormVenta(f => ({ ...f, cod_cliente: parseInt(e.target.value) || null }))} />
-                  </div>
-                  <div>
                     <label style={labelStyle}>Vendedor</label>
                     <select value={formVenta.cod_vendedor || ''} style={inputStyle}
                       onChange={e => setFormVenta(f => ({ ...f, cod_vendedor: parseInt(e.target.value) || null }))}>
-                      <option value="">— Sin asignar —</option>
+                      <option value="">Sin asignar</option>
                       {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
                     </select>
                   </div>
@@ -510,9 +502,14 @@ export default function Ventas() {
                     <label style={labelStyle}>Forma de pago</label>
                     <select value={formVenta.forma_pago || ''} style={inputStyle}
                       onChange={e => setFormVenta(f => ({ ...f, forma_pago: e.target.value || null }))}>
-                      <option value="">— Sin especificar —</option>
+                      <option value="">Sin especificar</option>
                       {FORMAS_PAGO.filter(Boolean).map(fp => <option key={fp} value={fp}>{fp.replace('_', ' ')}</option>)}
                     </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Cliente (ID)</label>
+                    <input type="number" value={formVenta.cod_cliente || ''} style={inputStyle}
+                      onChange={e => setFormVenta(f => ({ ...f, cod_cliente: parseInt(e.target.value) || null }))} />
                   </div>
                   <div>
                     <label style={labelStyle}>Fecha pedido</label>
@@ -550,21 +547,20 @@ export default function Ventas() {
                       onChange={e => setFormVenta(f => ({ ...f, total_venta: parseFloat(e.target.value) || null }))} />
                   </div>
                   <div style={{ gridColumn: 'span 2' }}>
-                    <label style={labelStyle}>Código transacción</label>
+                    <label style={labelStyle}>Codigo transaccion</label>
                     <input type="text" value={formVenta.cod_transaccion || ''} style={inputStyle}
-                      placeholder="Número de transferencia / recibo"
+                      placeholder="Numero de transferencia / recibo"
                       onChange={e => setFormVenta(f => ({ ...f, cod_transaccion: e.target.value || null }))} />
                   </div>
                 </div>
 
-                {/* Detalle productos editable */}
                 <h3 style={{ margin: '0 0 14px', fontSize: '15px', color: '#444', borderBottom: '1px solid #eee', paddingBottom: '8px' }}>Productos</h3>
                 {formDetalle.map((d, idx) => (
                   <div key={d.id} style={{ backgroundColor: '#f9f9f9', borderRadius: '10px', padding: '16px', marginBottom: '12px', border: '1px solid #eee' }}>
-                    <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#888', fontWeight: 'bold' }}>ÍTEM {d.item ?? idx + 1}</p>
+                    <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#888', fontWeight: 'bold' }}>ITEM {d.item ?? idx + 1}</p>
                     <div className="detalle-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
                       <div>
-                        <label style={labelStyle}>Código producto</label>
+                        <label style={labelStyle}>Codigo producto</label>
                         <input type="text" value={d.cod_producto || ''} style={inputStyle}
                           onChange={e => setFormDetalle(prev => prev.map((x, i) => i === idx ? { ...x, cod_producto: e.target.value || null } : x))} />
                       </div>
@@ -602,21 +598,19 @@ export default function Ventas() {
                   </div>
                 ))}
 
-                {/* Botones edición */}
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '8px' }}>
                   <button className="btn-danger" onClick={() => setModoEdicion(false)} disabled={guardando}>Cancelar</button>
                   <button className="btn-primary" onClick={guardarCambios} disabled={guardando}>
-                    {guardando ? 'Guardando...' : '💾 Guardar cambios'}
+                    {guardando ? 'Guardando...' : 'Guardar cambios'}
                   </button>
                 </div>
               </>
             ) : (
               <>
-                {/* ── VISTA SOLO LECTURA ─────────────────────────────────── */}
                 <div className="detalle-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
-                  {[
-                    ['Cliente', ventaSel.personal_cliente?.nombre || `ID ${ventaSel.cod_cliente}`],
-                    ['Vendedor', ventaSel.personal_vendedor?.nombre || '—'],
+                  {([
+                    ['Cliente', ventaSel.nombre_cliente || `ID ${ventaSel.cod_cliente}`],
+                    ['Vendedor', ventaSel.nombre_vendedor || '—'],
                     ['Forma de pago', ventaSel.forma_pago?.replace('_', ' ') || '—'],
                     ['Fecha pedido', fmtFecha(ventaSel.fecha_pedido)],
                     ['Fecha entrega', fmtFecha(ventaSel.fecha_entrega)],
@@ -625,36 +619,35 @@ export default function Ventas() {
                     ['Delivery pagado', fmt(ventaSel.delivery_pagado)],
                     ['Anticipo', fmt(ventaSel.anticipo)],
                     ['Total venta', fmt(ventaSel.total_venta)],
-                  ].map(([label, val]) => (
-                    <div key={label as string} style={{ backgroundColor: '#f9f9f9', borderRadius: '8px', padding: '12px 16px' }}>
+                  ] as [string, string][]).map(([label, val]) => (
+                    <div key={label} style={{ backgroundColor: '#f9f9f9', borderRadius: '8px', padding: '12px 16px' }}>
                       <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</p>
                       <p style={{ margin: 0, fontSize: '14px', fontWeight: '500' }}>{val}</p>
                     </div>
                   ))}
                   <div style={{ backgroundColor: '#f9f9f9', borderRadius: '8px', padding: '12px 16px', gridColumn: 'span 3' }}>
-                    <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Código transacción</p>
+                    <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Codigo transaccion</p>
                     <p style={{ margin: 0, fontSize: '13px', fontFamily: 'monospace', color: ventaSel.cod_transaccion?.startsWith('TRUNCADO_') ? '#e65100' : '#222' }}>
                       {ventaSel.cod_transaccion?.startsWith('TRUNCADO_')
-                        ? `⚠️ Truncado por Excel: ${ventaSel.cod_transaccion.replace('TRUNCADO_', '')}`
+                        ? `Truncado por Excel: ${ventaSel.cod_transaccion.replace('TRUNCADO_', '')}`
                         : (ventaSel.cod_transaccion || '—')}
                     </p>
                   </div>
                 </div>
 
-                {/* Detalle productos */}
                 <h3 style={{ margin: '0 0 14px', fontSize: '15px', color: '#444', borderBottom: '1px solid #eee', paddingBottom: '8px' }}>
                   Productos ({detalle.length})
                 </h3>
                 {loadingDetalle ? (
                   <p style={{ color: '#888', textAlign: 'center', padding: '20px' }}>Cargando detalle...</p>
                 ) : detalle.length === 0 ? (
-                  <p style={{ color: '#bbb', textAlign: 'center', padding: '20px' }}>Sin líneas de detalle registradas.</p>
+                  <p style={{ color: '#bbb', textAlign: 'center', padding: '20px' }}>Sin lineas de detalle registradas.</p>
                 ) : (
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead>
                         <tr>
-                          {['#', 'Producto', 'P. Cotizado', 'P. Vendido', 'Cant.', 'Subtotal', 'Dimensiones', 'Est.', 'Melamina'].map(h => (
+                          {['#', 'Producto', 'P. Cotizado', 'P. Vendido', 'Cant.', 'Subtotal', 'Dimensiones', 'Estructura', 'Melamina'].map(h => (
                             <th key={h} style={{ ...thStyle, fontSize: '11px' }}>{h}</th>
                           ))}
                         </tr>
