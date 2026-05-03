@@ -124,24 +124,14 @@ export default function GestionPersonal() {
 
       if (modoEditar && idEditando) {
         const { error } = await supabase.from('personal').update(datosBase).eq('id', idEditando)
-console.log('Error update:', error)
-console.log('Datos enviados:', datosBase)
-console.log('ID editando:', idEditando)
-if (error) { setErrorModal('Error al actualizar: ' + error.message); setGuardando(false); return }
-        
-        if (form.password_nuevo) {
-  console.log('ID:', idEditando)
-  console.log('Password enviado:', form.password_nuevo)
-  const { data: resPass, error: errPass } = await supabase.rpc('actualizar_password', {
-    p_id: idEditando,
-    p_password: form.password_nuevo
-  })
-  console.log('Resultado RPC:', resPass, errPass)
-  if (errPass) { setErrorModal('Error al cambiar password: ' + errPass.message); setGuardando(false); return }
-}
+        if (error) { setErrorModal('Error al actualizar: ' + error.message); setGuardando(false); return }
 
-console.log('Error password:', errPass)
-if (errPass) { setErrorModal('Error password: ' + errPass.message); setGuardando(false); return }
+        if (form.password_nuevo) {
+          const { error: errPass } = await supabase.rpc('actualizar_password', {
+            p_id: idEditando,
+            p_password: form.password_nuevo
+          })
+          if (errPass) { setErrorModal('Error al cambiar password: ' + errPass.message); setGuardando(false); return }
         }
         setExito('Usuario actualizado correctamente')
       } else {
