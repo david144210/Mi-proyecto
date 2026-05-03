@@ -13,6 +13,7 @@ const camposVacios = {
 export default function Clientes() {
   const [usuario, setUsuario] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [esAdmin, setEsAdmin] = useState(false)
   const [clientes, setClientes] = useState<any[]>([])
   const [busqueda, setBusqueda] = useState('')
   const [pagina, setPagina] = useState(1)
@@ -35,6 +36,8 @@ export default function Clientes() {
       .then(({ data }) => {
         if (!data) { window.location.replace('/'); return }
         setUsuario(data)
+        const admin = data?.cargos?.es_admin || data?.rol === 'admin'
+        setEsAdmin(admin)
         cargarClientes()
       })
   }, [])
@@ -59,6 +62,7 @@ export default function Clientes() {
   const clientesPagina = clientesFiltrados.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA)
 
   const abrirNuevo = () => {
+    if (!esAdmin) return
     setForm(camposVacios)
     setModoEditar(false)
     setIdEditando(null)
@@ -68,6 +72,7 @@ export default function Clientes() {
   }
 
   const abrirEditar = (cliente: any) => {
+    if (!esAdmin) return
     setForm({
       codigo: cliente.codigo || '',
       nombre: cliente.nombre || '',
@@ -89,8 +94,9 @@ export default function Clientes() {
   }
 
   const handleGuardar = async () => {
+    if (!esAdmin) return
     if (!form.codigo || !form.nombre) {
-      setErrorModal('El código y nombre son obligatorios')
+      setErrorModal('El codigo y nombre son obligatorios')
       return
     }
     setGuardando(true)
@@ -107,7 +113,7 @@ export default function Clientes() {
     if (modoEditar && idEditando) {
       const { error } = await supabase.from('clientes').update(datos).eq('id', idEditando)
       if (error) {
-        setErrorModal(error.message.includes('unique') ? 'El código ya existe' : 'Error al actualizar: ' + error.message)
+        setErrorModal(error.message.includes('unique') ? 'El codigo ya existe' : 'Error al actualizar: ' + error.message)
         setGuardando(false)
         return
       }
@@ -115,7 +121,7 @@ export default function Clientes() {
     } else {
       const { error } = await supabase.from('clientes').insert(datos)
       if (error) {
-        setErrorModal(error.message.includes('unique') ? 'El código ya existe' : 'Error al crear: ' + error.message)
+        setErrorModal(error.message.includes('unique') ? 'El codigo ya existe' : 'Error al crear: ' + error.message)
         setGuardando(false)
         return
       }
@@ -152,8 +158,8 @@ export default function Clientes() {
         }
       `}</style>
 
-      {/* MODAL */}
-      {modalAbierto && (
+      {/* MODAL - solo admin */}
+      {modalAbierto && esAdmin && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', boxSizing: 'border-box' }}>
           <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '32px', width: '500px', maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
 
@@ -164,7 +170,7 @@ export default function Clientes() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px', marginBottom: '16px' }}>
               <div>
-                <label style={labelStyle}>Código *</label>
+                <label style={labelStyle}>Codigo *</label>
                 <input type="number" value={form.codigo} onChange={(e) => setForm({ ...form, codigo: e.target.value })} style={inputStyle} placeholder="Ej: 2084" />
               </div>
               <div>
@@ -174,13 +180,13 @@ export default function Clientes() {
             </div>
 
             <div style={{ marginBottom: '16px' }}>
-              <label style={labelStyle}>Dirección</label>
-              <input type="text" value={form.direccion} onChange={(e) => setForm({ ...form, direccion: e.target.value })} style={inputStyle} placeholder="Dirección o referencia" />
+              <label style={labelStyle}>Direccion</label>
+              <input type="text" value={form.direccion} onChange={(e) => setForm({ ...form, direccion: e.target.value })} style={inputStyle} placeholder="Direccion o referencia" />
             </div>
 
             <div style={{ marginBottom: '20px' }}>
               <label style={labelStyle}>Celular</label>
-              <input type="text" value={form.celular} onChange={(e) => setForm({ ...form, celular: e.target.value })} style={inputStyle} placeholder="Número de celular" />
+              <input type="text" value={form.celular} onChange={(e) => setForm({ ...form, celular: e.target.value })} style={inputStyle} placeholder="Numero de celular" />
             </div>
 
             <div style={{ marginBottom: '24px' }}>
@@ -219,8 +225,10 @@ export default function Clientes() {
         <a href="/" style={{ fontWeight: 'bold', fontSize: '20px', color: 'white', textDecoration: 'none' }}>Muebles is Better</a>
         <span style={{ color: '#a3c47d', fontWeight: 'bold' }}>Clientes</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <a href="/sistema" style={{ color: '#a3c47d', fontSize: '14px', textDecoration: 'none' }}>← Sistema</a>
-          <a href="/" onClick={() => localStorage.removeItem('carnet')} style={{ backgroundColor: 'transparent', color: '#ff6b6b', border: '1px solid #ff6b6b', padding: '5px 12px', borderRadius: '20px', fontSize: '12px', textDecoration: 'none' }}>Salir</a>
+          <a href="/sistema" style={{ color: '#a3c47d', fontSize: '14px', textDecoration: 'none' }}>Sistema</a>
+          <a href="/" onClick={() => localStorage.removeItem('carnet')} style={{ backgroundColor: 'transparent', color: '#ff6b6b', border: '1px solid #ff6b6b', padding: '5px 12px', borderRadius: '20px', fontSize: '12px', textDecoration: 'none' }}>
+            Salir
+          </a>
         </div>
       </nav>
 
@@ -234,22 +242,33 @@ export default function Clientes() {
             <p style={{ margin: 0, color: '#666', fontSize: '14px' }}>
               {clientesFiltrados.length} de {clientes.length} clientes
               {busqueda && ` · Buscando: "${busqueda}"`}
+              {esAdmin && <span style={{ marginLeft: '10px', color: '#1565c0', fontSize: '12px' }}>● Modo administrador</span>}
             </p>
           </div>
-          <button onClick={abrirNuevo}
-            style={{ padding: '10px 20px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
-            + Nuevo cliente
-          </button>
+          {/* Boton nuevo solo para admin */}
+          {esAdmin && (
+            <button onClick={abrirNuevo}
+              style={{ padding: '10px 20px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+              + Nuevo cliente
+            </button>
+          )}
         </div>
 
         {/* BUSCADOR */}
         <input
           type="text"
-          placeholder="Buscar por nombre, código, dirección o celular..."
+          placeholder="Buscar por nombre, codigo, direccion o celular..."
           value={busqueda}
           onChange={(e) => { setBusqueda(e.target.value); setPagina(1) }}
           style={{ padding: '12px 16px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '14px', width: '100%', boxSizing: 'border-box', marginBottom: '16px', backgroundColor: 'white' }}
         />
+
+        {/* BANNER solo lectura para no admin */}
+        {!esAdmin && (
+          <div style={{ backgroundColor: '#e3f2fd', border: '1px solid #90caf9', borderRadius: '10px', padding: '10px 16px', marginBottom: '16px', fontSize: '13px', color: '#1565c0' }}>
+            Solo tienes acceso de consulta. Contacta a un administrador para hacer cambios.
+          </div>
+        )}
 
         {/* TABLA */}
         <div style={{ backgroundColor: 'white', borderRadius: '16px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
@@ -257,19 +276,22 @@ export default function Clientes() {
             <table className="cli-tabla" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ backgroundColor: '#f9f9f9' }}>
-                  <th style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee', color: '#555', whiteSpace: 'nowrap' }}>Código</th>
+                  <th style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee', color: '#555', whiteSpace: 'nowrap' }}>Codigo</th>
                   <th style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee', color: '#555' }}>Nombre</th>
-                  <th className="cli-col-dir" style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee', color: '#555' }}>Dirección</th>
+                  <th className="cli-col-dir" style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee', color: '#555' }}>Direccion</th>
                   <th style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee', color: '#555', whiteSpace: 'nowrap' }}>Celular</th>
                   <th style={{ padding: '14px 16px', textAlign: 'center', borderBottom: '2px solid #eee', color: '#555' }}>Estado</th>
-                  <th style={{ padding: '14px 16px', textAlign: 'center', borderBottom: '2px solid #eee', color: '#555' }}>Acciones</th>
+                  {/* Columna acciones solo si es admin */}
+                  {esAdmin && (
+                    <th style={{ padding: '14px 16px', textAlign: 'center', borderBottom: '2px solid #eee', color: '#555' }}>Acciones</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {clientesPagina.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#bbb' }}>
-                      {busqueda ? 'No se encontraron clientes con esa búsqueda' : 'No hay clientes registrados'}
+                    <td colSpan={esAdmin ? 6 : 5} style={{ padding: '40px', textAlign: 'center', color: '#bbb' }}>
+                      {busqueda ? 'No se encontraron clientes con esa busqueda' : 'No hay clientes registrados'}
                     </td>
                   </tr>
                 ) : (
@@ -284,12 +306,15 @@ export default function Clientes() {
                           {c.activo ? 'Activo' : 'Inactivo'}
                         </span>
                       </td>
-                      <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>
-                        <button onClick={() => abrirEditar(c)}
-                          style={{ backgroundColor: '#087e0b', color: 'white', border: 'none', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
-                          Editar
-                        </button>
-                      </td>
+                      {/* Boton editar solo para admin */}
+                      {esAdmin && (
+                        <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>
+                          <button onClick={() => abrirEditar(c)}
+                            style={{ backgroundColor: '#087e0b', color: 'white', border: 'none', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
+                            Editar
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))
                 )}
@@ -302,17 +327,16 @@ export default function Clientes() {
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', padding: '16px', borderTop: '1px solid #f0f0f0' }}>
               <button onClick={() => setPagina(p => Math.max(1, p - 1))} disabled={pagina === 1}
                 style={{ padding: '6px 14px', borderRadius: '8px', border: '1px solid #ddd', backgroundColor: pagina === 1 ? '#f5f5f5' : 'white', cursor: pagina === 1 ? 'not-allowed' : 'pointer', fontSize: '13px' }}>
-                ← Anterior
+                Anterior
               </button>
-              <span style={{ fontSize: '13px', color: '#666' }}>Página {pagina} de {totalPaginas}</span>
+              <span style={{ fontSize: '13px', color: '#666' }}>Pagina {pagina} de {totalPaginas}</span>
               <button onClick={() => setPagina(p => Math.min(totalPaginas, p + 1))} disabled={pagina === totalPaginas}
                 style={{ padding: '6px 14px', borderRadius: '8px', border: '1px solid #ddd', backgroundColor: pagina === totalPaginas ? '#f5f5f5' : 'white', cursor: pagina === totalPaginas ? 'not-allowed' : 'pointer', fontSize: '13px' }}>
-                Siguiente →
+                Siguiente
               </button>
             </div>
           )}
         </div>
-
       </div>
     </div>
   )
