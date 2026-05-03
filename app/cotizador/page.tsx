@@ -307,7 +307,7 @@ export default function Cotizador() {
             <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', marginBottom: '24px' }}>
               <h2 style={{ margin: '0 0 4px 0', fontSize: '20px' }}>🔩 Tuberia / Acero</h2>
               <p style={{ color: '#888', fontSize: '13px', margin: '0 0 20px 0' }}>
-                Precio por barra de 6 metros (600 cm). Formula: (longitud x cantidad / 600) x precio
+                {esJerarquia && 'Precio por barra de 6 metros (600 cm). Formula: (longitud x cantidad / 600) x precio'}
               </p>
 
               <div className="grid-acero" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '12px', alignItems: 'end', marginBottom: '12px' }}>
@@ -317,7 +317,7 @@ export default function Cotizador() {
                     <option value="">-- Selecciona un acero --</option>
                     {aceros.map((a) => (
                       <option key={a.id} value={String(a.id)}>
-                        {a.detalle} — Bs. {Number(a.precio_cotizador).toFixed(2)}/barra
+                        {esJerarquia ? `${a.detalle} — Bs. ${Number(a.precio_cotizador).toFixed(2)}/barra` : a.detalle}
                       </option>
                     ))}
                   </select>
@@ -341,7 +341,7 @@ export default function Cotizador() {
                 </div>
               </div>
 
-              {aceroSel && longitud && cantAcero && (
+              {esJerarquia && aceroSel && longitud && cantAcero && (
                 <div style={{ backgroundColor: '#f0fff0', border: '1px solid #a3c47d', borderRadius: '8px', padding: '10px 16px', marginBottom: '16px', fontSize: '13px', color: '#2c6d2e' }}>
                   Preview: ({longitud} cm x {cantAcero} piezas / 600) x Bs. {Number(aceroSel.precio_cotizador).toFixed(2)} =
                   <strong> Bs. {calcSubtotalAcero(parseFloat(longitud) || 0, parseFloat(cantAcero) || 0, aceroSel.precio_cotizador).toFixed(2)}</strong>
@@ -356,8 +356,8 @@ export default function Cotizador() {
                         <th style={thStyle}>Material</th>
                         <th style={{ ...thStyle, textAlign: 'center' }}>Long. (cm)</th>
                         <th style={{ ...thStyle, textAlign: 'center' }}>Cant.</th>
-                        <th style={{ ...thStyle, textAlign: 'center' }}>Precio/barra</th>
-                        <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>
+                        {esJerarquia && <th style={{ ...thStyle, textAlign: 'center' }}>Precio/barra</th>}
+                        {esJerarquia && <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>}
                         <th style={{ ...thStyle, textAlign: 'center' }}></th>
                       </tr>
                     </thead>
@@ -367,8 +367,8 @@ export default function Cotizador() {
                           <td style={tdStyle(i)}>{p.material}</td>
                           <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.longitud}</td>
                           <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.cantidad}</td>
-                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>Bs. {Number(p.precio_unitario).toFixed(2)}</td>
-                          <td style={{ ...tdStyle(i), textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>Bs. {p.subtotal.toFixed(2)}</td>
+                          {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'center' }}>Bs. {Number(p.precio_unitario).toFixed(2)}</td>}
+                          {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>Bs. {p.subtotal.toFixed(2)}</td>}
                           <td style={{ ...tdStyle(i), textAlign: 'center' }}>
                             <button onClick={() => setPiezasAcero(piezasAcero.filter(x => x.id !== p.id))} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '18px' }}>🗑</button>
                           </td>
@@ -377,8 +377,8 @@ export default function Cotizador() {
                     </tbody>
                     <tfoot>
                       <tr style={{ backgroundColor: '#f0fff0' }}>
-                        <td colSpan={4} style={{ padding: '14px 16px', fontWeight: 'bold', fontSize: '15px', borderTop: '2px solid #087e0b' }}>Total Tuberia</td>
-                        <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px', color: '#087e0b', borderTop: '2px solid #087e0b' }}>Bs. {totalAcero.toFixed(2)}</td>
+                        <td colSpan={esJerarquia ? 4 : 2} style={{ padding: '14px 16px', fontWeight: 'bold', fontSize: '15px', borderTop: '2px solid #087e0b' }}>Total Tuberia</td>
+                        {esJerarquia && <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px', color: '#087e0b', borderTop: '2px solid #087e0b' }}>Bs. {totalAcero.toFixed(2)}</td>}
                         <td style={{ borderTop: '2px solid #087e0b' }}></td>
                       </tr>
                     </tfoot>
@@ -391,7 +391,7 @@ export default function Cotizador() {
             <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', marginBottom: '24px' }}>
               <h2 style={{ margin: '0 0 4px 0', fontSize: '20px' }}>🪵 Melamina</h2>
               <p style={{ color: '#888', fontSize: '13px', margin: '0 0 20px 0' }}>
-                Precio por m². Formula: (largo/100 x ancho/100) x cantidad x precio
+                {esJerarquia && 'Precio por m². Formula: (largo/100 x ancho/100) x cantidad x precio'}
               </p>
 
               <div className="grid-melamina" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: '12px', alignItems: 'end', marginBottom: '12px' }}>
@@ -401,7 +401,7 @@ export default function Cotizador() {
                     <option value="">-- Selecciona una melamina --</option>
                     {melaminas.map((m) => (
                       <option key={m.id} value={String(m.id)}>
-                        {m.detalle} — Bs. {Number(m.precio_cotizador).toFixed(2)}/m²
+                        {esJerarquia ? `${m.detalle} — Bs. ${Number(m.precio_cotizador).toFixed(2)}/m²` : m.detalle}
                       </option>
                     ))}
                   </select>
@@ -429,7 +429,7 @@ export default function Cotizador() {
                 </div>
               </div>
 
-              {melaminaSel && largo && ancho && cantMelamina && (
+              {esJerarquia && melaminaSel && largo && ancho && cantMelamina && (
                 <div style={{ backgroundColor: '#f0fff0', border: '1px solid #a3c47d', borderRadius: '8px', padding: '10px 16px', marginBottom: '16px', fontSize: '13px', color: '#2c6d2e' }}>
                   Preview: ({largo}/100 x {ancho}/100) x {cantMelamina} x Bs. {Number(melaminaSel.precio_cotizador).toFixed(2)} =
                   <strong> Bs. {calcSubtotalMelamina(parseFloat(largo) || 0, parseFloat(ancho) || 0, parseFloat(cantMelamina) || 0, melaminaSel.precio_cotizador).toFixed(2)}</strong>
@@ -445,8 +445,8 @@ export default function Cotizador() {
                         <th style={{ ...thStyle, textAlign: 'center' }}>Largo (cm)</th>
                         <th style={{ ...thStyle, textAlign: 'center' }}>Ancho (cm)</th>
                         <th style={{ ...thStyle, textAlign: 'center' }}>Cant.</th>
-                        <th style={{ ...thStyle, textAlign: 'center' }}>Precio/m²</th>
-                        <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>
+                        {esJerarquia && <th style={{ ...thStyle, textAlign: 'center' }}>Precio/m²</th>}
+                        {esJerarquia && <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>}
                         <th style={{ ...thStyle, textAlign: 'center' }}></th>
                       </tr>
                     </thead>
@@ -457,8 +457,8 @@ export default function Cotizador() {
                           <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.largo}</td>
                           <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.ancho}</td>
                           <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.cantidad}</td>
-                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>Bs. {Number(p.precio_unitario).toFixed(2)}</td>
-                          <td style={{ ...tdStyle(i), textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>Bs. {p.subtotal.toFixed(2)}</td>
+                          {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'center' }}>Bs. {Number(p.precio_unitario).toFixed(2)}</td>}
+                          {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>Bs. {p.subtotal.toFixed(2)}</td>}
                           <td style={{ ...tdStyle(i), textAlign: 'center' }}>
                             <button onClick={() => setPiezasMelamina(piezasMelamina.filter(x => x.id !== p.id))} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '18px' }}>🗑</button>
                           </td>
@@ -467,8 +467,8 @@ export default function Cotizador() {
                     </tbody>
                     <tfoot>
                       <tr style={{ backgroundColor: '#f0fff0' }}>
-                        <td colSpan={5} style={{ padding: '14px 16px', fontWeight: 'bold', fontSize: '15px', borderTop: '2px solid #087e0b' }}>Total Melamina</td>
-                        <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px', color: '#087e0b', borderTop: '2px solid #087e0b' }}>Bs. {totalMelamina.toFixed(2)}</td>
+                        <td colSpan={esJerarquia ? 5 : 3} style={{ padding: '14px 16px', fontWeight: 'bold', fontSize: '15px', borderTop: '2px solid #087e0b' }}>Total Melamina</td>
+                        {esJerarquia && <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px', color: '#087e0b', borderTop: '2px solid #087e0b' }}>Bs. {totalMelamina.toFixed(2)}</td>}
                         <td style={{ borderTop: '2px solid #087e0b' }}></td>
                       </tr>
                     </tfoot>
@@ -491,7 +491,7 @@ export default function Cotizador() {
                     <option value="">-- Selecciona un accesorio --</option>
                     {accesorios.map((a) => (
                       <option key={a.id} value={String(a.id)}>
-                        {a.detalle}{a.medidas ? ` (${a.medidas})` : ''} — Bs. {Number(a.precio_cotizador).toFixed(2)}/u
+                        {esJerarquia ? `${a.detalle}${a.medidas ? ` (${a.medidas})` : ''} — Bs. ${Number(a.precio_cotizador).toFixed(2)}/u` : `${a.detalle}${a.medidas ? ` (${a.medidas})` : ''}`}
                       </option>
                     ))}
                   </select>
@@ -511,7 +511,7 @@ export default function Cotizador() {
                 </div>
               </div>
 
-              {accesorioSel && cantAccesorio && (
+              {esJerarquia && accesorioSel && cantAccesorio && (
                 <div style={{ backgroundColor: '#f0fff0', border: '1px solid #a3c47d', borderRadius: '8px', padding: '10px 16px', marginBottom: '16px', fontSize: '13px', color: '#2c6d2e' }}>
                   Preview: {cantAccesorio} x Bs. {Number(accesorioSel.precio_cotizador).toFixed(2)} =
                   <strong> Bs. {calcSubtotalAccesorio(parseFloat(cantAccesorio) || 0, accesorioSel.precio_cotizador).toFixed(2)}</strong>
@@ -525,8 +525,8 @@ export default function Cotizador() {
                       <tr style={{ backgroundColor: '#f9f9f9' }}>
                         <th style={thStyle}>Accesorio</th>
                         <th style={{ ...thStyle, textAlign: 'center' }}>Cant.</th>
-                        <th style={{ ...thStyle, textAlign: 'center' }}>Precio/u</th>
-                        <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>
+                        {esJerarquia && <th style={{ ...thStyle, textAlign: 'center' }}>Precio/u</th>}
+                        {esJerarquia && <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>}
                         <th style={{ ...thStyle, textAlign: 'center' }}></th>
                       </tr>
                     </thead>
@@ -535,8 +535,8 @@ export default function Cotizador() {
                         <tr key={p.id}>
                           <td style={tdStyle(i)}>{p.material}</td>
                           <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.cantidad}</td>
-                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>Bs. {Number(p.precio_unitario).toFixed(2)}</td>
-                          <td style={{ ...tdStyle(i), textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>Bs. {p.subtotal.toFixed(2)}</td>
+                          {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'center' }}>Bs. {Number(p.precio_unitario).toFixed(2)}</td>}
+                          {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>Bs. {p.subtotal.toFixed(2)}</td>}
                           <td style={{ ...tdStyle(i), textAlign: 'center' }}>
                             <button onClick={() => setPiezasAccesorio(piezasAccesorio.filter(x => x.id !== p.id))} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '18px' }}>🗑</button>
                           </td>
@@ -545,8 +545,8 @@ export default function Cotizador() {
                     </tbody>
                     <tfoot>
                       <tr style={{ backgroundColor: '#f0fff0' }}>
-                        <td colSpan={3} style={{ padding: '14px 16px', fontWeight: 'bold', fontSize: '15px', borderTop: '2px solid #087e0b' }}>Total Accesorios</td>
-                        <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px', color: '#087e0b', borderTop: '2px solid #087e0b' }}>Bs. {totalAccesorio.toFixed(2)}</td>
+                        <td colSpan={esJerarquia ? 3 : 1} style={{ padding: '14px 16px', fontWeight: 'bold', fontSize: '15px', borderTop: '2px solid #087e0b' }}>Total Accesorios</td>
+                        {esJerarquia && <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px', color: '#087e0b', borderTop: '2px solid #087e0b' }}>Bs. {totalAccesorio.toFixed(2)}</td>}
                         <td style={{ borderTop: '2px solid #087e0b' }}></td>
                       </tr>
                     </tfoot>
@@ -585,7 +585,7 @@ export default function Cotizador() {
                     <option value="">-- Selecciona una union --</option>
                     {uniones.filter(u => u.tipo !== 'R').map((u) => (
                       <option key={u.id} value={String(u.id)}>
-                        {u.codigo_union} — {u.tipo} — Bs. {Number(u.precio).toFixed(2)}/u
+                        {esJerarquia ? `${u.codigo_union} — ${u.tipo} — Bs. ${Number(u.precio).toFixed(2)}/u` : `${u.codigo_union} — ${u.tipo}`}
                       </option>
                     ))}
                   </select>
@@ -605,7 +605,7 @@ export default function Cotizador() {
                 </div>
               </div>
 
-              {unionSel && cantUnion && (
+              {esJerarquia && unionSel && cantUnion && (
                 <div style={{ backgroundColor: '#f0fff0', border: '1px solid #a3c47d', borderRadius: '8px', padding: '10px 16px', marginBottom: '16px', fontSize: '13px', color: '#2c6d2e' }}>
                   Preview: {cantUnion} x Bs. {Number(unionSel.precio).toFixed(2)} =
                   <strong> Bs. {calcSubtotalUnion(parseFloat(cantUnion) || 0, unionSel.precio).toFixed(2)}</strong>
@@ -619,8 +619,8 @@ export default function Cotizador() {
                       <tr style={{ backgroundColor: '#f9f9f9' }}>
                         <th style={thStyle}>Union</th>
                         <th style={{ ...thStyle, textAlign: 'center' }}>Cant.</th>
-                        <th style={{ ...thStyle, textAlign: 'center' }}>Precio/u</th>
-                        <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>
+                        {esJerarquia && <th style={{ ...thStyle, textAlign: 'center' }}>Precio/u</th>}
+                        {esJerarquia && <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>}
                         <th style={{ ...thStyle, textAlign: 'center' }}></th>
                       </tr>
                     </thead>
@@ -629,8 +629,8 @@ export default function Cotizador() {
                         <tr key={p.id}>
                           <td style={tdStyle(i)}>{p.label}</td>
                           <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.cantidad}</td>
-                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>Bs. {Number(p.precio_unitario).toFixed(2)}</td>
-                          <td style={{ ...tdStyle(i), textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>Bs. {p.subtotal.toFixed(2)}</td>
+                          {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'center' }}>Bs. {Number(p.precio_unitario).toFixed(2)}</td>}
+                          {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>Bs. {p.subtotal.toFixed(2)}</td>}
                           <td style={{ ...tdStyle(i), textAlign: 'center' }}>
                             <button onClick={() => setPiezasUnion(piezasUnion.filter(x => x.id !== p.id))} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '18px' }}>🗑</button>
                           </td>
@@ -667,27 +667,27 @@ export default function Cotizador() {
                     <option value="">-- Selecciona un color --</option>
                     {colores.map((c) => (
                       <option key={c.id} value={String(c.id)}>
-                        {c.detalle} — Bs. {Number(c.precio_cotizador).toFixed(2)} | Consumo: {c.consumo}
+                        {esJerarquia ? `${c.detalle} — Bs. ${Number(c.precio_cotizador).toFixed(2)} | Consumo: ${c.consumo}` : c.detalle}
                       </option>
                     ))}
                   </select>
                 </div>
               </div>
 
-              <div style={{ backgroundColor: '#f9f9f9', border: '1px solid #eee', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: '#555' }}>
+              {esJerarquia && <div style={{ backgroundColor: '#f9f9f9', border: '1px solid #eee', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: '#555' }}>
                 📏 Longitud total de tubería ingresada:
                 <strong style={{ color: longitudTotalAcero > 0 ? '#087e0b' : '#aaa' }}> {longitudTotalAcero.toFixed(0)} cm</strong>
                 {longitudTotalAcero === 0 && <span style={{ color: '#aaa' }}> — Agrega tubería primero</span>}
-              </div>
+              </div>}
 
-              {colorSel && longitudTotalAcero > 0 && (
+              {esJerarquia && colorSel && longitudTotalAcero > 0 && (
                 <div style={{ backgroundColor: '#f0fff0', border: '1px solid #a3c47d', borderRadius: '8px', padding: '10px 16px', fontSize: '13px', color: '#2c6d2e' }}>
                   Preview: (Bs. {Number(colorSel.precio_cotizador).toFixed(2)} x {longitudTotalAcero.toFixed(0)} cm) / {colorSel.consumo} =
                   <strong> Bs. {calcSubtotalColor().toFixed(2)}</strong>
                 </div>
               )}
 
-              {colorSel && longitudTotalAcero === 0 && (
+              {esJerarquia && colorSel && longitudTotalAcero === 0 && (
                 <div style={{ backgroundColor: '#fff8e1', border: '1px solid #ffd54f', borderRadius: '8px', padding: '10px 16px', fontSize: '13px', color: '#f57f17' }}>
                   ⚠️ Agrega piezas de tubería para calcular el color automáticamente.
                 </div>

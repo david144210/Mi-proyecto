@@ -16,10 +16,6 @@ export default function Sistema() {
       .then(({ data }) => {
         if (!data) window.location.replace('/')
         else {
-          console.log('Usuario cargado:', data) // para ver los campos en consola
-          console.log('datos usuario:', data)
-          console.log('cargos:', data?.cargos)
-          console.log('es_admin:', data?.cargos?.es_admin)
           setUsuario(data)
           setLoading(false)
         }
@@ -28,7 +24,6 @@ export default function Sistema() {
 
   if (loading) return <p style={{ textAlign: 'center', marginTop: '100px' }}>Cargando...</p>
 
-  // Muestra el primer campo disponible como nombre
   const nombreMostrar = usuario?.nombre || usuario?.usuario || usuario?.carnet || 'Usuario'
 
   return (
@@ -49,17 +44,25 @@ export default function Sistema() {
         <p style={{ color: '#666', marginBottom: '40px' }}>{usuario?.cargos?.nombre}</p>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
-        <a href="/perfil" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
+
+          <a href="/perfil" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
             <div style={{ fontSize: '40px', marginBottom: '12px' }}>👤</div>
             <h3 style={{ margin: 0 }}>Mi Perfil</h3>
-        </a>
+          </a>
 
-        {(usuario?.cargos?.es_admin || usuario?.rol === 'admin') && (
-            <a href="/personal" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
+          <a href="/clientes" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
             <div style={{ fontSize: '40px', marginBottom: '12px' }}>👥</div>
-            <h3 style={{ margin: 0 }}>Gestion de Personal</h3>
-            </a>
-        )}
+            <h3 style={{ margin: 0 }}>Clientes</h3>
+          </a>
+
+          {usuario?.cargos?.es_admin && (
+              <a href="/personal" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
+              <div style={{ fontSize: '40px', marginBottom: '12px' }}>🏢</div>
+              <h3 style={{ margin: 0 }}>Personal</h3>
+              </a>
+          )}
+          {/* Aqui agregaras mas aplicaciones */}
+
         </div>
       </div>
     </div>
