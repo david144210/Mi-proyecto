@@ -708,7 +708,7 @@ export default function Ventas() {
               </tr>
             </thead>
             <tbody>
-              ${datos.lineas.map((linea: any, idx: number) => `
+              ${datos.lineas.map((linea: NuevaLinea, idx: number) => `
                 <tr>
                   <td>${idx + 1}</td>
                   <td>${linea.producto || '—'}</td>
