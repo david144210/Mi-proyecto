@@ -24,11 +24,8 @@ export default function Sistema() {
 
   if (loading) return <p style={{ textAlign: 'center', marginTop: '100px' }}>Cargando...</p>
 
-  const nombreMostrar = usuario?.nombre || usuario?.usuario || usuario?.carnet || 'Usuario'
-
-  // Permisos derivados del cargo
-  const esAdmin        = !!usuario?.cargos?.es_admin
-  const puedeVerVentas = !!usuario?.cargos?.puede_ver_cotizador || esAdmin
+  const nombreMostrar = usuario?.usuario || usuario?.nombre || usuario?.carnet || 'Usuario'
+  const esAdmin = usuario?.cargos?.es_admin === true
 
   return (
     <div style={{ fontFamily: 'Arial, sans-serif', minHeight: '100vh', backgroundColor: '#f5f5f5' }}>
@@ -59,24 +56,39 @@ export default function Sistema() {
             <h3 style={{ margin: 0 }}>Clientes</h3>
           </a>
 
-          {/* Ventas — visible para usuarios con puede_ver_cotizador o es_admin */}
-          {puedeVerVentas && (
-            <a href="/ventas" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, position: 'relative' as const }}>
-              <div style={{ fontSize: '40px', marginBottom: '12px' }}>📦</div>
-              <h3 style={{ margin: 0 }}>Ventas</h3>
-              {esAdmin && (
-                <span style={{ position: 'absolute' as const, top: '12px', right: '12px', backgroundColor: '#1565c0', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
-                  EDITAR
-                </span>
-              )}
-            </a>
-          )}
+          <a href="/compras-acero" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🔩</div>
+            <h3 style={{ margin: 0 }}>Compras Acero</h3>
+          </a>
+
+            {(esAdmin || !!usuario?.cargos?.puede_ver_cotizador) && (
+              <a href="/ventas" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
+                <div style={{ fontSize: '40px', marginBottom: '12px' }}>💰</div>
+                <h3 style={{ margin: 0 }}>Ventas</h3>
+              </a>
+            )}
+
 
           {esAdmin && (
             <a href="/personal" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
               <div style={{ fontSize: '40px', marginBottom: '12px' }}>🏢</div>
               <h3 style={{ margin: 0 }}>Personal</h3>
             </a>
+          )}
+          {/* TARJETA ACCESORIOS */}
+          {(esAdmin || !!usuario?.cargos?.puede_ver_cotizador) && (
+          <a href="/accesorios" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>⚙️</div>
+            <h3 style={{ margin: 0 }}>Registro Accesorios</h3>
+          </a>
+          )}
+
+          {/* TARJETA INSUMOS */}
+          {(esAdmin || !!usuario?.cargos?.puede_ver_cotizador) && (
+          <a href="/insumos" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🧪</div>
+            <h3 style={{ margin: 0 }}>Registro Insumos</h3>
+          </a>
           )}
 
           {/* Aqui agregaras mas aplicaciones */}

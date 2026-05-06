@@ -17,7 +17,9 @@ export default function Clientes() {
   const [clientes, setClientes] = useState<any[]>([])
   const [busqueda, setBusqueda] = useState('')
   const [pagina, setPagina] = useState(1)
-  const POR_PAGINA = 20
+  const [totalClientes, setTotalClientes] = useState(0)
+  const [loadingTabla, setLoadingTabla] = useState(false)
+  const POR_PAGINA = 30
 
   // Modal
   const [modalAbierto, setModalAbierto] = useState(false)
@@ -38,28 +40,40 @@ export default function Clientes() {
         setUsuario(data)
         const admin = data?.cargos?.es_admin || data?.rol === 'admin'
         setEsAdmin(admin)
-        cargarClientes()
+        cargarClientes(1, '')
       })
   }, [])
 
-  const cargarClientes = async () => {
-    const { data } = await supabase
+  // Paginacion y busqueda 100% en servidor — sin limite de 1000 filas
+  const cargarClientes = async (pag: number, busq: string) => {
+    setLoadingTabla(true)
+    const from = (pag - 1) * POR_PAGINA
+    const to   = from + POR_PAGINA - 1
+
+    let query = supabase
       .from('clientes')
-      .select('*')
+      .select('*', { count: 'exact' })
       .order('codigo', { ascending: true })
+      .range(from, to)
+
+    if (busq.trim()) {
+      const esNumero = /^\d+$/.test(busq.trim())
+      if (esNumero) {
+        query = query.or(`codigo.eq.${busq.trim()},nombre.ilike.%${busq.trim()}%,celular.ilike.%${busq.trim()}%`)
+      } else {
+        query = query.or(`nombre.ilike.%${busq.trim()}%,direccion.ilike.%${busq.trim()}%,celular.ilike.%${busq.trim()}%`)
+      }
+    }
+
+    const { data, count } = await query
     setClientes(data || [])
+    setTotalClientes(count || 0)
+    setLoadingTabla(false)
     setLoading(false)
   }
 
-  const clientesFiltrados = clientes.filter(c =>
-    (c.nombre || '').toLowerCase().includes(busqueda.toLowerCase()) ||
-    String(c.codigo || '').includes(busqueda) ||
-    (c.direccion || '').toLowerCase().includes(busqueda.toLowerCase()) ||
-    (c.celular || '').includes(busqueda)
-  )
-
-  const totalPaginas = Math.ceil(clientesFiltrados.length / POR_PAGINA)
-  const clientesPagina = clientesFiltrados.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA)
+  const totalPaginas = Math.ceil(totalClientes / POR_PAGINA)
+  const clientesPagina = clientes  // ya vienen paginados del servidor
 
   const abrirNuevo = () => {
     if (!esAdmin) return
@@ -128,7 +142,7 @@ export default function Clientes() {
       setExito('Cliente creado correctamente')
     }
 
-    await cargarClientes()
+    await cargarClientes(pagina, busqueda)
     setGuardando(false)
     setTimeout(() => cerrarModal(), 1200)
   }
@@ -240,7 +254,7 @@ export default function Clientes() {
           <div>
             <h1 style={{ margin: '0 0 4px 0', fontSize: '24px' }}>Clientes</h1>
             <p style={{ margin: 0, color: '#666', fontSize: '14px' }}>
-              {clientesFiltrados.length} de {clientes.length} clientes
+              {totalClientes.toLocaleString()} clientes en total
               {busqueda && ` · Buscando: "${busqueda}"`}
               {esAdmin && <span style={{ marginLeft: '10px', color: '#1565c0', fontSize: '12px' }}>● Modo administrador</span>}
             </p>
@@ -257,9 +271,14 @@ export default function Clientes() {
         {/* BUSCADOR */}
         <input
           type="text"
-          placeholder="Buscar por nombre, codigo, direccion o celular..."
+          placeholder="Buscar por nombre, codigo, celular o direccion..."
           value={busqueda}
-          onChange={(e) => { setBusqueda(e.target.value); setPagina(1) }}
+          onChange={(e) => {
+            const v = e.target.value
+            setBusqueda(v)
+            setPagina(1)
+            cargarClientes(1, v)
+          }}
           style={{ padding: '12px 16px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '14px', width: '100%', boxSizing: 'border-box', marginBottom: '16px', backgroundColor: 'white' }}
         />
 
@@ -288,7 +307,13 @@ export default function Clientes() {
                 </tr>
               </thead>
               <tbody>
-                {clientesPagina.length === 0 ? (
+                {loadingTabla ? (
+                  <tr>
+                    <td colSpan={esAdmin ? 6 : 5} style={{ padding: '40px', textAlign: 'center', color: '#aaa', fontSize: '14px' }}>
+                      Buscando...
+                    </td>
+                  </tr>
+                ) : clientesPagina.length === 0 ? (
                   <tr>
                     <td colSpan={esAdmin ? 6 : 5} style={{ padding: '40px', textAlign: 'center', color: '#bbb' }}>
                       {busqueda ? 'No se encontraron clientes con esa busqueda' : 'No hay clientes registrados'}
@@ -325,12 +350,12 @@ export default function Clientes() {
           {/* PAGINACION */}
           {totalPaginas > 1 && (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', padding: '16px', borderTop: '1px solid #f0f0f0' }}>
-              <button onClick={() => setPagina(p => Math.max(1, p - 1))} disabled={pagina === 1}
+              <button onClick={() => { const p = Math.max(1, pagina - 1); setPagina(p); cargarClientes(p, busqueda) }} disabled={pagina === 1}
                 style={{ padding: '6px 14px', borderRadius: '8px', border: '1px solid #ddd', backgroundColor: pagina === 1 ? '#f5f5f5' : 'white', cursor: pagina === 1 ? 'not-allowed' : 'pointer', fontSize: '13px' }}>
                 Anterior
               </button>
-              <span style={{ fontSize: '13px', color: '#666' }}>Pagina {pagina} de {totalPaginas}</span>
-              <button onClick={() => setPagina(p => Math.min(totalPaginas, p + 1))} disabled={pagina === totalPaginas}
+              <span style={{ fontSize: '13px', color: '#666' }}>Pagina {pagina} de {totalPaginas} · {totalClientes.toLocaleString()} clientes</span>
+              <button onClick={() => { const p = Math.min(totalPaginas, pagina + 1); setPagina(p); cargarClientes(p, busqueda) }} disabled={pagina === totalPaginas}
                 style={{ padding: '6px 14px', borderRadius: '8px', border: '1px solid #ddd', backgroundColor: pagina === totalPaginas ? '#f5f5f5' : 'white', cursor: pagina === totalPaginas ? 'not-allowed' : 'pointer', fontSize: '13px' }}>
                 Siguiente
               </button>
