@@ -68,19 +68,19 @@ export default function Home() {
     {
       nombre: 'Ropero Skan',
       descripcion: 'Diseño cómodo y elegante para sala moderna.',
-      
+      precio: 'Bs. ',
       imagen: '/productos/ropero-skan.jpg',
     },
     {
-      nombre: 'Esquinero',
-      descripcion: 'Mueble de esquina con diseño moderno.',
-      
+      nombre: 'Esquinero para living',
+      descripcion: 'Mueble de acero con acabado elegante para tu sala de estar.',
+      precio: 'Bs. ',
       imagen: '/productos/esquinero.jpg',
     },
     {
-      nombre: 'Recibidor de sala',
-      descripcion: 'Elegante recibidor para sala de estar.',
-      
+      nombre: 'Recibidor para sala',
+      descripcion: 'Mueble ideal para tu sala',
+      precio: 'Bs. ',
       imagen: '/productos/recibidor.jpg',
     },
   ]
