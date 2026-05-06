@@ -2,6 +2,13 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
+type ProductoDestacado = {
+  nombre: string
+  descripcion: string
+  precio: string
+  imagen: string
+}
+
 export default function Home() {
   const [carnet, setCarnet] = useState('')
   const [password, setPassword] = useState('')
@@ -64,23 +71,23 @@ export default function Home() {
     { nombre: 'Sucursal Cochabamba', dir: 'Av. Segunda Circunvalacion, Cochabamba', tel: '+591 61211195', link: 'https://maps.app.goo.gl/WoCYUfsSXSPRB7Vc9', wa: 'https://wa.me/59161211195' },
   ]
 
-  const productosDestacados: Array<{ nombre: string; descripcion: string; precio: string; imagen: string }> = [
+  const productosDestacados: ProductoDestacado[] = [
     {
       nombre: 'Ropero Skan',
       descripcion: 'Diseño cómodo y elegante para sala moderna.',
-      precio: 'Bs. ',
+      precio: 'Bs. 1250',
       imagen: '/productos/ropero-skan.jpg',
     },
     {
       nombre: 'Esquinero para living',
       descripcion: 'Mueble de acero con acabado elegante para tu sala de estar.',
-      precio: 'Bs. ',
+      precio: 'Bs. 530',
       imagen: '/productos/esquinero.jpg',
     },
     {
       nombre: 'Recibidor para sala',
       descripcion: 'Mueble ideal para tu sala',
-      precio: 'Bs. ',
+      precio: 'Bs. 990',
       imagen: '/productos/recibidor.jpg',
     },
   ]
