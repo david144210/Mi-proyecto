@@ -65,13 +65,9 @@ export default function Home() {
   ]
 
   return (
-    <div style={{ fontFamily: "'Georgia', serif", backgroundColor: '#0a0a1a', color: 'white', minHeight: '100vh' }}>
+    <div className="app-shell">
 
       <style>{`
-        @keyframes fadeInUp {
-          from { opacity: 0; transform: translateY(30px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
         @keyframes float {
           0%, 100% { transform: translateY(0px); }
           50% { transform: translateY(-12px); }
@@ -80,73 +76,327 @@ export default function Home() {
           0% { background-position: -200% center; }
           100% { background-position: 200% center; }
         }
+        .app-shell {
+          min-height: 100vh;
+          font-family: "Inter", system-ui, sans-serif;
+          background: radial-gradient(circle at top, rgba(255,215,0,0.12), transparent 30%),
+                      linear-gradient(180deg, #0f1117 0%, #1a1b2e 48%, #14151f 100%);
+          color: #ffffff;
+        }
+        .top-nav {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 18px 40px;
+          background: rgba(20, 21, 35, 0.85);
+          backdrop-filter: blur(20px);
+          color: white;
+          position: fixed;
+          top: 0;
+          width: 100%;
+          z-index: 1000;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+          box-sizing: border-box;
+        }
+        .brand-name {
+          font-weight: 700;
+          font-size: 18px;
+          color: #FFD700;
+          letter-spacing: 0.4px;
+          text-transform: uppercase;
+        }
+        .top-nav .nav-menu {
+          display: flex;
+          gap: 30px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+        .top-nav .nav-link {
+          color: #e8e8e8;
+          text-decoration: none;
+          font-size: 14px;
+          transition: color 0.2s ease;
+          letter-spacing: 0.5px;
+        }
+        .top-nav .nav-link:hover {
+          color: #FFD700;
+        }
+        .top-nav .nav-actions {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .glass-panel {
+          position: absolute;
+          right: 0;
+          top: 62px;
+          width: 320px;
+          background: rgba(14, 15, 33, 0.92);
+          border: 1px solid rgba(255, 215, 0, 0.16);
+          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+          padding: 24px;
+          border-radius: 18px;
+          color: white;
+          z-index: 1001;
+        }
+        .hero-section {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 140px 40px 80px;
+          max-width: 1200px;
+          margin: 0 auto;
+          min-height: 92vh;
+          gap: 40px;
+          box-sizing: border-box;
+        }
+        .hero-text {
+          display: flex;
+          flex-direction: column;
+          gap: 24px;
+          max-width: 560px;
+        }
         .hero-title {
+          font-size: clamp(3rem, 4.5vw, 5rem);
+          font-weight: 800;
+          line-height: 1.02;
+          margin: 0;
           background: linear-gradient(135deg, #FFD700, #FFA500, #FFD700);
-          background-size: 200% auto;
+          background-size: 180% auto;
           -webkit-background-clip: text;
           -webkit-text-fill-color: transparent;
           animation: shimmer 3s linear infinite;
         }
-        .mascota-float { animation: float 4s ease-in-out infinite; }
+        .hero-copy {
+          font-size: 1rem;
+          color: #e0e0e0;
+          line-height: 1.8;
+          max-width: 560px;
+          margin: 0;
+        }
+        .hero-subtitle {
+          color: #ffffff;
+          font-size: 1.05rem;
+          font-style: italic;
+          letter-spacing: 0.4px;
+          margin: 0;
+        }
+        .hero-actions {
+          display: flex;
+          gap: 16px;
+          flex-wrap: wrap;
+          align-items: center;
+        }
         .btn-gold {
           background: linear-gradient(135deg, #FFD700, #FFA500);
-          color: #0a0a1a; border: none;
-          padding: 14px 32px; border-radius: 30px;
-          font-size: 16px; font-weight: bold; cursor: pointer;
-          transition: transform 0.2s, box-shadow 0.2s;
-          text-decoration: none; display: inline-block;
+          color: #0a0a1a;
+          border: none;
+          padding: 14px 32px;
+          border-radius: 30px;
+          font-size: 16px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: transform 0.2s ease, box-shadow 0.2s ease;
+          text-decoration: none;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
         }
-        .btn-gold:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(255,215,0,0.4); }
+        .btn-gold:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 16px 30px rgba(255, 215, 0, 0.35);
+        }
         .btn-outline {
-          background: transparent; color: #FFD700;
-          border: 2px solid #FFD700; padding: 12px 30px;
-          border-radius: 30px; font-size: 16px; cursor: pointer;
-          transition: all 0.2s; text-decoration: none; display: inline-block;
+          background: rgba(255, 255, 255, 0.04);
+          color: #FFD700;
+          border: 2px solid rgba(255, 215, 0, 0.45);
+          padding: 12px 30px;
+          border-radius: 30px;
+          font-size: 16px;
+          cursor: pointer;
+          transition: background 0.2s ease, color 0.2s ease;
+          text-decoration: none;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
         }
-        .btn-outline:hover { background: #FFD700; color: #0a0a1a; }
+        .btn-outline:hover {
+          background: #FFD700;
+          color: #0a0a1a;
+        }
         .btn-wa {
-          background: #25D366; color: white; border: none;
-          padding: 8px 16px; border-radius: 20px; font-size: 13px;
-          cursor: pointer; text-decoration: none; display: inline-flex;
-          align-items: center; gap: 6px; font-weight: bold;
-          transition: transform 0.2s;
+          background: #25D366;
+          color: white;
+          border: none;
+          padding: 10px 16px;
+          border-radius: 22px;
+          font-size: 13px;
+          cursor: pointer;
+          text-decoration: none;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          font-weight: 700;
+          transition: transform 0.2s ease;
         }
-        .btn-wa:hover { transform: translateY(-1px); }
-        .card-hover { transition: transform 0.2s, box-shadow 0.2s; }
-        .card-hover:hover { transform: translateY(-4px); box-shadow: 0 12px 30px rgba(255,215,0,0.15) !important; }
-        .nav-link { color: #ccc; text-decoration: none; font-size: 14px; transition: color 0.2s; letter-spacing: 0.5px; }
-        .nav-link:hover { color: #FFD700; }
-        .divider { height: 1px; background: linear-gradient(90deg, transparent, rgba(255,215,0,0.3), transparent); margin: 0 40px; }
+        .btn-wa:hover {
+          transform: translateY(-1px);
+        }
+        .stats-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 22px;
+          margin-top: 50px;
+        }
+        .stats-card {
+          padding: 24px;
+          border-radius: 20px;
+          background: rgba(255, 255, 255, 0.06);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .stats-card:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 16px 30px rgba(0, 0, 0, 0.15);
+        }
+        .section-padding {
+          padding: 80px 40px;
+          max-width: 1200px;
+          margin: 0 auto;
+          box-sizing: border-box;
+        }
+        .section-heading {
+          text-align: center;
+          margin-bottom: 48px;
+        }
+        .section-label {
+          display: inline-block;
+          background-color: rgba(255, 215, 0, 0.1);
+          border: 1px solid rgba(255, 215, 0, 0.28);
+          border-radius: 20px;
+          padding: 6px 16px;
+          margin-bottom: 16px;
+          font-size: 13px;
+          color: #FFD700;
+          letter-spacing: 0.8px;
+          text-transform: uppercase;
+        }
+        .section-title {
+          font-size: 2.25rem;
+          margin: 0 0 12px 0;
+          color: white;
+        }
+        .section-copy {
+          color: #d8d8d8;
+          margin: 0 auto;
+          max-width: 640px;
+          font-size: 1rem;
+          line-height: 1.8;
+        }
+        .card-panel {
+          background: rgba(255, 255, 255, 0.08);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          border-radius: 24px;
+          padding: 32px;
+          transition: transform 0.25s ease, box-shadow 0.25s ease;
+        }
+        .card-panel:hover {
+          transform: translateY(-4px);
+          box-shadow: 0 24px 40px rgba(0, 0, 0, 0.22);
+        }
+        .mision-grid,
+        .sucursales-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 24px;
+        }
+        .divider {
+          height: 1px;
+          background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+          margin: 0 40px;
+        }
+        .footer {
+          background-color: #0a0b15;
+          padding: 56px 40px;
+          border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .footer-links {
+          display: flex;
+          gap: 24px;
+          flex-wrap: wrap;
+          justify-content: center;
+        }
+        .footer-links a {
+          color: #c8d4b8;
+          text-decoration: none;
+          font-size: 13px;
+        }
+        .hamburger {
+          background: none;
+          border: none;
+          color: #FFD700;
+          font-size: 28px;
+          cursor: pointer;
+          display: none;
+        }
         @media (max-width: 768px) {
-          .nav-menu { display: none !important; }
-          .nav-menu.abierto { display: flex !important; flex-direction: column; position: fixed; top: 70px; left: 0; width: 100%; background: #0d0d1f; padding: 20px; gap: 20px; z-index: 999; box-sizing: border-box; border-top: 1px solid #FFD70033; }
-          .hamburger { display: flex !important; }
-          .nav-login-desktop { display: none !important; }
-          .nav-login-movil { display: flex !important; }
-          .hero-section { flex-direction: column !important; padding: 100px 20px 60px 20px !important; text-align: center !important; }
-          .hero-text { align-items: center !important; }
-          .hero-title-text { font-size: 32px !important; }
-          .mascota-img { width: 200px !important; margin-top: 30px; }
-          .section-padding { padding: 50px 20px !important; }
-          .stats-grid { grid-template-columns: 1fr 1fr !important; gap: 16px !important; }
-          .mision-grid { grid-template-columns: 1fr !important; }
-          .sucursales-grid { grid-template-columns: 1fr !important; }
-        }
-        @media (min-width: 769px) {
-          .hamburger { display: none !important; }
-          .nav-login-movil { display: none !important; }
-          .nav-menu { display: flex !important; }
+          .top-nav {
+            padding: 16px 20px;
+          }
+          .nav-menu {
+            display: none !important;
+          }
+          .nav-menu.abierto {
+            display: flex !important;
+            flex-direction: column;
+            position: fixed;
+            top: 70px;
+            left: 0;
+            width: 100%;
+            background: rgba(9, 10, 26, 0.96);
+            padding: 20px;
+            gap: 18px;
+            z-index: 999;
+            box-sizing: border-box;
+            border-top: 1px solid rgba(255, 215, 0, 0.18);
+          }
+          .hamburger {
+            display: flex;
+          }
+          .hero-section {
+            flex-direction: column;
+            padding: 120px 20px 60px;
+            text-align: center;
+          }
+          .hero-text {
+            align-items: center;
+          }
+          .stats-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 18px;
+          }
+          .mision-grid,
+          .sucursales-grid {
+            grid-template-columns: 1fr;
+          }
+          .section-padding {
+            padding: 50px 20px;
+          }
+          .hero-copy,
+          .section-copy {
+            max-width: 100%;
+          }
         }
       `}</style>
 
       {/* NAVBAR */}
-      <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 40px', backgroundColor: 'rgba(10,10,26,0.95)', backdropFilter: 'blur(10px)', color: 'white', position: 'fixed', top: 0, width: '100%', zIndex: 1000, boxSizing: 'border-box', borderBottom: '1px solid rgba(255,215,0,0.15)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <img src="/logo.jpg" alt="Logo" style={{ width: '40px', height: '40px', borderRadius: '8px' }} />
-          <span style={{ fontWeight: 'bold', fontSize: '18px', color: '#FFD700' }}>Muebles is Better</span>
+      <nav className="top-nav">
+        <div className="brand" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <img src="/logo.jpg" alt="Logo" style={{ width: '40px', height: '40px', borderRadius: '10px' }} />
+          <span className="brand-name">Muebles is Better</span>
         </div>
 
-        <div className={`nav-menu${menuAbierto ? ' abierto' : ''}`} style={{ display: 'flex', gap: '30px', alignItems: 'center' }}>
+        <div className={`nav-menu${menuAbierto ? ' abierto' : ''}`}>
           <a href="#productos" onClick={() => setMenuAbierto(false)} className="nav-link">Productos</a>
           <a href="#mision" onClick={() => setMenuAbierto(false)} className="nav-link">Nosotros</a>
           <a href="#ubicacion" onClick={() => setMenuAbierto(false)} className="nav-link">Contacto</a>
@@ -224,21 +474,21 @@ export default function Home() {
       </nav>
 
       {/* HERO */}
-      <div className="hero-section" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '130px 80px 80px 80px', maxWidth: '1200px', margin: '0 auto', minHeight: '100vh', boxSizing: 'border-box' }}>
-        <div className="hero-text" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', maxWidth: '560px' }}>
-          <div style={{ display: 'inline-block', backgroundColor: 'rgba(255,215,0,0.1)', border: '1px solid rgba(255,215,0,0.3)', borderRadius: '20px', padding: '6px 16px', marginBottom: '20px', fontSize: '13px', color: '#FFD700', letterSpacing: '1px' }}>
-            Mas que diseno, ingenieria de interiores
+      <div className="hero-section">
+        <div className="hero-text">
+          <div className="section-label" style={{ marginBottom: '0' }}>
+            Más que Muebles, ingeniería de interiores
           </div>
-          <h1 className="hero-title hero-title-text" style={{ fontSize: '52px', fontWeight: 'bold', margin: '0 0 12px 0', lineHeight: '1.1' }}>
+          <h1 className="hero-title">
             Muebles is Better
           </h1>
-          <p style={{ fontSize: '16px', color: '#a3c47d', margin: '0 0 20px 0', fontStyle: 'italic', letterSpacing: '0.5px' }}>
-            Mas que diseno, ingenieria de interiores
+          <p className="hero-subtitle">
+            Más que Muebles, ingeniería de interiores
           </p>
-          <p style={{ fontSize: '16px', color: '#aaa', margin: '0 0 36px 0', lineHeight: '1.7' }}>
+          <p className="hero-copy">
             Diseñamos, fabricamos y comercializamos muebles para el hogar, oficinas y espacios de recreacion con materiales resistentes y de calidad.
           </p>
-          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' as const }}>
+          <div className="hero-actions">
             <button className="btn-gold" onClick={() => document.getElementById('productos')?.scrollIntoView({ behavior: 'smooth' })}>
               Ver Productos
             </button>
@@ -247,34 +497,32 @@ export default function Home() {
             </a>
           </div>
 
-          <div className="stats-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px', marginTop: '50px' }}>
+          <div className="stats-grid">
             {[
               { numero: '4', label: 'Sucursales' },
               { numero: '10+', label: 'Anos de experiencia' },
               { numero: '100%', label: 'Calidad garantizada' },
             ].map((s, i) => (
-              <div key={i} style={{ textAlign: 'center' }}>
-                <p style={{ margin: 0, fontSize: '28px', fontWeight: 'bold', color: '#FFD700' }}>{s.numero}</p>
-                <p style={{ margin: 0, fontSize: '12px', color: '#aaa', letterSpacing: '0.5px' }}>{s.label}</p>
+              <div key={i} className="stats-card" style={{ textAlign: 'center' }}>
+                <p style={{ margin: 0, fontSize: '28px', fontWeight: '800', color: '#FFD700' }}>{s.numero}</p>
+                <p style={{ margin: 0, fontSize: '13px', color: '#d3d3d3', letterSpacing: '0.4px' }}>{s.label}</p>
               </div>
             ))}
           </div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <img src="/mascota.png" alt="Mascota" className="mascota-img mascota-float" style={{ width: '340px', filter: 'drop-shadow(0 20px 40px rgba(255,215,0,0.2))' }} />
+          <img src="/mascota.png" alt="Mascota" className="mascota-img mascota-float" style={{ width: '340px', filter: 'drop-shadow(0 20px 40px rgba(255,215,0,0.22))' }} />
         </div>
       </div>
 
       <div className="divider"></div>
 
       {/* PRODUCTOS */}
-      <div id="productos" className="section-padding" style={{ padding: '80px 40px', textAlign: 'center', maxWidth: '1200px', margin: '0 auto' }}>
-        <div style={{ display: 'inline-block', backgroundColor: 'rgba(255,215,0,0.1)', border: '1px solid rgba(255,215,0,0.3)', borderRadius: '20px', padding: '6px 16px', marginBottom: '16px', fontSize: '13px', color: '#FFD700' }}>
-          Catalogo
-        </div>
-        <h2 style={{ fontSize: '36px', margin: '0 0 12px 0', color: 'white' }}>Nuestros Productos</h2>
-        <p style={{ color: '#888', marginBottom: '40px', maxWidth: '500px', margin: '0 auto 40px auto' }}>
+      <div id="productos" className="section-padding" style={{ textAlign: 'center' }}>
+        <div className="section-label">Catalogo</div>
+        <h2 className="section-title">Nuestros Productos</h2>
+        <p className="section-copy" style={{ marginBottom: '40px' }}>
           Proxximamente estara disponible nuestro catalogo completo de muebles.
         </p>
         <a href="/cotizador" className="btn-gold" style={{ textDecoration: 'none' }}>
@@ -285,26 +533,24 @@ export default function Home() {
       <div className="divider"></div>
 
       {/* MISION Y VISION */}
-      <div id="mision" className="section-padding" style={{ padding: '80px 40px', maxWidth: '1200px', margin: '0 auto' }}>
-        <div style={{ textAlign: 'center', marginBottom: '48px' }}>
-          <div style={{ display: 'inline-block', backgroundColor: 'rgba(255,215,0,0.1)', border: '1px solid rgba(255,215,0,0.3)', borderRadius: '20px', padding: '6px 16px', marginBottom: '16px', fontSize: '13px', color: '#FFD700' }}>
-            Quienes Somos
-          </div>
-          <h2 style={{ fontSize: '36px', margin: '0 0 12px 0', color: 'white' }}>Mision y Vision</h2>
-          <p style={{ color: '#a3c47d', fontStyle: 'italic', fontSize: '16px', margin: 0 }}>Mas que diseno, ingenieria de interiores</p>
+      <div id="mision" className="section-padding">
+        <div className="section-heading">
+          <div className="section-label">Quienes Somos</div>
+          <h2 className="section-title">Mision y Vision</h2>
+          <p className="section-copy" style={{ fontStyle: 'italic', color: '#d4d4d4' }}>Más que Muebles, ingeniería de interiores</p>
         </div>
-        <div className="mision-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-          <div className="card-hover" style={{ backgroundColor: '#1a1a2e', borderRadius: '16px', padding: '32px', border: '1px solid rgba(255,215,0,0.15)' }}>
+        <div className="mision-grid">
+          <div className="card-panel">
             <div style={{ fontSize: '40px', marginBottom: '16px' }}>🎯</div>
             <h3 style={{ color: '#FFD700', margin: '0 0 16px 0', fontSize: '20px' }}>Nuestra Mision</h3>
-            <p style={{ color: '#aaa', lineHeight: '1.8', margin: 0, fontSize: '15px' }}>
+            <p style={{ color: '#d4d4d4', lineHeight: '1.8', margin: 0, fontSize: '15px' }}>
               Somos una empresa innovadora que disena, fabrica y comercializa muebles para el hogar, oficinas y todo tipo de espacios de recreacion, elaborados con materiales resistentes y de calidad que cumplen con los altos estandares que merecen nuestros clientes.
             </p>
           </div>
-          <div className="card-hover" style={{ backgroundColor: '#1a1a2e', borderRadius: '16px', padding: '32px', border: '1px solid rgba(255,215,0,0.15)' }}>
+          <div className="card-panel">
             <div style={{ fontSize: '40px', marginBottom: '16px' }}>🚀</div>
             <h3 style={{ color: '#FFD700', margin: '0 0 16px 0', fontSize: '20px' }}>Nuestra Vision</h3>
-            <p style={{ color: '#aaa', lineHeight: '1.8', margin: 0, fontSize: '15px' }}>
+            <p style={{ color: '#d4d4d4', lineHeight: '1.8', margin: 0, fontSize: '15px' }}>
               Ser una empresa proveedora de muebles de excelente calidad, de manera eficiente y oportuna contribuyendo al progreso del pais, mediante la generacion de empleos dignos y justos.
             </p>
           </div>
@@ -320,20 +566,20 @@ export default function Home() {
             Contacto y Sucursales
           </div>
           <h2 style={{ fontSize: '36px', margin: '0 0 12px 0', color: 'white' }}>Donde Encontrarnos</h2>
-          <p style={{ color: '#888', margin: 0 }}>Visitanos o contactanos en cualquiera de nuestras 4 sucursales a nivel nacional</p>
+          <p style={{ color: '#d0d0d0', margin: 0 }}>Visitanos o contactanos en cualquiera de nuestras 4 sucursales a nivel nacional</p>
         </div>
 
-        <div className="sucursales-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px' }}>
+        <div className="sucursales-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px' }}>
           {sucursales.map((s, i) => (
-            <div key={i} className="card-hover" style={{ backgroundColor: '#1a1a2e', borderRadius: '16px', padding: '28px', border: '1px solid rgba(255,215,0,0.15)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div key={i} className="card-panel" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div style={{ fontSize: '28px' }}>📍</div>
               <h3 style={{ margin: 0, color: '#FFD700', fontSize: '16px' }}>{s.nombre}</h3>
-              <p style={{ color: '#aaa', fontSize: '13px', margin: 0, lineHeight: '1.5' }}>{s.dir}</p>
+              <p style={{ color: '#d8d8d8', fontSize: '13px', margin: 0, lineHeight: '1.5' }}>{s.dir}</p>
 
               {/* TELEFONO */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontSize: '16px' }}>📞</span>
-                <a href={`tel:${s.tel.replace(/\s/g, '')}`} style={{ color: '#a3c47d', fontSize: '14px', textDecoration: 'none', fontWeight: 'bold' }}>
+                <a href={`tel:${s.tel.replace(/\s/g, '')}`} style={{ color: '#e0e0e0', fontSize: '14px', textDecoration: 'none', fontWeight: '600' }}>
                   {s.tel}
                 </a>
               </div>
@@ -353,19 +599,19 @@ export default function Home() {
       </div>
 
       {/* FOOTER */}
-      <footer style={{ backgroundColor: '#05050f', padding: '48px 40px', borderTop: '1px solid rgba(255,215,0,0.15)', marginTop: '40px' }}>
+      <footer className="footer">
         <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-          <img src="/logo.jpg" alt="Logo" style={{ width: '60px', height: '60px', borderRadius: '12px' }} />
-          <p style={{ color: '#FFD700', fontWeight: 'bold', margin: 0, fontSize: '18px' }}>Muebles is Better</p>
-          <p style={{ color: '#a3c47d', fontStyle: 'italic', margin: 0, fontSize: '14px' }}>Mas que diseno, ingenieria de interiores</p>
-          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' as const, justifyContent: 'center' }}>
+          <img src="/logo.jpg" alt="Logo" style={{ width: '60px', height: '60px', borderRadius: '14px' }} />
+          <p style={{ color: '#FFD700', fontWeight: '700', margin: 0, fontSize: '18px' }}>Muebles is Better</p>
+          <p style={{ color: '#e0e0e0', fontStyle: 'italic', margin: 0, fontSize: '14px' }}>Más que Muebles, ingeniería de interiores</p>
+          <div className="footer-links">
             {sucursales.map((s, i) => (
-              <a key={i} href={s.wa} target="_blank" rel="noopener noreferrer" style={{ color: '#25D366', fontSize: '13px', textDecoration: 'none' }}>
+              <a key={i} href={s.wa} target="_blank" rel="noopener noreferrer">
                 {s.nombre}: {s.tel}
               </a>
             ))}
           </div>
-          <p style={{ color: '#444', fontSize: '12px', margin: 0 }}>Bolivia 2025. Todos los derechos reservados.</p>
+          <p style={{ color: '#888', fontSize: '12px', margin: 0 }}>Bolivia 2025. Todos los derechos reservados.</p>
         </div>
       </footer>
 

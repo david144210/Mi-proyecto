@@ -430,6 +430,14 @@ export default function Ventas() {
   const confirmarNuevaVenta = async () => {
     setGuardandoNueva(true); setErrorGuardado('')
 
+    // Obtener codigo de venta seguro desde la secuencia de Supabase
+    const { data: codData, error: codError } = await supabase.rpc('siguiente_cod_venta')
+    if (codError || !codData) {
+      setErrorGuardado('Error al generar codigo de venta: ' + (codError?.message || ''))
+      setGuardandoNueva(false); return
+    }
+    const codVentaFinal: number = codData
+
     let cod_cliente_final: number
 
     // Crear cliente nuevo si aplica
@@ -458,7 +466,7 @@ export default function Ventas() {
 
     // Insertar cabecera venta
     const { error: eVenta } = await supabase.from('ventas').insert({
-      cod_venta:         nextCodVenta,
+      cod_venta:         codVentaFinal,
       cod_cliente:       cod_cliente_final,
       cod_vendedor:      parseInt(nv.cod_vendedor),
       fecha_pedido:      nv.fecha_pedido,
@@ -479,7 +487,7 @@ export default function Ventas() {
 
     // Insertar lineas
     const detallesToInsert = lineas.map((l, i) => ({
-      cod_venta:        nextCodVenta,
+      cod_venta: codVentaFinal,
       item:             i + 1,
       cod_producto:     l.cod_producto,
       precio_cotizado:  l.precio_cotizado ? parseFloat(l.precio_cotizado) : null,
@@ -495,7 +503,7 @@ export default function Ventas() {
 
     if (eDet) {
       // Revertir la venta si fallo el detalle
-      await supabase.from('ventas').delete().eq('cod_venta', nextCodVenta)
+      await supabase.from('ventas').delete().eq('cod_venta', codVentaFinal)
       setErrorGuardado('Error al registrar los productos: ' + eDet.message)
       setGuardandoNueva(false); setPasoNueva('form'); return
     }
