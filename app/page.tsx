@@ -64,7 +64,7 @@ export default function Home() {
     { nombre: 'Sucursal Cochabamba', dir: 'Av. Segunda Circunvalacion, Cochabamba', tel: '+591 61211195', link: 'https://maps.app.goo.gl/WoCYUfsSXSPRB7Vc9', wa: 'https://wa.me/59161211195' },
   ]
 
-  const productosDestacados = [
+  const productosDestacados: Array<{ nombre: string; descripcion: string; precio: string; imagen: string }> = [
     {
       nombre: 'Ropero Skan',
       descripcion: 'Diseño cómodo y elegante para sala moderna.',
