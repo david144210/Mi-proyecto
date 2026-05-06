@@ -158,6 +158,8 @@ export default function Ventas() {
   const [errorCliente, setErrorCliente] = useState('')
   const [guardandoNueva, setGuardandoNueva] = useState(false)
   const [errorGuardado, setErrorGuardado] = useState('')
+  const [textoWhatsApp, setTextoWhatsApp] = useState('')
+  const [mostrarTextoWA, setMostrarTextoWA] = useState(false)
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -426,6 +428,443 @@ export default function Ventas() {
     if (validar()) setPasoNueva('preview')
   }
 
+  // ── Generar nota de venta ─────────────────────────────────────────────────
+  const generarNotaVenta = (datos: any) => {
+    const ventana = window.open('', '_blank', 'width=950,height=900')
+    if (!ventana) return
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html lang="es">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Nota de Venta - ${datos.codVenta}</title>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+        <style>
+          @media print {
+            body { margin: 0; background: white; }
+            .no-print { display: none; }
+          }
+          * {
+            box-sizing: border-box;
+          }
+          body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.4;
+          }
+          #nota-container {
+            background: white;
+            max-width: 850px;
+            margin: 0 auto;
+            padding: 35px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+          }
+          .header {
+            text-align: center;
+            border-bottom: 3px solid #FFD700;
+            padding-bottom: 25px;
+            margin-bottom: 35px;
+            position: relative;
+          }
+          .logo-container {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 120px;
+            height: auto;
+          }
+          .logo {
+            width: 100%;
+            height: auto;
+            object-fit: contain;
+          }
+          .company-name {
+            font-size: 28px;
+            font-weight: bold;
+            color: #0d0d1f;
+            margin: 0 0 5px 0;
+          }
+          .company-tagline {
+            font-size: 13px;
+            color: #666;
+            margin: 0;
+          }
+          .nota-title {
+            font-size: 22px;
+            font-weight: bold;
+            margin: 25px 0 10px 0;
+            text-align: center;
+            color: #222;
+          }
+          .nota-number {
+            text-align: center;
+            font-size: 16px;
+            color: #0d0d1f;
+            font-weight: bold;
+            margin-bottom: 30px;
+          }
+          .info-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+            margin-bottom: 35px;
+          }
+          .info-box {
+            border: 2px solid #087e0b;
+            padding: 18px;
+            border-radius: 8px;
+            background: #f9f9f9;
+          }
+          .info-title {
+            font-weight: bold;
+            margin-bottom: 12px;
+            color: #0d0d1f;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+          }
+          .info-item {
+            margin-bottom: 6px;
+            font-size: 13px;
+          }
+          .info-item strong {
+            color: #222;
+          }
+          .productos-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 25px 0;
+            font-size: 12px;
+          }
+          .productos-table th {
+            background: #0d0d1f;
+            color: white;
+            font-weight: bold;
+            padding: 10px;
+            text-align: left;
+            border: 1px solid #0d0d1f;
+          }
+          .productos-table td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+          }
+          .productos-table tbody tr:nth-child(odd) {
+            background: #f9f9f9;
+          }
+          .text-right {
+            text-align: right !important;
+          }
+          .total-section {
+            text-align: right;
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 2px solid #FFD700;
+          }
+          .total-row {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 8px;
+            font-size: 13px;
+            padding: 4px 0;
+          }
+          .total-row span:first-child {
+            min-width: 200px;
+            text-align: right;
+            padding-right: 20px;
+          }
+          .total-final {
+            font-size: 16px;
+            font-weight: bold;
+            color: #0d0d1f;
+            border-top: 1px solid #FFD700;
+            padding-top: 8px;
+            margin-top: 8px;
+          }
+          .footer {
+            margin-top: 40px;
+            text-align: center;
+            font-size: 11px;
+            color: #888;
+            border-top: 1px solid #ddd;
+            padding-top: 15px;
+          }
+          .contact-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+            text-align: left;
+          }
+          .contact-item {
+            background: #f9f9f9;
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #eee;
+          }
+          .contact-title {
+            font-weight: bold;
+            color: #0d0d1f;
+            font-size: 11px;
+            margin-bottom: 4px;
+          }
+          .contact-info {
+            font-size: 10px;
+            color: #666;
+            line-height: 1.3;
+          }
+          .button-container {
+            text-align: center;
+            margin-top: 30px;
+            gap: 10px;
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+          }
+          .btn-print {
+            background: #0d0d1f;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: background 0.3s;
+          }
+          .btn-print:hover {
+            background: #1a1a2e;
+          }
+          .btn-download {
+            background: #FFD700;
+            color: #0d0d1f;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: background 0.3s;
+          }
+          .btn-download:hover {
+            background: #FFE55C;
+          }
+          .btn-download:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+          }
+        </style>
+      </head>
+      <body>
+        <div id="nota-container">
+          <div class="header">
+            <div class="logo-container">
+              <img src="/logo.jpg" alt="Logo Muebles is Better" class="logo">
+            </div>
+            <h1 class="company-name">Muebles is Better</h1>
+            <p class="company-tagline">Más que muebles, ingeniería de interiores</p>
+          </div>
+
+          <h2 class="nota-title">NOTA DE VENTA</h2>
+          <p class="nota-number">N° <strong>${datos.codVenta}</strong></p>
+
+          <div class="info-section">
+            <div class="info-box">
+              <div class="info-title">📋 Datos del Cliente</div>
+              <div class="info-item"><strong>Nombre:</strong> ${datos.cliente.nombre || '—'}</div>
+              <div class="info-item"><strong>Código:</strong> ${datos.cliente.codigo || '—'}</div>
+              ${datos.cliente.celular ? `<div class="info-item"><strong>Celular:</strong> ${datos.cliente.celular}</div>` : ''}
+              ${datos.cliente.direccion ? `<div class="info-item"><strong>Dirección:</strong> ${datos.cliente.direccion}</div>` : ''}
+            </div>
+
+            <div class="info-box">
+              <div class="info-title">📅 Datos de la Venta</div>
+              <div class="info-item"><strong>Vendedor:</strong> ${datos.vendedor || '—'}</div>
+              <div class="info-item"><strong>Fecha Pedido:</strong> ${datos.fechaPedido || '—'}</div>
+              <div class="info-item"><strong>Fecha Entrega:</strong> ${datos.fechaEntrega || '—'}${datos.horaEntrega ? ` ${datos.horaEntrega}` : ''}</div>
+              <div class="info-item"><strong>Forma de Pago:</strong> ${datos.formaPago || '—'}</div>
+              ${datos.codTransaccion ? `<div class="info-item"><strong>Cód. Transacción:</strong> ${datos.codTransaccion}</div>` : ''}
+            </div>
+          </div>
+
+          <h3 style="font-size: 14px; color: #555; margin: 20px 0 10px 0; text-transform: uppercase;">📦 Productos</h3>
+          <table class="productos-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Producto</th>
+                <th>Dimensiones</th>
+                <th>Color Estructura</th>
+                <th>Color Melamina</th>
+                <th>Cantidad</th>
+                <th class="text-right">Precio Unit.</th>
+                <th class="text-right">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${datos.lineas.map((linea, idx) => `
+                <tr>
+                  <td>${idx + 1}</td>
+                  <td>${linea.producto || '—'}</td>
+                  <td>${linea.dimensiones || '—'}</td>
+                  <td>${linea.colorEstructura || '—'}</td>
+                  <td>${linea.colorMelamina || '—'}</td>
+                  <td>${linea.cantidad}</td>
+                  <td class="text-right">Bs. ${Number(linea.precioVendido).toLocaleString('es-BO', { minimumFractionDigits: 2 })}</td>
+                  <td class="text-right"><strong>Bs. ${Number(linea.subtotal).toLocaleString('es-BO', { minimumFractionDigits: 2 })}</strong></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <div class="total-section">
+            ${datos.deliveryCotizado > 0 ? `<div class="total-row"><span>Delivery Cotizado:</span><span>Bs. ${Number(datos.deliveryCotizado).toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span></div>` : ''}
+            ${datos.deliveryPagado > 0 ? `<div class="total-row"><span>Delivery Pagado:</span><span>Bs. ${Number(datos.deliveryPagado).toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span></div>` : ''}
+            ${datos.anticipo > 0 ? `<div class="total-row"><span>Anticipo:</span><span>Bs. ${Number(datos.anticipo).toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span></div>` : ''}
+            <div class="total-row total-final">
+              <span>TOTAL VENTA:</span>
+              <span>Bs. ${Number(datos.total).toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span>
+            </div>
+          </div>
+
+          <div class="footer">
+            <div class="contact-section">
+              <div class="contact-item">
+                <div class="contact-title">📍 El Alto</div>
+                <div class="contact-info">C. L. de la Vega 3623<br>+591 65572015</div>
+              </div>
+              <div class="contact-item">
+                <div class="contact-title">📍 La Paz</div>
+                <div class="contact-info">Zona Bella Vista, C. Ignacio Sanjines<br>+591 60633283</div>
+              </div>
+              <div class="contact-item">
+                <div class="contact-title">📍 Santa Cruz</div>
+                <div class="contact-info">Av. Napoleon Gomez Landivar, Radial 21<br>+591 60044821</div>
+              </div>
+              <div class="contact-item">
+                <div class="contact-title">📍 Cochabamba</div>
+                <div class="contact-info">Av. Segunda Circunvalacion<br>+591 61211195</div>
+              </div>
+            </div>
+            <p>Gracias por su preferencia en Muebles is Better</p>
+            <p>Más que muebles, ingeniería de interiores — Bolivia ${new Date().getFullYear()}</p>
+          </div>
+        </div>
+
+        <div class="button-container">
+          <button class="btn-print" onclick="window.print()">🖨️ Imprimir</button>
+          <button class="btn-download" id="btnDownload" onclick="downloadPDF()">📄 Descargar PDF</button>
+        </div>
+
+        <script>
+          async function downloadPDF() {
+            try {
+              const btn = document.getElementById('btnDownload');
+              btn.disabled = true;
+              btn.textContent = 'Generando PDF...';
+
+              const element = document.getElementById('nota-container');
+              const canvas = await html2canvas(element, { 
+                scale: 2, 
+                backgroundColor: '#ffffff',
+                useCORS: true,
+                logging: false
+              });
+              
+              const { jsPDF } = window.jspdf;
+              const imgData = canvas.toDataURL('image/png');
+              const pdf = new jsPDF('p', 'mm', 'a4');
+              const imgWidth = 210; // ancho A4 en mm
+              const pageHeight = 297;
+              const imgHeight = (canvas.height * imgWidth) / canvas.width;
+              let heightLeft = imgHeight;
+              let position = 0;
+
+              pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+              heightLeft -= pageHeight;
+
+              while (heightLeft >= 0) {
+                position = heightLeft - imgHeight;
+                pdf.addPage();
+                pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+                heightLeft -= pageHeight;
+              }
+
+              pdf.save('Nota-Venta-${datos.codVenta}.pdf');
+              
+              btn.disabled = false;
+              btn.textContent = '📄 Descargar PDF';
+            } catch (error) {
+              alert('Error al generar PDF: ' + error.message);
+              document.getElementById('btnDownload').disabled = false;
+              document.getElementById('btnDownload').textContent = '📄 Descargar PDF';
+            }
+          }
+        </script>
+      </body>
+      </html>
+    `
+
+    ventana.document.write(htmlContent)
+    ventana.document.close()
+  }
+
+  // ── Generar texto para WhatsApp ────────────────────────────────────────────
+  const generarTextoWhatsApp = (codVentaParam: number) => {
+    const saldo = totalNuevaVenta - (nv.anticipo ? parseFloat(nv.anticipo) : 0)
+    const productosNombres = lineas.map(l => productos.find(p => p.codigo === l.cod_producto)?.nombre || l.cod_producto).join(', ')
+    const productosCodigos = lineas.map(l => l.cod_producto).join(', ')
+    const cantidades = lineas.map(l => l.cantidad).join('-')
+    const medidas = lineas.map(l => l.dimensiones || '—').join(' / ')
+    const colorEst = coloresEst.find(c => c.id === parseInt(lineas[0]?.color_estructura || '0'))?.detalle || lineas[0]?.color_estructura || '—'
+    const colorMel = lineas.map(l => coloresMel.find(m => m.id === parseInt(l.color_melamina))?.detalle || l.color_melamina).join(', ')
+
+    const texto = `*N. PEDIDO:* ${codVentaParam}
+*1. Ejecutivo de ventas:* ${vendedorNombre}
+*2. Cuenta facebook:* 
+*3. Mueble:* ${productosNombres}
+*3.1. Cantidad:* ${cantidades}
+*4. Código:* ${productosCodigos}
+*5. Medidas:* ${medidas}
+*6. Color melamina:* ${colorMel}
+*7. Color acero:* ${colorEst}
+*7.1. Medida del acero:* ${medidas}
+*8. Detalles especificos:* 
+*8.1. Pedido para envio:* 
+*9. Fecha pedido:* ${nv.fecha_pedido}
+*9.1. Hora:* ${nv.hora_entrega || '—'}
+*10. Fecha entrega:* ${nv.fecha_entrega}
+*11. Precio:* ${lineas.map(l => parseFloat(l.precio_vendido).toLocaleString('es-BO', { minimumFractionDigits: 0 })).join(' / ')} bs
+*11.1. Embalaje:* 
+*12. Recibo:* ${nv.cod_transaccion || 'No especificado'}
+*13. Total:* ${totalNuevaVenta.toLocaleString('es-BO', { minimumFractionDigits: 0 })}
+*14. Adelanto:* ${nv.anticipo ? parseFloat(nv.anticipo).toLocaleString('es-BO', { minimumFractionDigits: 0 }) : '0'}
+*15. Saldo:* ${saldo.toLocaleString('es-BO', { minimumFractionDigits: 0 })}
+*16. Delivery cotizado:* ${nv.delivery_cotizado ? parseFloat(nv.delivery_cotizado).toLocaleString('es-BO', { minimumFractionDigits: 0 }) : '0'}
+*17. Nombre cliente:* ${modoCliente === 'nuevo' ? nuevoClienteNombre : clienteSeleccionado?.nombre || '—'}
+*18. Celular cliente:* ${modoCliente === 'nuevo' ? nuevoClienteCelular : clienteSeleccionado?.celular || '—'}
+*19. Ubicacion:* ${modoCliente === 'nuevo' ? nuevoClienteDireccion : clienteSeleccionado?.direccion || '—'}
+*20. Número y color de puerta:* 
+*21. Foto pedido especial:* `
+    
+    setTextoWhatsApp(texto)
+    setMostrarTextoWA(true)
+  }
+
+  const copiarAlPortapapeles = () => {
+    navigator.clipboard.writeText(textoWhatsApp).then(() => {
+      alert('✅ Texto copiado al portapapeles. Abre WhatsApp y pega.')
+    }).catch(() => {
+      alert('❌ Error al copiar. Copia manualmente desde el cuadro de texto.')
+    })
+  }
+
   // ── Guardar nueva venta ───────────────────────────────────────────────────
   const confirmarNuevaVenta = async () => {
     setGuardandoNueva(true); setErrorGuardado('')
@@ -513,6 +952,36 @@ export default function Ventas() {
     cerrarModalNueva()
     cargarVentas(0, filtros)
     setPage(0)
+
+    // Generar nota de venta
+    await generarNotaVenta({
+      codVenta: codVentaFinal,
+      cliente: modoCliente === 'nuevo' ? {
+        nombre: nuevoClienteNombre,
+        codigo: nuevoClienteCodigo,
+        celular: nuevoClienteCelular,
+        direccion: nuevoClienteDireccion
+      } : clienteSeleccionado,
+      vendedor: vendedorNombre,
+      fechaPedido: nv.fecha_pedido,
+      fechaEntrega: nv.fecha_entrega,
+      horaEntrega: nv.hora_entrega,
+      deliveryCotizado: nv.delivery_cotizado ? parseFloat(nv.delivery_cotizado) : 0,
+      deliveryPagado: nv.delivery_pagado ? parseFloat(nv.delivery_pagado) : 0,
+      anticipo: nv.anticipo ? parseFloat(nv.anticipo) : 0,
+      formaPago: nv.forma_pago,
+      codTransaccion: nv.cod_transaccion,
+      lineas: lineas.map(l => ({
+        producto: productos.find(p => p.codigo === l.cod_producto)?.nombre || l.cod_producto,
+        precioVendido: parseFloat(l.precio_vendido),
+        cantidad: parseInt(l.cantidad),
+        subtotal: parseFloat(l.precio_vendido) * parseInt(l.cantidad),
+        dimensiones: l.dimensiones,
+        colorEstructura: coloresEst.find(c => c.id === parseInt(l.color_estructura))?.detalle || l.color_estructura,
+        colorMelamina: coloresMel.find(c => c.id === parseInt(l.color_melamina))?.detalle || l.color_melamina,
+      })),
+      total: totalVenta
+    })
   }
 
   // ── Calculos preview ──────────────────────────────────────────────────────
@@ -527,7 +996,7 @@ export default function Ventas() {
     padding: '8px 12px', borderRadius: '8px', border: '1px solid #ddd',
     fontSize: '13px', width: '100%', boxSizing: 'border-box', backgroundColor: 'white',
   }
-  const inputErr: React.CSSProperties = { ...inputStyle, borderColor: '#e53935', backgroundColor: '#fff8f8' }
+  const inputErr: React.CSSProperties = { ...inputStyle, border: '1px solid #e53935', backgroundColor: '#fff8f8' }
   const labelStyle: React.CSSProperties = { fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }
   const errMsg: React.CSSProperties = { fontSize: '11px', color: '#e53935', marginTop: '3px' }
   const thStyle: React.CSSProperties = {
@@ -1133,6 +1602,70 @@ export default function Ventas() {
                     </tfoot>
                   </table>
                 </div>
+
+                {/* Botón WhatsApp */}
+                <div style={{ marginBottom: '20px' }}>
+                  <button 
+                    onClick={() => generarTextoWhatsApp(nextCodVenta)}
+                    style={{
+                      background: '#25D366',
+                      color: 'white',
+                      border: 'none',
+                      padding: '10px 20px',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                      fontSize: '14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      width: '100%',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    💬 Generar texto para WhatsApp
+                  </button>
+                </div>
+
+                {/* Textarea WhatsApp */}
+                {mostrarTextoWA && (
+                  <div style={{ marginBottom: '20px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: 'bold', color: '#555' }}>Texto para WhatsApp</label>
+                      <button
+                        onClick={copiarAlPortapapeles}
+                        style={{
+                          background: '#25D366',
+                          color: 'white',
+                          border: 'none',
+                          padding: '6px 14px',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: 'bold'
+                        }}
+                      >
+                        📋 Copiar
+                      </button>
+                    </div>
+                    <textarea
+                      value={textoWhatsApp}
+                      readOnly
+                      style={{
+                        width: '100%',
+                        minHeight: '300px',
+                        padding: '12px',
+                        borderRadius: '8px',
+                        border: '2px solid #25D366',
+                        fontFamily: 'monospace',
+                        fontSize: '12px',
+                        backgroundColor: '#f0f9f6',
+                        color: '#222',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+                )}
 
                 {/* Botones confirmacion */}
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'space-between', alignItems: 'center' }}>

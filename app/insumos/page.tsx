@@ -153,7 +153,7 @@ export default function RegistroInsumos() {
               </div>
               <div style={{ flex: 1 }}>
                 <label style={{ fontSize: '12px', color: '#7c3aed', fontWeight: 'bold' }}>P. Cotizador (+20%)</label>
-                <input type="number" value={form.precio_cotizador || ''} onChange={e => setForm({...form, precio_cotizador: e.target.value})} style={{ ...inputS, borderColor: '#7c3aed' }} />
+                <input type="number" value={form.precio_cotizador || ''} onChange={e => setForm({...form, precio_cotizador: e.target.value})} style={{ ...inputS, border: '1px solid #7c3aed' }} />
               </div>
             </div>
 

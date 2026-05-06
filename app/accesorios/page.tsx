@@ -157,7 +157,7 @@ export default function RegistroAccesorios() {
               </div>
               <div style={{ flex: 1 }}>
                 <label style={{ fontSize: '12px', color: '#087e0b', fontWeight: 'bold' }}>P. Cotizador (+20%)</label>
-                <input type="number" value={form.precio_cotizador || ''} onChange={e => setForm({...form, precio_cotizador: e.target.value})} style={{ ...inputS, borderColor: '#087e0b' }} />
+                <input type="number" value={form.precio_cotizador || ''} onChange={e => setForm({...form, precio_cotizador: e.target.value})} style={{ ...inputS, border: '1px solid #087e0b' }} />
               </div>
             </div>
 
