@@ -708,7 +708,7 @@ export default function Ventas() {
               </tr>
             </thead>
             <tbody>
-              ${datos.lineas.map((linea, idx) => `
+              ${datos.lineas.map((linea: any, idx: number) => `
                 <tr>
                   <td>${idx + 1}</td>
                   <td>${linea.producto || '—'}</td>
@@ -822,7 +822,7 @@ export default function Ventas() {
     const productosCodigos = lineas.map(l => l.cod_producto).join(', ')
     const cantidades = lineas.map(l => l.cantidad).join('-')
     const medidas = lineas.map(l => l.dimensiones || '—').join(' / ')
-    const colorEst = coloresEst.find(c => c.id === parseInt(lineas[0]?.color_estructura || '0'))?.detalle || lineas[0]?.color_estructura || '—'
+    const colorEst = coloresEst.find(c => c.codigo_color === lineas[0]?.color_estructura)?.detalle || lineas[0]?.color_estructura || '—'
     const colorMel = lineas.map(l => coloresMel.find(m => m.id === parseInt(l.color_melamina))?.detalle || l.color_melamina).join(', ')
 
     const texto = `*N. PEDIDO:* ${codVentaParam}
@@ -977,8 +977,8 @@ export default function Ventas() {
         cantidad: parseInt(l.cantidad),
         subtotal: parseFloat(l.precio_vendido) * parseInt(l.cantidad),
         dimensiones: l.dimensiones,
-        colorEstructura: coloresEst.find(c => c.id === parseInt(l.color_estructura))?.detalle || l.color_estructura,
-        colorMelamina: coloresMel.find(c => c.id === parseInt(l.color_melamina))?.detalle || l.color_melamina,
+        colorEstructura: coloresEst.find(c => c.codigo_color === l.color_estructura)?.detalle || l.color_estructura,
+        colorMelamina: coloresMel.find(c => c.codigo_color === l.color_melamina)?.detalle || l.color_melamina,
       })),
       total: totalVenta
     })
