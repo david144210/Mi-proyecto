@@ -71,26 +71,26 @@ export default function Home() {
     { nombre: 'Sucursal Cochabamba', dir: 'Av. Segunda Circunvalacion, Cochabamba', tel: '+591 61211195', link: 'https://maps.app.goo.gl/WoCYUfsSXSPRB7Vc9', wa: 'https://wa.me/59161211195' },
   ]
 
-  const productosDestacados: ProductoDestacado[] = [
-    {
-      nombre: 'Ropero Skan',
-      descripcion: 'Diseño cómodo y elegante para sala moderna.',
-      precio: 'Bs. 1250',
-      imagen: '/productos/ropero-skan.jpg',
-    },
-    {
-      nombre: 'Esquinero para living',
-      descripcion: 'Mueble de acero con acabado elegante para tu sala de estar.',
-      precio: 'Bs. 530',
-      imagen: '/productos/esquinero.jpg',
-    },
-    {
-      nombre: 'Recibidor para sala',
-      descripcion: 'Mueble ideal para tu sala',
-      precio: 'Bs. 990',
-      imagen: '/productos/recibidor.jpg',
-    },
-  ]
+  const productosDestacados = [
+  {
+    nombre: 'Ropero Skan',
+    descripcion: 'Diseño cómodo y elegante para sala moderna.',
+    precio: 'Bs. 1250',
+    imagen: '/productos/ropero-skan.jpg',
+  },
+  {
+    nombre: 'Esquinero para living',
+    descripcion: 'Mueble de acero con acabado elegante para tu sala de estar.',
+    precio: 'Bs. 530',
+    imagen: '/productos/esquinero.jpg',
+  },
+  {
+    nombre: 'Recibidor para sala',
+    descripcion: 'Mueble ideal para tu sala',
+    precio: 'Bs. 990',
+    imagen: '/productos/recibidor.jpg',
+  },
+] satisfies ProductoDestacado[]
 
   return (
     <div className="app-shell">
