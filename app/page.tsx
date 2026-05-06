@@ -305,7 +305,7 @@ export default function Home() {
         .producto-card img {
           width: 100%;
           height: 220px;
-          object-fit: cover;
+          object-fit: contain;
           background: #111;
         }
         .producto-card-content {
@@ -463,6 +463,9 @@ export default function Home() {
           .hamburger {
             display: flex;
           }
+          .nav-login-desktop {
+            display: none !important;
+          }
           .hero-section {
             flex-direction: column;
             padding: 120px 20px 60px;
@@ -489,6 +492,7 @@ export default function Home() {
           .producto-grid {
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 16px;
+            object-fit: contain;
           }
           .producto-card img {
             height: 160px;
@@ -650,13 +654,12 @@ export default function Home() {
                 <h3 className="producto-card-title">{producto.nombre}</h3>
                 <p className="producto-card-desc">{producto.descripcion}</p>
                 <p className="producto-card-price">{producto.precio}</p>
-                <a href="/cotizador" className="producto-card-cta">Pedir información</a>
               </div>
             </div>
           ))}
         </div>
-        <a href="/cotizador" className="btn-gold" style={{ textDecoration: 'none', marginTop: '34px', display: 'inline-block' }}>
-          Ir al Cotizador
+        <a href="https://drive.google.com/file/d/10yFQtofnn9Fm-nchE8XVx6rokUnY5Pgo/view?usp=sharing" target="_blank" rel="noopener noreferrer" className="btn-gold" style={{ textDecoration: 'none', marginTop: '34px', display: 'inline-block' }}>
+          Ver Más
         </a>
       </div>
 
