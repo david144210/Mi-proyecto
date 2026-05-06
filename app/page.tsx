@@ -452,6 +452,14 @@ export default function Home() {
             box-sizing: border-box;
             border-top: 1px solid rgba(255, 215, 0, 0.18);
           }
+          .nav-login-movil {
+            display: none;
+          }
+          .nav-menu.abierto .nav-login-movil {
+            display: flex !important;
+            flex-direction: column;
+            gap: 14px;
+          }
           .hamburger {
             display: flex;
           }
@@ -512,7 +520,7 @@ export default function Home() {
           <a href="/cotizador" onClick={() => setMenuAbierto(false)} className="nav-link">Cotizador</a>
           <a href="/productos" onClick={() => setMenuAbierto(false)} className="nav-link">Catalogo</a>
 
-          <div className="nav-login-movil" style={{ display: 'none', flexDirection: 'column' }}>
+          <div className="nav-login-movil" style={{ flexDirection: 'column' }}>
             {usuario ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <span style={{ color: '#FFD700', fontWeight: 'bold' }}>{usuario.usuario} 👤</span>
@@ -577,7 +585,7 @@ export default function Home() {
           )}
         </div>
 
-        <button className="hamburger" onClick={() => { setMenuAbierto(!menuAbierto); setShowLogin(false) }} style={{ background: 'none', border: 'none', color: '#FFD700', fontSize: '24px', cursor: 'pointer', display: 'none' }}>
+        <button className="hamburger" onClick={() => { setMenuAbierto(!menuAbierto); setShowLogin(false) }} style={{ background: 'none', border: 'none', color: '#FFD700', fontSize: '24px', cursor: 'pointer' }}>
           {menuAbierto ? '✕' : '☰'}
         </button>
       </nav>
