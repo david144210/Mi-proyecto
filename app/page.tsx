@@ -59,9 +59,30 @@ export default function Home() {
 
   const sucursales = [
     { nombre: 'Sucursal El Alto', dir: 'C. L. de la Vega 3623, El Alto', tel: '+591 65572015', link: 'https://maps.app.goo.gl/S6gJuAURM7S2WEzu5', wa: 'https://wa.me/59165572015' },
-    { nombre: 'Sucursal La Paz', dir: 'Zona Bella Vista, C. Ignacio Sanjines, La Paz', tel: '+591 60633283', link: 'https://maps.app.goo.gl/tA2KuW5a2yU66USm7', wa: 'https://wa.me/59160633283' },
+    { nombre: 'Sucursal La Paz', dir: 'Zona Bella Vista, C. Ignacio Sanjines, La Paz', tel: '+591 60633283', link: 'https://maps.app.goo.gl/tA2KuW5a2U66USm7', wa: 'https://wa.me/59160633283' },
     { nombre: 'Sucursal Santa Cruz', dir: 'Av. Napoleon Gomez Landivar, Radial 21, Santa Cruz', tel: '+591 60044821', link: 'https://maps.app.goo.gl/f9xnUphWpvmgmLxv5', wa: 'https://wa.me/59160044821' },
     { nombre: 'Sucursal Cochabamba', dir: 'Av. Segunda Circunvalacion, Cochabamba', tel: '+591 61211195', link: 'https://maps.app.goo.gl/WoCYUfsSXSPRB7Vc9', wa: 'https://wa.me/59161211195' },
+  ]
+
+  const productosDestacados = [
+    {
+      nombre: 'Ropero Skan',
+      descripcion: 'Diseño cómodo y elegante para sala moderna.',
+      
+      imagen: '/productos/ropero-skan.jpg',
+    },
+    {
+      nombre: 'Esquinero',
+      descripcion: 'Mueble de esquina con diseño moderno.',
+      
+      imagen: '/productos/esquinero.jpg',
+    },
+    {
+      nombre: 'Recibidor de sala',
+      descripcion: 'Elegante recibidor para sala de estar.',
+      
+      imagen: '/productos/recibidor.jpg',
+    },
   ]
 
   return (
@@ -259,6 +280,70 @@ export default function Home() {
           transform: translateY(-3px);
           box-shadow: 0 16px 30px rgba(0, 0, 0, 0.15);
         }
+        .producto-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+          gap: 24px;
+          margin-top: 40px;
+        }
+        .producto-card {
+          background: rgba(255, 255, 255, 0.08);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          border-radius: 24px;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          min-height: 100%;
+        }
+        .producto-card img {
+          width: 100%;
+          height: 220px;
+          object-fit: cover;
+          background: #111;
+        }
+        .producto-card-content {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          padding: 22px;
+          flex: 1;
+        }
+        .producto-card-title {
+          margin: 0;
+          font-size: 1.05rem;
+          color: #ffffff;
+          font-weight: 700;
+        }
+        .producto-card-desc {
+          margin: 0;
+          color: #d8d8d8;
+          line-height: 1.7;
+          font-size: 0.96rem;
+        }
+        .producto-card-price {
+          margin: 0;
+          font-weight: 700;
+          color: #ffd700;
+          font-size: 1rem;
+        }
+        .producto-card-cta {
+          margin-top: auto;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+          padding: 10px 16px;
+          background: rgba(255, 255, 255, 0.08);
+          color: #ffffff;
+          border-radius: 999px;
+          text-decoration: none;
+          font-size: 0.95rem;
+          font-weight: 700;
+          transition: background 0.2s ease;
+        }
+        .producto-card-cta:hover {
+          background: rgba(255, 255, 255, 0.14);
+        }
         .section-padding {
           padding: 80px 40px;
           max-width: 1200px;
@@ -385,6 +470,23 @@ export default function Home() {
           .hero-copy,
           .section-copy {
             max-width: 100%;
+          }
+          .producto-grid {
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+          }
+          .producto-card img {
+            height: 160px;
+          }
+          .producto-card-content {
+            padding: 16px;
+            gap: 10px;
+          }
+          .producto-card-title {
+            font-size: 0.95rem;
+          }
+          .producto-card-desc {
+            font-size: 0.88rem;
           }
         }
       `}</style>
@@ -522,10 +624,23 @@ export default function Home() {
       <div id="productos" className="section-padding" style={{ textAlign: 'center' }}>
         <div className="section-label">Catalogo</div>
         <h2 className="section-title">Nuestros Productos</h2>
-        <p className="section-copy" style={{ marginBottom: '40px' }}>
-          Proxximamente estara disponible nuestro catalogo completo de muebles.
+        <p className="section-copy" style={{ marginBottom: '24px' }}>
+          Descubre algunos de nuestros muebles destacados. Sube tus imágenes a <code>/public/productos/</code> y actualiza las rutas en el arreglo de productos.
         </p>
-        <a href="/cotizador" className="btn-gold" style={{ textDecoration: 'none' }}>
+        <div className="producto-grid">
+          {productosDestacados.map((producto, index) => (
+            <div key={index} className="producto-card">
+              <img src={producto.imagen} alt={producto.nombre} />
+              <div className="producto-card-content">
+                <h3 className="producto-card-title">{producto.nombre}</h3>
+                <p className="producto-card-desc">{producto.descripcion}</p>
+                <p className="producto-card-price">{producto.precio}</p>
+                <a href="/cotizador" className="producto-card-cta">Pedir información</a>
+              </div>
+            </div>
+          ))}
+        </div>
+        <a href="/cotizador" className="btn-gold" style={{ textDecoration: 'none', marginTop: '34px', display: 'inline-block' }}>
           Ir al Cotizador
         </a>
       </div>
