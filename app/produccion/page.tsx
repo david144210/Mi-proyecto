@@ -160,8 +160,10 @@ export default function Produccion() {
       const ventaActual = ventas.find(v => v.cod_venta === codVenta)
       if (!ventaActual) return
 
+      const estadoActualNumero = ventaActual.estado ?? 1
+
       // No permitir reducir estado
-      if (nuevoEstado < ventaActual.estado) {
+      if (nuevoEstado < estadoActualNumero) {
         alert('No se puede reducir el estado. El flujo es progresivo.')
         return
       }
@@ -173,7 +175,7 @@ export default function Produccion() {
       }
 
       // Confirmar el cambio
-      const estadoActual = ESTADOS.find(e => e.value === ventaActual.estado)?.label || 'desconocido'
+      const estadoActual = ESTADOS.find(e => e.value === estadoActualNumero)?.label || 'desconocido'
       const estadoNuevo = ESTADOS.find(e => e.value === nuevoEstado)?.label || 'desconocido'
       const confirmacion = window.confirm(
         `¿Cambiar de "${estadoActual}" a "${estadoNuevo}"?\n\nEste cambio es irreversible.`
