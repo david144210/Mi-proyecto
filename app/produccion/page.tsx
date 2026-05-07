@@ -94,12 +94,13 @@ export default function Produccion() {
   const cargarVentas = async () => {
     setLoadingVentas(true)
     try {
-      // Obtener ventas con estado 1-4
+      // Obtener ventas con estado 1-3
       const { data: ventasData, error } = await supabase
         .from('ventas')
         .select('*')
         .not('estado', 'is', null)
-        .lt('estado', '5')  // Cambiar a string si estado es text
+        .gte('estado', 1)
+        .lte('estado', 3)
         .order('fecha_pedido', { ascending: false })
 
       if (error) {
@@ -162,9 +163,9 @@ export default function Produccion() {
 
       const estadoActualNumero = ventaActual.estado ?? 1
 
-      // No permitir reducir estado
-      if (nuevoEstado < estadoActualNumero) {
-        alert('No se puede reducir el estado. El flujo es progresivo.')
+      // No permitir reducir estado ni exceder 3
+      if (nuevoEstado < estadoActualNumero || nuevoEstado > 3) {
+        alert('Solo se permiten estados 1-3 en producción.')
         return
       }
 
@@ -296,11 +297,8 @@ export default function Produccion() {
                       style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid #ddd' }}
                     >
                       {ESTADOS.filter(estado => {
-                        // No permitir estados menores al actual
-                        if (estado.value < (venta.estado || 1)) return false
-                        // No permitir estado 5 para producción
-                        if (estado.value === 5 && usuario?.cargos?.nombre === 'Producción') return false
-                        return true
+                        // Solo estados 1-3 para producción
+                        return estado.value >= 1 && estado.value <= 3
                       }).map(estado => (
                         <option key={estado.value} value={estado.value}>{estado.label}</option>
                       ))}
