@@ -947,6 +947,31 @@ export default function Ventas() {
       setGuardandoNueva(false); setPasoNueva('form'); return
     }
 
+    // Actualizar estado a 1 (cola de producción)
+    const { error: updateEstado } = await supabase
+      .from('ventas')
+      .update({ estado: 1 })
+      .eq('cod_venta', codVentaFinal)
+
+    if (updateEstado) {
+      console.error('Error al actualizar estado:', updateEstado)
+      // No revertir, solo loggear
+    }
+
+    // Insertar en progreso_produccion
+    const { error: insertProgreso } = await supabase
+      .from('progreso_produccion')
+      .insert({
+        codigo_pedido: codVentaFinal,
+        estado: 1,
+        fecha_ingreso: nv.fecha_pedido
+      })
+
+    if (insertProgreso) {
+      console.error('Error al insertar progreso:', insertProgreso)
+      // No revertir, solo loggear
+    }
+
     // Exito — cerrar y recargar
     setGuardandoNueva(false)
     cerrarModalNueva()
