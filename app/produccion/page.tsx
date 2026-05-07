@@ -86,7 +86,7 @@ export default function Produccion() {
   useEffect(() => {
     const intervalo = setInterval(() => {
       cargarVentas()
-    }, 10000) // 10000 ms = 10 segundos
+    }, 30000) // 30000 ms = 30 segundos
 
     return () => clearInterval(intervalo)
   }, [])
@@ -205,7 +205,7 @@ export default function Produccion() {
       }
 
       // Registrar fecha_produccion cuando cambia a estado 2 (produciendo)
-      if (nuevoEstado === 2 && progresoExistente && !progresoExistente.fecha_produccion) {
+      if (nuevoEstado === 3 && progresoExistente && !progresoExistente.fecha_produccion) {
         updateData.fecha_produccion = new Date().toISOString().split('T')[0]
       }
 
@@ -218,7 +218,7 @@ export default function Produccion() {
         // Insertar nuevo
         updateData.codigo_pedido = codVenta
         updateData.fecha_ingreso = ventaActual.fecha_pedido
-        if (nuevoEstado === 2) updateData.fecha_produccion = new Date().toISOString().split('T')[0]
+        if (nuevoEstado === 3) updateData.fecha_produccion = new Date().toISOString().split('T')[0]
         if (nuevoEstado === 5) updateData.fecha_entregado = new Date().toISOString().split('T')[0]
 
         const { error: insertError } = await supabase
