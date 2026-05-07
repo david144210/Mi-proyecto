@@ -68,7 +68,7 @@ export default function Produccion() {
       .then(({ data }) => {
         if (!data) window.location.replace('/')
         else {
-          const esProduccion = data.cargos?.nombre === 'Producción'
+          const esProduccion = data.cargos?.puede_ver_produccion === true
           const esAdmin = data.cargos?.es_admin === true
           if (!esProduccion && !esAdmin) {
             setAccesoDenegado(true)
