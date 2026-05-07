@@ -917,6 +917,7 @@ export default function Ventas() {
       anticipo:          nv.anticipo          ? parseFloat(nv.anticipo)          : null,
       forma_pago:        nv.forma_pago,
       cod_transaccion:   nv.cod_transaccion || null,
+      estado:            1,
     })
 
     if (eVenta) {
@@ -945,17 +946,6 @@ export default function Ventas() {
       await supabase.from('ventas').delete().eq('cod_venta', codVentaFinal)
       setErrorGuardado('Error al registrar los productos: ' + eDet.message)
       setGuardandoNueva(false); setPasoNueva('form'); return
-    }
-
-    // Actualizar estado a 1 (cola de producción)
-    const { error: updateEstado } = await supabase
-      .from('ventas')
-      .update({ estado: 1 })
-      .eq('cod_venta', codVentaFinal)
-
-    if (updateEstado) {
-      console.error('Error al actualizar estado:', updateEstado)
-      // No revertir, solo loggear
     }
 
     // Insertar en progreso_produccion
