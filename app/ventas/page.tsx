@@ -232,6 +232,7 @@ export default function Ventas() {
     if (!loading && !accesoDenegado) cargarVentas(page, filtros)
   }, [loading, page, filtros, accesoDenegado, cargarVentas])
 
+  
   // ── Abrir detalle ─────────────────────────────────────────────────────────
   const abrirDetalle = async (v: Venta) => {
     setVentaSel(v); setModoEdicion(false); setMensajeGuardado('')

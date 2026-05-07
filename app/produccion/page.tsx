@@ -86,7 +86,7 @@ export default function Produccion() {
   useEffect(() => {
     const intervalo = setInterval(() => {
       cargarVentas()
-    }, 60000) // 60000 ms = 1 minuto
+    }, 10000) // 10000 ms = 10 segundos
 
     return () => clearInterval(intervalo)
   }, [])
@@ -100,7 +100,7 @@ export default function Produccion() {
         .select('*')
         .not('estado', 'is', null)
         .gte('estado', 1)
-        .lte('estado', 3)
+        .lte('estado', 2)
         .order('fecha_pedido', { ascending: false })
 
       if (error) {

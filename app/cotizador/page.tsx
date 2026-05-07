@@ -80,8 +80,13 @@ export default function Cotizador() {
   useEffect(() => {
     const carnetGuardado = localStorage.getItem('carnet')
     if (!carnetGuardado) { window.location.replace('/'); return }
-    supabase.from('personal').select('*').eq('carnet', carnetGuardado).eq('estado', true).single()
-      .then(({ data }) => { if (!data) window.location.replace('/'); else setUsuario(data) })
+    supabase.from('personal').select('*, cargos(*)').eq('carnet', carnetGuardado).eq('estado', true).single()
+      .then(({ data }) => {
+        if (!data || !data.cargos?.puede_ver_cotizador) {
+          window.location.replace('/'); return
+        }
+        setUsuario(data)
+      })
     Promise.all([
       supabase.from('aceros').select('*').order('detalle'),
       supabase.from('melaminas').select('*').order('detalle'),
@@ -203,8 +208,8 @@ export default function Cotizador() {
   const precioFacturado = precioMarginal * 1.16
 
   // Ajusta 'jerarquia' al nombre exacto del campo en tu tabla personal
-  const esJerarquia = usuario?.jerarquia === true || usuario?.jerarquia === 1
-
+  const esJerarquia = usuario?.cargos?.puede_ver_cotizador === true;
+  
   const inputStyle = {
     padding: '10px 14px',
     borderRadius: '8px',
@@ -279,7 +284,7 @@ export default function Cotizador() {
           .grid-accesorio .col-full { grid-column: 1 / -1; }
           .grid-union { grid-template-columns: 1fr 1fr !important; }
           .grid-union .col-full { grid-column: 1 / -1; }
-          .cot-tabla th, .cot-tabla td { padding: 8px 10px !important; font-size: 12px !important; }
+          .cot-tabla th, .cot-tabla td { padding: 8px 10px !important; font-size: 12px !important; color: #222 !important; }
           .resumen-bar { flex-direction: column !important; gap: 16px !important; text-align: center !important; }
         }
       `}</style>
