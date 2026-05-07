@@ -99,6 +99,13 @@ export default function Sistema() {
           </a>
           )}
 
+{/* TARJETA CALENDARIO */}
+          {(esAdmin || !!usuario?.cargos?.puede_ver_produccion) && (
+          <a href="/calendario" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>📅</div>
+            <h3 style={{ margin: 0 }}>Calendario </h3>
+          </a>
+          )}
           {/* Aqui agregaras mas aplicaciones */}
 
         </div>
