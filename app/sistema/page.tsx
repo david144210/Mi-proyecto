@@ -56,10 +56,6 @@ export default function Sistema() {
             <h3 style={{ margin: 0 }}>Clientes</h3>
           </a>
 
-          <a href="/compras-acero" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🔩</div>
-            <h3 style={{ margin: 0 }}>Compras Acero</h3>
-          </a>
 
             {(esAdmin || !!usuario?.cargos?.puede_ver_cotizador) && (
               <a href="/ventas" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
@@ -75,19 +71,42 @@ export default function Sistema() {
               <h3 style={{ margin: 0 }}>Personal</h3>
             </a>
           )}
+          {/* TARJETA compra tubos */}
+          {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
+          <a href="/compras-acero" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>⚙️</div>
+            <h3 style={{ margin: 0 }}>Compra Acero</h3>
+          </a>
+          )}
+
           {/* TARJETA ACCESORIOS */}
-          {(esAdmin || !!usuario?.cargos?.puede_ver_cotizador) && (
+          {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
           <a href="/accesorios" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
             <div style={{ fontSize: '40px', marginBottom: '12px' }}>⚙️</div>
             <h3 style={{ margin: 0 }}>Registro Accesorios</h3>
           </a>
           )}
+        {/* TARJETA compra de ACCESORIOS */}
+          {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
+          <a href="/compras-accesorios" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>⚙️</div>
+            <h3 style={{ margin: 0 }}>Compra Accesorios</h3>
+          </a>
+          )}
 
           {/* TARJETA INSUMOS */}
-          {(esAdmin || !!usuario?.cargos?.puede_ver_cotizador) && (
+          {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
           <a href="/insumos" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
             <div style={{ fontSize: '40px', marginBottom: '12px' }}>🧪</div>
             <h3 style={{ margin: 0 }}>Registro Insumos</h3>
+          </a>
+          )}
+
+          {/* TARJETA compra de INSUMOS */}
+          {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
+          <a href="/compras-insumos" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🧪</div>
+            <h3 style={{ margin: 0 }}>Compra Insumos</h3>
           </a>
           )}
 
@@ -112,6 +131,14 @@ export default function Sistema() {
           <a href="/entregas" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
             <div style={{ fontSize: '40px', marginBottom: '12px' }}>📅</div>
             <h3 style={{ margin: 0 }}>Despachos </h3>
+          </a>
+          )}
+
+{/* TARJETA COBROS */}
+          {(esAdmin || !!usuario?.cargos?.puede_ver_entregas) && (
+          <a href="/cobros" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>Bs.</div>
+            <h3 style={{ margin: 0 }}>Cobros</h3>
           </a>
           )}
           {/* Aqui agregaras mas aplicaciones */}

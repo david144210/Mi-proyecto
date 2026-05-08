@@ -207,8 +207,13 @@ export default function Cotizador() {
   const precioNeto = precioMarginal * 1.11
   const precioFacturado = precioMarginal * 1.16
 
-  // Ajusta 'jerarquia' al nombre exacto del campo en tu tabla personal
-  const esJerarquia = usuario?.cargos?.puede_ver_cotizador === true;
+  const puedeVerPrecioMinimo =
+    usuario?.cargos?.puede_ver_precio_minimo === true ||
+    usuario?.cargos?.puede_ver_precio_minimo === 1 ||
+    usuario?.cargos?.es_admin === true ||
+    usuario?.cargos?.es_admin === 1
+
+  const esJerarquia = puedeVerPrecioMinimo
   
   const inputStyle = {
     padding: '10px 14px',
@@ -380,13 +385,13 @@ export default function Cotizador() {
                         </tr>
                       ))}
                     </tbody>
-                    <tfoot>
+                    {esJerarquia && <tfoot>
                       <tr style={{ backgroundColor: '#f0fff0' }}>
                         <td colSpan={esJerarquia ? 4 : 2} style={{ padding: '14px 16px', fontWeight: 'bold', fontSize: '15px', borderTop: '2px solid #087e0b' }}>Total Tuberia</td>
                         {esJerarquia && <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px', color: '#087e0b', borderTop: '2px solid #087e0b' }}>Bs. {totalAcero.toFixed(2)}</td>}
                         <td style={{ borderTop: '2px solid #087e0b' }}></td>
                       </tr>
-                    </tfoot>
+                    </tfoot>}
                   </table>
                 </div>
               ) : emptyBox}
@@ -470,13 +475,13 @@ export default function Cotizador() {
                         </tr>
                       ))}
                     </tbody>
-                    <tfoot>
+                    {esJerarquia && <tfoot>
                       <tr style={{ backgroundColor: '#f0fff0' }}>
                         <td colSpan={esJerarquia ? 5 : 3} style={{ padding: '14px 16px', fontWeight: 'bold', fontSize: '15px', borderTop: '2px solid #087e0b' }}>Total Melamina</td>
                         {esJerarquia && <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px', color: '#087e0b', borderTop: '2px solid #087e0b' }}>Bs. {totalMelamina.toFixed(2)}</td>}
                         <td style={{ borderTop: '2px solid #087e0b' }}></td>
                       </tr>
-                    </tfoot>
+                    </tfoot>}
                   </table>
                 </div>
               ) : emptyBox}
@@ -486,7 +491,7 @@ export default function Cotizador() {
             <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', marginBottom: '24px' }}>
               <h2 style={{ margin: '0 0 4px 0', fontSize: '20px' }}>🔧 Accesorios</h2>
               <p style={{ color: '#888', fontSize: '13px', margin: '0 0 20px 0' }}>
-                Formula: cantidad x precio unitario
+                {esJerarquia && 'Formula: cantidad x precio unitario'}
               </p>
 
               <div className="grid-accesorio" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: '12px', alignItems: 'end', marginBottom: '12px' }}>
@@ -548,13 +553,13 @@ export default function Cotizador() {
                         </tr>
                       ))}
                     </tbody>
-                    <tfoot>
+                    {esJerarquia && <tfoot>
                       <tr style={{ backgroundColor: '#f0fff0' }}>
                         <td colSpan={esJerarquia ? 3 : 1} style={{ padding: '14px 16px', fontWeight: 'bold', fontSize: '15px', borderTop: '2px solid #087e0b' }}>Total Accesorios</td>
                         {esJerarquia && <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px', color: '#087e0b', borderTop: '2px solid #087e0b' }}>Bs. {totalAccesorio.toFixed(2)}</td>}
                         <td style={{ borderTop: '2px solid #087e0b' }}></td>
                       </tr>
-                    </tfoot>
+                    </tfoot>}
                   </table>
                 </div>
               ) : emptyBox}
@@ -564,11 +569,11 @@ export default function Cotizador() {
             <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', marginBottom: '24px' }}>
               <h2 style={{ margin: '0 0 4px 0', fontSize: '20px' }}>🔗 Uniones</h2>
               <p style={{ color: '#888', fontSize: '13px', margin: '0 0 20px 0' }}>
-                Formula: cantidad x precio unitario. La union recta (R) se calcula automaticamente segun las piezas de tuberia.
+                {esJerarquia && 'Formula: cantidad x precio unitario. La union recta (R) se calcula automaticamente segun las piezas de tuberia.'}
               </p>
 
               {/* Union recta automatica */}
-              {unionRectaAuto && cantidadTotalPiezasAcero > 0 && (
+              {esJerarquia && unionRectaAuto && cantidadTotalPiezasAcero > 0 && (
                 <div style={{ backgroundColor: '#f0fff0', border: '1px solid #a3c47d', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: '#2c6d2e', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span>
                     🔩 Union Recta ({unionRectaAuto.codigo_union}) — calculada automaticamente: {cantidadTotalPiezasAcero} piezas x Bs. {Number(unionRectaAuto.precio).toFixed(2)}
@@ -577,7 +582,7 @@ export default function Cotizador() {
                 </div>
               )}
 
-              {unionRectaAuto && cantidadTotalPiezasAcero === 0 && (
+              {esJerarquia && unionRectaAuto && cantidadTotalPiezasAcero === 0 && (
                 <div style={{ backgroundColor: '#f9f9f9', border: '1px solid #eee', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: '#aaa' }}>
                   🔩 Union Recta ({unionRectaAuto.codigo_union}) — se calculara automaticamente cuando agregues piezas de tuberia
                 </div>
@@ -642,13 +647,13 @@ export default function Cotizador() {
                         </tr>
                       ))}
                     </tbody>
-                    <tfoot>
+                    {esJerarquia && <tfoot>
                       <tr style={{ backgroundColor: '#f0fff0' }}>
-                        <td colSpan={3} style={{ padding: '14px 16px', fontWeight: 'bold', fontSize: '15px', borderTop: '2px solid #087e0b' }}>Total Uniones (manuales)</td>
-                        <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px', color: '#087e0b', borderTop: '2px solid #087e0b' }}>Bs. {totalUnion.toFixed(2)}</td>
+                        <td colSpan={esJerarquia ? 3 : 1} style={{ padding: '14px 16px', fontWeight: 'bold', fontSize: '15px', borderTop: '2px solid #087e0b' }}>Total Uniones (manuales)</td>
+                        {esJerarquia && <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px', color: '#087e0b', borderTop: '2px solid #087e0b' }}>Bs. {totalUnion.toFixed(2)}</td>}
                         <td style={{ borderTop: '2px solid #087e0b' }}></td>
                       </tr>
-                    </tfoot>
+                    </tfoot>}
                   </table>
                 </div>
               ) : (
@@ -662,7 +667,7 @@ export default function Cotizador() {
             <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', marginBottom: '24px' }}>
               <h2 style={{ margin: '0 0 4px 0', fontSize: '20px' }}>🎨 Color / Pintura</h2>
               <p style={{ color: '#888', fontSize: '13px', margin: '0 0 20px 0' }}>
-                Formula: (precio x longitud total de tubería) / consumo. Se calcula automáticamente según la tubería ingresada.
+                {esJerarquia && 'Formula: (precio x longitud total de tuberia) / consumo. Se calcula automaticamente segun la tuberia ingresada.'}
               </p>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px', marginBottom: '12px' }}>
