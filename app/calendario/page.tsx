@@ -8,9 +8,11 @@ interface Pedido {
   id: number
   cod_venta: number
   cliente: string
+  vendedor: string
   fecha_entrega: string | null
   estado: number | null
   total?: number | null
+  reprogramado: boolean
 }
 
 // ── Estados ───────────────────────────────────────────────────
@@ -126,14 +128,44 @@ useEffect(() => {
         clientesData?.map(c => [c.id, c.nombre]) || []
       )
 
+      // VENDEDORES
+      const vendedoresIds = ventasData
+        .map(v => v.cod_vendedor)
+        .filter(Boolean)
+
+      const { data: vendedoresData } = await supabase
+        .from('vendedores')
+        .select('id, nombre')
+        .in('id', vendedoresIds)
+
+      const vendedoresMap = Object.fromEntries(
+        vendedoresData?.map(v => [v.id, v.nombre]) || []
+      )
+
+      // PROGRESO
+      const codigosPedidos = ventasData
+        .map(v => v.cod_venta)
+        .filter(Boolean)
+
+      const { data: progresoData } = await supabase
+        .from('progreso_produccion')
+        .select('codigo_pedido, reprogramado')
+        .in('codigo_pedido', codigosPedidos)
+
+      const progresoMap = Object.fromEntries(
+        progresoData?.map(p => [p.codigo_pedido, p.reprogramado === true]) || []
+      )
+
       // PEDIDOS
       const pedidosProcesados = ventasData.map((v: any) => ({
         id: v.id,
         cod_venta: v.cod_venta,
         cliente: clientesMap[v.cod_cliente] || 'Sin cliente',
+        vendedor: vendedoresMap[v.cod_vendedor] || 'Sin vendedor',
         fecha_entrega: v.fecha_entrega,
         estado: v.estado,
-        total: v.total_venta
+        total: v.total_venta,
+        reprogramado: progresoMap[v.cod_venta] || false
       }))
 
       setPedidos(pedidosProcesados)
@@ -165,6 +197,8 @@ useEffect(() => {
 
       // CLIENTE
       let clienteNombre = 'Sin cliente'
+      let vendedorNombre = 'Sin vendedor'
+      let reprogramado = false
 
       if (ventaData.cod_cliente) {
 
@@ -177,6 +211,25 @@ useEffect(() => {
         clienteNombre = clienteData?.nombre || 'Sin cliente'
       }
 
+      if (ventaData.cod_vendedor) {
+
+        const { data: vendedorData } = await supabase
+          .from('vendedores')
+          .select('nombre')
+          .eq('id', ventaData.cod_vendedor)
+          .single()
+
+        vendedorNombre = vendedorData?.nombre || 'Sin vendedor'
+      }
+
+      const { data: progresoData } = await supabase
+        .from('progreso_produccion')
+        .select('reprogramado')
+        .eq('codigo_pedido', codVenta)
+        .single()
+
+      reprogramado = progresoData?.reprogramado === true
+
       // DETALLES
       const { data: detallesData } = await supabase
         .from('detalle_venta')
@@ -186,6 +239,8 @@ useEffect(() => {
       setPedidoSeleccionado({
         ...ventaData,
         cliente: clienteNombre,
+        vendedor: vendedorNombre,
+        reprogramado,
         detalles: detallesData || []
       })
 
@@ -521,6 +576,33 @@ useEffect(() => {
 
                             <div
                               style={{
+                                marginTop: '4px',
+                                fontSize: '11px',
+                                opacity: 0.95
+                              }}
+                            >
+                              Vendedor: {pedido.vendedor}
+                            </div>
+
+                            {pedido.reprogramado && (
+                              <div
+                                style={{
+                                  marginTop: '5px',
+                                  backgroundColor: 'white',
+                                  color: '#c62828',
+                                  borderRadius: '6px',
+                                  padding: '3px 6px',
+                                  fontSize: '11px',
+                                  fontWeight: 'bold',
+                                  display: 'inline-block'
+                                }}
+                              >
+                                Reprogramado
+                              </div>
+                            )}
+
+                            <div
+                              style={{
                                 marginTop: '5px',
                                 fontSize: '11px'
                               }}
@@ -625,6 +707,11 @@ useEffect(() => {
               </div>
 
               <div>
+                <strong>Vendedor:</strong>
+                <div>{pedidoSeleccionado.vendedor}</div>
+              </div>
+
+              <div>
                 <strong>Estado:</strong>
 
                 <div
@@ -641,6 +728,20 @@ useEffect(() => {
                 <strong>Fecha entrega:</strong>
                 <div>{pedidoSeleccionado.fecha_entrega}</div>
               </div>
+
+              {pedidoSeleccionado.reprogramado && (
+                <div>
+                  <strong>Reprogramacion:</strong>
+                  <div
+                    style={{
+                      color: '#c62828',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    Reprogramado
+                  </div>
+                </div>
+              )}
 
               <div>
                 <strong>Total:</strong>

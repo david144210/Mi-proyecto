@@ -34,6 +34,22 @@ interface DetalleVenta {
   color_melamina: string | null
 }
 
+interface CobranzaForm {
+  saldo: string
+  fecha_pago: string
+  comprobante: string
+  observaciones: string
+  tipo_pago: string
+  valoracion: string
+  descuentos: string
+  total_cobrado: string
+  delivery: string
+}
+
+interface ReprogramacionForm {
+  fecha_entrega: string
+}
+
 const ESTADOS_VENTA: Record<number, string> = {
   1: 'En cola de produccion',
   2: 'Produciendo',
@@ -60,6 +76,74 @@ const fmtFecha = (valor: string | null | undefined) => {
   }
 }
 
+const getFechaEntregaStyle = (fecha: string | null | undefined, estado: number | null | undefined) => {
+  if (!fecha) return {}
+
+  if (estado === 4) {
+    return {
+      backgroundColor: '#e3f2fd',
+      color: '#0d47a1',
+      border: '1px solid #90caf9',
+    }
+  }
+
+  const hoy = new Date()
+  const hoyStr = [
+    hoy.getFullYear(),
+    String(hoy.getMonth() + 1).padStart(2, '0'),
+    String(hoy.getDate()).padStart(2, '0'),
+  ].join('-')
+
+  if (fecha === hoyStr) {
+    return {
+      backgroundColor: '#e8f5e9',
+      color: '#1b5e20',
+      border: '1px solid #a5d6a7',
+    }
+  }
+
+  if (fecha > hoyStr) {
+    return {
+      backgroundColor: '#fff8e1',
+      color: '#8a5a00',
+      border: '1px solid #ffe082',
+    }
+  }
+
+  if (fecha < hoyStr && (estado ?? 0) < 4) {
+    return {
+      backgroundColor: '#ffebee',
+      color: '#b71c1c',
+      border: '1px solid #ef9a9a',
+    }
+  }
+
+  return {}
+}
+
+const FechaEntregaBadge = ({ fecha, estado }: { fecha: string | null | undefined; estado: number | null | undefined }) => (
+  <span
+    style={{
+      display: 'inline-block',
+      padding: '5px 9px',
+      borderRadius: '8px',
+      fontWeight: 'bold',
+      ...getFechaEntregaStyle(fecha, estado),
+    }}
+  >
+    {fmtFecha(fecha)}
+  </span>
+)
+
+const fechaLocalHoy = () => {
+  const hoy = new Date()
+  return [
+    hoy.getFullYear(),
+    String(hoy.getMonth() + 1).padStart(2, '0'),
+    String(hoy.getDate()).padStart(2, '0'),
+  ].join('-')
+}
+
 export default function CobrosPage() {
   const [usuario, setUsuario] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -74,7 +158,24 @@ export default function CobrosPage() {
   const [loadingDetalle, setLoadingDetalle] = useState(false)
   const [clienteNombre, setClienteNombre] = useState('')
   const [vendedorNombre, setVendedorNombre] = useState('')
-  const [estadoOriginalModal, setEstadoOriginalModal] = useState<number | null>(null)
+  const [mostrarFormularioCobro, setMostrarFormularioCobro] = useState(false)
+  const [mostrarFormularioReprogramacion, setMostrarFormularioReprogramacion] = useState(false)
+  const [guardandoCobro, setGuardandoCobro] = useState(false)
+  const [guardandoReprogramacion, setGuardandoReprogramacion] = useState(false)
+  const [formCobro, setFormCobro] = useState<CobranzaForm>({
+    saldo: '',
+    fecha_pago: fechaLocalHoy(),
+    comprobante: '',
+    observaciones: '',
+    tipo_pago: '',
+    valoracion: '',
+    descuentos: '0',
+    total_cobrado: '',
+    delivery: '',
+  })
+  const [formReprogramacion, setFormReprogramacion] = useState<ReprogramacionForm>({
+    fecha_entrega: '',
+  })
   const [filtros, setFiltros] = useState({
     estado: '4',
     fechaDesde: '',
@@ -181,6 +282,8 @@ export default function CobrosPage() {
     setDetalle([])
     setClienteNombre('')
     setVendedorNombre('')
+    setMostrarFormularioCobro(false)
+    setMostrarFormularioReprogramacion(false)
     setLoadingDetalle(true)
 
     try {
@@ -194,8 +297,9 @@ export default function CobrosPage() {
 
       const ventaCompleta = (ventaData || venta) as VentaCobro
       setVentaSel(ventaCompleta)
-      setEstadoOriginalModal(ventaCompleta.estado ?? null)
       setDetalle(detalleData || [])
+      prepararFormularioCobro(ventaCompleta)
+      prepararFormularioReprogramacion(ventaCompleta)
 
       if (ventaCompleta.cod_cliente) {
         const { data: cliente } = await supabase
@@ -228,15 +332,175 @@ export default function CobrosPage() {
     setDetalle([])
     setClienteNombre('')
     setVendedorNombre('')
-    setEstadoOriginalModal(null)
+    setMostrarFormularioCobro(false)
+    setMostrarFormularioReprogramacion(false)
   }
 
-  const cambiarEstadoModal = (estado: string) => {
-    if (!ventaSel) return
-    setVentaSel({
-      ...ventaSel,
-      estado: estado === '' ? null : Number(estado),
+  const prepararFormularioCobro = (venta: VentaCobro) => {
+    const saldo = Math.max(0, Number(venta.total_venta || 0) - Number(venta.anticipo || 0))
+    const delivery = Number(venta.delivery_pagado ?? venta.delivery_cotizado ?? 0)
+
+    setFormCobro({
+      saldo: saldo.toFixed(2),
+      fecha_pago: fechaLocalHoy(),
+      comprobante: '',
+      observaciones: '',
+      tipo_pago: venta.forma_pago || '',
+      valoracion: '',
+      descuentos: '0',
+      total_cobrado: saldo.toFixed(2),
+      delivery: Number.isFinite(delivery) ? String(Math.round(delivery)) : '0',
     })
+  }
+
+  const actualizarFormCobro = (campo: keyof CobranzaForm, valor: string) => {
+    setFormCobro(prev => ({ ...prev, [campo]: valor }))
+  }
+
+  const prepararFormularioReprogramacion = (venta: VentaCobro) => {
+    setFormReprogramacion({
+      fecha_entrega: venta.fecha_entrega || fechaLocalHoy(),
+    })
+  }
+
+  const abrirFormularioCobro = () => {
+    setMostrarFormularioCobro(prev => !prev)
+    setMostrarFormularioReprogramacion(false)
+  }
+
+  const abrirFormularioReprogramacion = () => {
+    setMostrarFormularioReprogramacion(prev => !prev)
+    setMostrarFormularioCobro(false)
+  }
+
+  const registrarCobro = async () => {
+    if (!ventaSel?.cod_venta) return
+
+    if (ventaSel.estado !== 4) {
+      alert('Solo se puede registrar cobro de ventas en estado 4 - Despachado')
+      return
+    }
+
+    const saldo = Number(formCobro.saldo || 0)
+    const descuentos = Number(formCobro.descuentos || 0)
+    const totalCobrado = Number(formCobro.total_cobrado || 0)
+    const delivery = Number(formCobro.delivery || 0)
+    const valoracion = formCobro.valoracion ? Number(formCobro.valoracion) : null
+
+    if (!formCobro.fecha_pago) {
+      alert('La fecha de pago es obligatoria')
+      return
+    }
+
+    if (!Number.isFinite(totalCobrado) || totalCobrado < 0) {
+      alert('El total cobrado no es valido')
+      return
+    }
+
+    if (valoracion != null && (valoracion < 1 || valoracion > 10)) {
+      alert('La valoracion debe estar entre 1 y 10')
+      return
+    }
+
+    const confirmar = confirm(`Registrar cobro de la venta #${ventaSel.cod_venta} y cambiar estado a COBRADO?`)
+    if (!confirmar) return
+
+    try {
+      setGuardandoCobro(true)
+
+      const { error: insertError } = await supabase
+        .from('cobranzas')
+        .insert({
+          cod_venta: ventaSel.cod_venta,
+          saldo: Number.isFinite(saldo) ? saldo : 0,
+          fecha_pago: formCobro.fecha_pago,
+          comprobante: formCobro.comprobante || null,
+          observaciones: formCobro.observaciones || null,
+          tipo_pago: formCobro.tipo_pago || null,
+          valoracion,
+          descuentos: Number.isFinite(descuentos) ? descuentos : 0,
+          total_cobrado: Number.isFinite(totalCobrado) ? totalCobrado : 0,
+          delivery: Number.isFinite(delivery) ? Math.round(delivery) : 0,
+        })
+
+      if (insertError) throw insertError
+
+      const { error: updateError } = await supabase
+        .from('ventas')
+        .update({ estado: 5 })
+        .eq('cod_venta', ventaSel.cod_venta)
+        .eq('estado', 4)
+
+      if (updateError) throw updateError
+
+      const { error: progresoError } = await supabase
+        .from('progreso_produccion')
+        .update({
+          estado: 5,
+          fecha_entregado: formCobro.fecha_pago,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('codigo_pedido', ventaSel.cod_venta)
+
+      if (progresoError) throw progresoError
+
+      const ventaActualizada = { ...ventaSel, estado: 5 }
+      setVentaSel(ventaActualizada)
+      setVentas(prev => prev.map(v => v.cod_venta === ventaSel.cod_venta ? { ...v, estado: 5 } : v))
+      setMostrarFormularioCobro(false)
+      await cargarVentas()
+      alert('Cobro registrado correctamente')
+    } catch (error) {
+      console.error(error)
+      alert('Error registrando el cobro')
+    } finally {
+      setGuardandoCobro(false)
+    }
+  }
+
+  const reprogramarPedido = async () => {
+    if (!ventaSel?.cod_venta) return
+
+    if (!formReprogramacion.fecha_entrega) {
+      alert('Debes colocar la nueva fecha de entrega')
+      return
+    }
+
+    const confirmar = confirm(`Reprogramar la venta #${ventaSel.cod_venta} para ${formReprogramacion.fecha_entrega}?`)
+    if (!confirmar) return
+
+    try {
+      setGuardandoReprogramacion(true)
+
+      const { error: ventaError } = await supabase
+        .from('ventas')
+        .update({ fecha_entrega: formReprogramacion.fecha_entrega })
+        .eq('cod_venta', ventaSel.cod_venta)
+
+      if (ventaError) throw ventaError
+
+      const { error: progresoError } = await supabase
+        .from('progreso_produccion')
+        .update({
+          reprogramado: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('codigo_pedido', ventaSel.cod_venta)
+
+      if (progresoError) throw progresoError
+
+      const ventaActualizada = { ...ventaSel, fecha_entrega: formReprogramacion.fecha_entrega }
+      setVentaSel(ventaActualizada)
+      setVentas(prev => prev.map(v => v.cod_venta === ventaSel.cod_venta ? { ...v, fecha_entrega: formReprogramacion.fecha_entrega } : v))
+      setMostrarFormularioReprogramacion(false)
+      await cargarVentas()
+      alert('Pedido reprogramado correctamente')
+    } catch (error) {
+      console.error(error)
+      alert('Error reprogramando el pedido')
+    } finally {
+      setGuardandoReprogramacion(false)
+    }
   }
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
@@ -463,7 +727,7 @@ export default function CobrosPage() {
                         {fmtMonto(venta.total_venta)}
                       </td>
                       <td style={{ padding: '14px 18px', borderBottom: '1px solid #f0f0f0' }}>
-                        {fmtFecha(venta.fecha_entrega)}
+                        <FechaEntregaBadge fecha={venta.fecha_entrega} estado={venta.estado} />
                       </td>
                       <td style={{ padding: '14px 18px', borderBottom: '1px solid #f0f0f0' }}>
                         <span style={{ display: 'inline-block', backgroundColor: '#eef3ff', color: '#1b4d89', padding: '5px 10px', borderRadius: '999px', fontWeight: 'bold', fontSize: '13px' }}>
@@ -497,7 +761,7 @@ export default function CobrosPage() {
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
                       <span>Fecha entrega</span>
-                      <strong>{fmtFecha(venta.fecha_entrega)}</strong>
+                      <FechaEntregaBadge fecha={venta.fecha_entrega} estado={venta.estado} />
                     </div>
                   </div>
                 </div>
@@ -557,23 +821,195 @@ export default function CobrosPage() {
               </div>
             ) : (
               <>
-                <div style={{ backgroundColor: '#f7f7f7', borderRadius: '12px', padding: '16px', marginBottom: '18px', display: 'grid', gap: '8px' }}>
-                  <label style={{ display: 'grid', gap: '6px', fontWeight: 'bold', color: '#333' }}>
-                    Estado del pedido
-                    <select
-                      value={ventaSel.estado ?? ''}
-                      onChange={(e) => cambiarEstadoModal(e.target.value)}
-                      disabled={estadoOriginalModal !== 4 && estadoOriginalModal !== 5}
-                      style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', backgroundColor: 'white' }}
-                    >
-                      <option value="4">4 - Despachado</option>
-                      <option value="5">5 - Cobrado</option>
-                    </select>
-                  </label>
+                <div style={{ backgroundColor: '#f7f7f7', borderRadius: '12px', padding: '16px', marginBottom: '18px', display: 'grid', gap: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div>
+                      <div style={{ color: '#777', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px', textTransform: 'uppercase' }}>Estado actual</div>
+                      <div style={{ color: '#222', fontWeight: 'bold' }}>
+                        {ventaSel.estado != null ? `${ventaSel.estado} - ${ESTADOS_VENTA[ventaSel.estado] || 'Sin nombre'}` : '-'}
+                      </div>
+                    </div>
 
-                  {ventaSel.estado !== estadoOriginalModal && (
-                    <div style={{ color: '#8a5a00', backgroundColor: '#fff8e1', border: '1px solid #ffe082', borderRadius: '8px', padding: '10px 12px', fontSize: '13px', fontWeight: 'bold' }}>
-                      Cambio local pendiente. Todavia no se guarda en la base de datos.
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                      {ventaSel.estado === 4 && (
+                        <button
+                          onClick={abrirFormularioCobro}
+                          style={{ border: 'none', backgroundColor: '#0d47a1', color: 'white', padding: '11px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}
+                        >
+                          {mostrarFormularioCobro ? 'Ocultar cobro' : 'Registrar cobro'}
+                        </button>
+                      )}
+
+                      {ventaSel.estado !== 5 && (
+                        <button
+                          onClick={abrirFormularioReprogramacion}
+                          style={{ border: 'none', backgroundColor: '#8a5a00', color: 'white', padding: '11px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}
+                        >
+                          {mostrarFormularioReprogramacion ? 'Ocultar reprogramacion' : 'Reprogramar pedido'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {ventaSel.estado !== 4 && (
+                    <div style={{ color: '#555', backgroundColor: '#eef3ff', border: '1px solid #c5d8ff', borderRadius: '8px', padding: '10px 12px', fontSize: '13px', fontWeight: 'bold' }}>
+                      El registro de cobro se habilita solamente para pedidos despachados.
+                    </div>
+                  )}
+
+                  {mostrarFormularioCobro && (
+                    <div style={{ backgroundColor: 'white', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '16px', display: 'grid', gap: '14px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
+                        <label style={{ display: 'grid', gap: '6px', fontWeight: 'bold', color: '#333' }}>
+                          Fecha pago
+                          <input
+                            type="date"
+                            value={formCobro.fecha_pago}
+                            onChange={(e) => actualizarFormCobro('fecha_pago', e.target.value)}
+                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
+                          />
+                        </label>
+
+                        <label style={{ display: 'grid', gap: '6px', fontWeight: 'bold', color: '#333' }}>
+                          Saldo
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={formCobro.saldo}
+                            onChange={(e) => actualizarFormCobro('saldo', e.target.value)}
+                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
+                          />
+                        </label>
+
+                        <label style={{ display: 'grid', gap: '6px', fontWeight: 'bold', color: '#333' }}>
+                          Total cobrado
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={formCobro.total_cobrado}
+                            onChange={(e) => actualizarFormCobro('total_cobrado', e.target.value)}
+                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
+                          />
+                        </label>
+
+                        <label style={{ display: 'grid', gap: '6px', fontWeight: 'bold', color: '#333' }}>
+                          Delivery
+                          <input
+                            type="number"
+                            value={formCobro.delivery}
+                            onChange={(e) => actualizarFormCobro('delivery', e.target.value)}
+                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
+                          />
+                        </label>
+
+                        <label style={{ display: 'grid', gap: '6px', fontWeight: 'bold', color: '#333' }}>
+                          Descuentos
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={formCobro.descuentos}
+                            onChange={(e) => actualizarFormCobro('descuentos', e.target.value)}
+                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
+                          />
+                        </label>
+
+                        <label style={{ display: 'grid', gap: '6px', fontWeight: 'bold', color: '#333' }}>
+                          Tipo pago
+                          <input
+                            value={formCobro.tipo_pago}
+                            onChange={(e) => actualizarFormCobro('tipo_pago', e.target.value)}
+                            placeholder="EFECTIVO, TRANSFERENCIA..."
+                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
+                          />
+                        </label>
+
+                        <label style={{ display: 'grid', gap: '6px', fontWeight: 'bold', color: '#333' }}>
+                          Comprobante
+                          <input
+                            value={formCobro.comprobante}
+                            onChange={(e) => actualizarFormCobro('comprobante', e.target.value)}
+                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
+                          />
+                        </label>
+
+                        <label style={{ display: 'grid', gap: '6px', fontWeight: 'bold', color: '#333' }}>
+                          Valoracion 1-10
+                          <input
+                            type="number"
+                            min="1"
+                            max="10"
+                            value={formCobro.valoracion}
+                            onChange={(e) => actualizarFormCobro('valoracion', e.target.value)}
+                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
+                          />
+                        </label>
+                      </div>
+
+                      <label style={{ display: 'grid', gap: '6px', fontWeight: 'bold', color: '#333' }}>
+                        Observaciones
+                        <textarea
+                          value={formCobro.observaciones}
+                          onChange={(e) => actualizarFormCobro('observaciones', e.target.value)}
+                          rows={3}
+                          style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', resize: 'vertical' }}
+                        />
+                      </label>
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', flexWrap: 'wrap' }}>
+                        <button
+                          onClick={() => setMostrarFormularioCobro(false)}
+                          disabled={guardandoCobro}
+                          style={{ border: '1px solid #ddd', backgroundColor: 'white', color: '#333', padding: '10px 14px', borderRadius: '8px', cursor: guardandoCobro ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}
+                        >
+                          Cancelar
+                        </button>
+
+                        <button
+                          onClick={registrarCobro}
+                          disabled={guardandoCobro}
+                          style={{ border: 'none', backgroundColor: guardandoCobro ? '#999' : '#087e0b', color: 'white', padding: '10px 16px', borderRadius: '8px', cursor: guardandoCobro ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}
+                        >
+                          {guardandoCobro ? 'Guardando...' : 'Guardar cobro y marcar cobrado'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {mostrarFormularioReprogramacion && (
+                    <div style={{ backgroundColor: 'white', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '16px', display: 'grid', gap: '14px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', alignItems: 'end' }}>
+                        <label style={{ display: 'grid', gap: '6px', fontWeight: 'bold', color: '#333' }}>
+                          Nueva fecha de entrega
+                          <input
+                            type="date"
+                            value={formReprogramacion.fecha_entrega}
+                            onChange={(e) => setFormReprogramacion({ fecha_entrega: e.target.value })}
+                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
+                          />
+                        </label>
+
+                        <div style={{ color: '#666', fontSize: '13px' }}>
+                          Fecha actual: <strong>{fmtFecha(ventaSel.fecha_entrega)}</strong>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', flexWrap: 'wrap' }}>
+                        <button
+                          onClick={() => setMostrarFormularioReprogramacion(false)}
+                          disabled={guardandoReprogramacion}
+                          style={{ border: '1px solid #ddd', backgroundColor: 'white', color: '#333', padding: '10px 14px', borderRadius: '8px', cursor: guardandoReprogramacion ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}
+                        >
+                          Cancelar
+                        </button>
+
+                        <button
+                          onClick={reprogramarPedido}
+                          disabled={guardandoReprogramacion}
+                          style={{ border: 'none', backgroundColor: guardandoReprogramacion ? '#999' : '#8a5a00', color: 'white', padding: '10px 16px', borderRadius: '8px', cursor: guardandoReprogramacion ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}
+                        >
+                          {guardandoReprogramacion ? 'Guardando...' : 'Guardar reprogramacion'}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -584,7 +1020,6 @@ export default function CobrosPage() {
                     ['Vendedor', vendedorNombre || (ventaSel.cod_vendedor ? `ID ${ventaSel.cod_vendedor}` : '-')],
                     ['Estado', ventaSel.estado != null ? `${ventaSel.estado} - ${ESTADOS_VENTA[ventaSel.estado] || 'Sin nombre'}` : '-'],
                     ['Fecha pedido', fmtFecha(ventaSel.fecha_pedido)],
-                    ['Fecha entrega', fmtFecha(ventaSel.fecha_entrega)],
                     ['Hora entrega', ventaSel.hora_entrega || '-'],
                     ['Forma de pago', ventaSel.forma_pago?.replace('_', ' ') || '-'],
                     ['Anticipo', fmtMonto(ventaSel.anticipo)],
@@ -598,6 +1033,10 @@ export default function CobrosPage() {
                       <div style={{ color: '#222', fontWeight: 'bold', wordBreak: 'break-word' }}>{value}</div>
                     </div>
                   ))}
+                  <div style={{ backgroundColor: '#f7f7f7', borderRadius: '10px', padding: '12px 14px' }}>
+                    <div style={{ color: '#777', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px', textTransform: 'uppercase' }}>Fecha entrega</div>
+                    <FechaEntregaBadge fecha={ventaSel.fecha_entrega} estado={ventaSel.estado} />
+                  </div>
                 </div>
 
                 <h3 style={{ margin: '0 0 12px', fontSize: '18px' }}>Productos ({detalle.length})</h3>
