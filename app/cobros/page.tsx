@@ -50,6 +50,14 @@ interface ReprogramacionForm {
   fecha_entrega: string
 }
 
+interface ResumenPedidos {
+  estado1: number
+  estado2: number
+  estado3: number
+  estado4: number
+  reprogramados: number
+}
+
 const ESTADOS_VENTA: Record<number, string> = {
   1: 'En cola de produccion',
   2: 'Produciendo',
@@ -150,6 +158,14 @@ export default function CobrosPage() {
   const [accesoDenegado, setAccesoDenegado] = useState(false)
   const [ventas, setVentas] = useState<VentaCobro[]>([])
   const [loadingVentas, setLoadingVentas] = useState(false)
+  const [loadingResumen, setLoadingResumen] = useState(false)
+  const [resumenPedidos, setResumenPedidos] = useState<ResumenPedidos>({
+    estado1: 0,
+    estado2: 0,
+    estado3: 0,
+    estado4: 0,
+    reprogramados: 0,
+  })
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(20)
@@ -181,6 +197,52 @@ export default function CobrosPage() {
     fechaDesde: '',
     fechaHasta: '',
   })
+
+  const cargarResumenPedidos = async () => {
+    setLoadingResumen(true)
+
+    try {
+      const [
+        estado1Result,
+        estado2Result,
+        estado3Result,
+        estado4Result,
+        reprogramadosResult,
+      ] = await Promise.all([
+        supabase.from('ventas').select('id', { count: 'exact', head: true }).eq('estado', 1),
+        supabase.from('ventas').select('id', { count: 'exact', head: true }).eq('estado', 2),
+        supabase.from('ventas').select('id', { count: 'exact', head: true }).eq('estado', 3),
+        supabase.from('ventas').select('id', { count: 'exact', head: true }).eq('estado', 4),
+        supabase
+          .from('progreso_produccion')
+          .select('id', { count: 'exact', head: true })
+          .eq('reprogramado', true)
+          .in('estado', [1, 2, 3, 4]),
+      ])
+
+      const error =
+        estado1Result.error ||
+        estado2Result.error ||
+        estado3Result.error ||
+        estado4Result.error ||
+        reprogramadosResult.error
+
+      if (error) throw error
+
+      setResumenPedidos({
+        estado1: estado1Result.count || 0,
+        estado2: estado2Result.count || 0,
+        estado3: estado3Result.count || 0,
+        estado4: estado4Result.count || 0,
+        reprogramados: reprogramadosResult.count || 0,
+      })
+    } catch (error) {
+      console.error(error)
+      alert('Error cargando resumen de pedidos')
+    } finally {
+      setLoadingResumen(false)
+    }
+  }
 
   useEffect(() => {
     const verificarUsuario = async () => {
@@ -220,6 +282,7 @@ export default function CobrosPage() {
   useEffect(() => {
     if (loading || accesoDenegado) return
     cargarVentas()
+    cargarResumenPedidos()
   }, [loading, accesoDenegado, filtros.estado, filtros.fechaDesde, filtros.fechaHasta, page, pageSize])
 
   const cargarVentas = async () => {
@@ -449,6 +512,7 @@ export default function CobrosPage() {
       setVentas(prev => prev.map(v => v.cod_venta === ventaSel.cod_venta ? { ...v, estado: 5 } : v))
       setMostrarFormularioCobro(false)
       await cargarVentas()
+      await cargarResumenPedidos()
       alert('Cobro registrado correctamente')
     } catch (error) {
       console.error(error)
@@ -494,6 +558,7 @@ export default function CobrosPage() {
       setVentas(prev => prev.map(v => v.cod_venta === ventaSel.cod_venta ? { ...v, fecha_entrega: formReprogramacion.fecha_entrega } : v))
       setMostrarFormularioReprogramacion(false)
       await cargarVentas()
+      await cargarResumenPedidos()
       alert('Pedido reprogramado correctamente')
     } catch (error) {
       console.error(error)
@@ -563,6 +628,20 @@ export default function CobrosPage() {
           margin-bottom: 22px;
         }
 
+        .resumen-cobros {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(140px, 1fr));
+          gap: 12px;
+          margin-bottom: 20px;
+        }
+
+        .resumen-cobros-card {
+          border: 1px solid #e0e0e0;
+          border-radius: 12px;
+          box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+          padding: 16px;
+        }
+
         .modal-cobro {
           background: white;
           border-radius: 16px;
@@ -589,6 +668,10 @@ export default function CobrosPage() {
           }
 
           .detalle-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .resumen-cobros {
             grid-template-columns: 1fr;
           }
 
@@ -620,6 +703,35 @@ export default function CobrosPage() {
           <p style={{ color: '#666', margin: 0 }}>
             Consulta las ventas por estado o fecha de entrega.
           </p>
+        </div>
+
+        <div className="resumen-cobros">
+          {([
+            ['Estado 1', ESTADOS_VENTA[1], resumenPedidos.estado1, '#eef7ee', '#1b5e20'],
+            ['Estado 2', ESTADOS_VENTA[2], resumenPedidos.estado2, '#fff8e1', '#8a5a00'],
+            ['Estado 3', ESTADOS_VENTA[3], resumenPedidos.estado3, '#e3f2fd', '#0d47a1'],
+            ['Estado 4', ESTADOS_VENTA[4], resumenPedidos.estado4, '#eef3ff', '#1b4d89'],
+            ['Reprogramados', 'Total activo', resumenPedidos.reprogramados, '#ffebee', '#b71c1c'],
+          ] as [string, string, number, string, string][]).map(([titulo, subtitulo, total, fondo, color]) => (
+            <div
+              key={titulo}
+              className="resumen-cobros-card"
+              style={{
+                backgroundColor: fondo,
+                borderColor: color === '#b71c1c' ? '#ef9a9a' : '#e0e0e0',
+              }}
+            >
+              <div style={{ color, fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '8px' }}>
+                {titulo}
+              </div>
+              <div style={{ color, fontSize: '30px', lineHeight: 1, fontWeight: 'bold', marginBottom: '8px' }}>
+                {loadingResumen ? '-' : total}
+              </div>
+              <div style={{ color: '#555', fontSize: '13px', fontWeight: 'bold' }}>
+                {subtitulo}
+              </div>
+            </div>
+          ))}
         </div>
 
         <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', marginBottom: '20px' }}>
