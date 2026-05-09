@@ -240,9 +240,7 @@ export default function Clientes() {
         <span style={{ color: '#a3c47d', fontWeight: 'bold' }}>Clientes</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <a href="/sistema" style={{ color: '#a3c47d', fontSize: '14px', textDecoration: 'none' }}>Sistema</a>
-          <a href="/" onClick={() => localStorage.removeItem('carnet')} style={{ backgroundColor: 'transparent', color: '#ff6b6b', border: '1px solid #ff6b6b', padding: '5px 12px', borderRadius: '20px', fontSize: '12px', textDecoration: 'none' }}>
-            Salir
-          </a>
+
         </div>
       </nav>
 
