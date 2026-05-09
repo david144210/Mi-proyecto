@@ -18,6 +18,7 @@ interface VentaCobro {
   forma_pago?: string | null
   cod_transaccion?: string | null
   estado: number | null
+  destino: string | null
 }
 
 interface DetalleVenta {
@@ -1067,11 +1068,115 @@ export default function CobrosPage() {
                         />
                       </label>
 
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', flexWrap: 'wrap' }}>
+                      <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: '10px',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: '10px',
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        <button
+                          onClick={async () => {
+                          if (!ventaSel) return
+
+                          const saldo = Number(formCobro.total_cobrado || 0)
+
+                          const mensaje = `*N° PEDIDO:* ${ventaSel.cod_venta}
+*1. Responsable de Entrega:* ${
+                            usuario?.usuario || usuario?.nombre || 'Usuario'
+                          }
+*2. Anticipo:* ${fmtMonto(ventaSel.anticipo)}
+*3. Saldo cobrado:* ${fmtMonto(saldo)}
+  *3.1. Comprobante:* ${formCobro.comprobante || '-'}
+*4. Descuento:* ${fmtMonto(
+                            Number(formCobro.descuentos || 0)
+                          )}
+*5. Fecha Entrega:* ${fmtFecha(ventaSel.fecha_entrega)}
+*6. Aceptación (1/10):* ${formCobro.valoracion || '-'}
+*7. Delivery Cancelado:* ${fmtMonto(
+                            Number(formCobro.delivery || 0)
+                          )}
+*8. Tipo de Pago:* ${formCobro.tipo_pago || '-'}
+*9. Destino/Ref:* ${ventaSel.destino || '-' }
+*10. Observaciones:* ${
+                            formCobro.observaciones || '-'
+                          }`
+
+                          const esMovil =
+                            /Android|iPhone|iPad|iPod/i.test(
+                              navigator.userAgent
+                            )
+
+                          if (esMovil) {
+                            const url = `https://wa.me/?text=${encodeURIComponent(
+                              mensaje
+                            )}`
+
+                            window.open(url, '_blank')
+                          } else {
+                            try {
+                              await navigator.clipboard.writeText(mensaje)
+                              alert('Mensaje copiado al portapapeles')
+                            } catch (error) {
+                              console.error(error)
+                              alert('No se pudo copiar el mensaje')
+                            }
+                          }
+                        }}
+                        >
+                          WhatsApp
+                        </button>
+
+                        <a
+                          href={`/recibo/${ventaSel.cod_venta}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            textDecoration: 'none',
+                            border: 'none',
+                            backgroundColor: '#1565c0',
+                            color: 'white',
+                            padding: '10px 14px',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                          }}
+                        >
+                          Recibo
+                        </a>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: '10px',
+                          flexWrap: 'wrap',
+                        }}
+                      >
                         <button
                           onClick={() => setMostrarFormularioCobro(false)}
                           disabled={guardandoCobro}
-                          style={{ border: '1px solid #ddd', backgroundColor: 'white', color: '#333', padding: '10px 14px', borderRadius: '8px', cursor: guardandoCobro ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}
+                          style={{
+                            border: '1px solid #ddd',
+                            backgroundColor: 'white',
+                            color: '#333',
+                            padding: '10px 14px',
+                            borderRadius: '8px',
+                            cursor: guardandoCobro
+                              ? 'not-allowed'
+                              : 'pointer',
+                            fontWeight: 'bold',
+                          }}
                         >
                           Cancelar
                         </button>
@@ -1079,11 +1184,27 @@ export default function CobrosPage() {
                         <button
                           onClick={registrarCobro}
                           disabled={guardandoCobro}
-                          style={{ border: 'none', backgroundColor: guardandoCobro ? '#999' : '#087e0b', color: 'white', padding: '10px 16px', borderRadius: '8px', cursor: guardandoCobro ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}
+                          style={{
+                            border: 'none',
+                            backgroundColor: guardandoCobro
+                              ? '#999'
+                              : '#087e0b',
+                            color: 'white',
+                            padding: '10px 16px',
+                            borderRadius: '8px',
+                            cursor: guardandoCobro
+                              ? 'not-allowed'
+                              : 'pointer',
+                            fontWeight: 'bold',
+                          }}
                         >
-                          {guardandoCobro ? 'Guardando...' : 'Guardar cobro y marcar cobrado'}
+                          {guardandoCobro
+                            ? 'Guardando...'
+                            : 'Guardar cobro y marcar cobrado'}
                         </button>
                       </div>
+                    </div>
+
                     </div>
                   )}
 
