@@ -236,12 +236,59 @@ useEffect(() => {
         .select('*')
         .eq('cod_venta', codVenta)
 
+      const codigosProductos = [
+        ...new Set((detallesData || []).map(d => d.cod_producto).filter(Boolean))
+      ]
+
+      const codigosColores = [
+        ...new Set(
+          (detallesData || [])
+            .map(d => d.color_estructura)
+            .filter(Boolean)
+        )
+      ]
+
+      const codigosMelaminas = [
+        ...new Set((detallesData || []).map(d => d.color_melamina).filter(Boolean))
+      ]
+
+      const [{ data: productosData }, { data: coloresData }, { data: melaminasData }] = await Promise.all([
+        codigosProductos.length > 0
+          ? supabase.from('productos').select('codigo, nombre').in('codigo', codigosProductos)
+          : Promise.resolve({ data: [] }),
+        codigosColores.length > 0
+          ? supabase.from('colores').select('codigo_color, detalle').in('codigo_color', codigosColores)
+          : Promise.resolve({ data: [] }),
+        codigosMelaminas.length > 0
+          ? supabase.from('melaminas').select('codigo_melamina, detalle').in('codigo_melamina', codigosMelaminas)
+          : Promise.resolve({ data: [] })
+      ])
+
+      const productosMap = Object.fromEntries(
+        productosData?.map(p => [p.codigo, p.nombre]) || []
+      )
+
+      const coloresMap = Object.fromEntries(
+        coloresData?.map(c => [c.codigo_color, c.detalle]) || []
+      )
+
+      const melaminasMap = Object.fromEntries(
+        melaminasData?.map(m => [m.codigo_melamina, m.detalle]) || []
+      )
+
+      const detallesConNombres = (detallesData || []).map(detalle => ({
+        ...detalle,
+        producto_nombre: productosMap[detalle.cod_producto] || detalle.cod_producto,
+        color_estructura_detalle: coloresMap[detalle.color_estructura] || detalle.color_estructura,
+        color_melamina_detalle: melaminasMap[detalle.color_melamina] || detalle.color_melamina
+      }))
+
       setPedidoSeleccionado({
         ...ventaData,
         cliente: clienteNombre,
         vendedor: vendedorNombre,
         reprogramado,
-        detalles: detallesData || []
+        detalles: detallesConNombres
       })
 
       setMostrarModal(true)
@@ -789,7 +836,7 @@ useEffect(() => {
 
                       <div>
                         <strong>
-                          {detalle.cod_producto}
+                          {detalle.producto_nombre || 'Sin producto'}
                         </strong>
 
                         <div>
@@ -810,7 +857,7 @@ useEffect(() => {
                         color: '#666'
                       }}
                     >
-                      Estructura: {detalle.color_estructura || 'N/A'} | Melamina: {detalle.color_melamina || 'N/A'}
+                      Estructura: {detalle.color_estructura_detalle || 'N/A'} | Melamina: {detalle.color_melamina_detalle || 'N/A'}
                     </div>
 
                   </div>
