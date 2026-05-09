@@ -92,7 +92,7 @@ useEffect(() => {
 
   const intervalo = setInterval(() => {
     cargarPedidos()
-  }, 30000)
+  }, 60000)
 
   return () => clearInterval(intervalo)
 

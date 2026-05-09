@@ -677,7 +677,7 @@ export default function CobrosPage() {
 
             <button
               onClick={limpiarFiltros}
-              style={{ border: 'none', backgroundColor: '#222', color: 'white', padding: '11px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}
+              style={{ border: 'none', backgroundColor: '#11a10c', color: 'white', padding: '11px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}
             >
               Limpiar filtros
             </button>
