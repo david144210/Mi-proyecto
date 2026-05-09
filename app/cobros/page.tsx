@@ -295,7 +295,7 @@ export default function CobrosPage() {
 
       let query = supabase
         .from('ventas')
-        .select('id, cod_venta, total_venta, fecha_entrega, estado', { count: 'exact' })
+        .select('id, cod_venta, total_venta, fecha_entrega, estado, destino', { count: 'exact' })
         .order('fecha_entrega', { ascending: false })
         .order('cod_venta', { ascending: false })
         .range(from, to)
