@@ -71,6 +71,15 @@ export default function Sistema() {
               <h3 style={{ margin: 0 }}>Personal</h3>
             </a>
           )}
+
+          {/* TARJETA MELAMINAS */}
+          {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
+          <a href="/melaminas" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>M.</div>
+            <h3 style={{ margin: 0 }}>Registro de Melaminas</h3>
+          </a>
+          )}
+
           {/* TARJETA compra tubos */}
           {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
           <a href="/compras-acero" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
