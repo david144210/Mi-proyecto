@@ -56,6 +56,10 @@ export default function Sistema() {
             <h3 style={{ margin: 0 }}>Clientes</h3>
           </a>
 
+          <a href="/stock" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>�</div>
+            <h3 style={{ margin: 0 }}>Tiendas</h3>
+          </a>
 
             {(esAdmin || !!usuario?.cargos?.puede_ver_cotizador) && (
               <a href="/ventas" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
