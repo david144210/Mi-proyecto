@@ -141,10 +141,10 @@ export default function GestionStockPro() {
     <div className="min-h-screen bg-slate-100 pb-10">
       <div className="bg-slate-900 text-white p-6 rounded-b-[40px] shadow-xl">
         <div className="max-w-xl mx-auto flex justify-between items-center">
-          <h1 className="text-2xl font-black italic">STOCK PRO</h1>
+          <h1 className="text-2xl font-black italic">STOCK - MUEBLESS IS BETTER</h1>
           <p className="text-xs opacity-70">{usuario?.nombre}</p>
         </div>
-        <button onClick={() => { setTipoOperacion('entrada'); setModalAbierto(true); }} className="w-full mt-6 bg-white text-slate-900 py-4 rounded-2xl font-black shadow-lg active:scale-95 transition-all max-w-xl mx-auto block uppercase text-sm">➕ Agregar Stock</button>
+        <button onClick={() => { setTipoOperacion('entrada'); setModalAbierto(true); }} className="w-full mt-6 bg-green-500 text-slate-900 py-4 rounded-2xl font-black shadow-lg active:scale-95 transition-all max-w-xl mx-auto block uppercase text-sm">➕ Agregar Stock</button>
       </div>
 
       <div className="p-4 space-y-4 max-w-xl mx-auto mt-4">
