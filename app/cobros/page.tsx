@@ -1136,7 +1136,7 @@ export default function CobrosPage() {
                         </button>
 
                         <a
-                          href={`/recibo/${ventaSel.cod_venta}`}
+                          href={`/recibo?id=${ventaSel.cod_venta}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           style={{
