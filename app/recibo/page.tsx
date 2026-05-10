@@ -102,7 +102,7 @@ export default function ReciboPage() {
             <h1 className="text-3xl font-black text-gray-900">MUEBLES <span className="text-green-700">IS BETTER</span></h1>
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Comprobante de Venta</p>
             <div className="mt-4 text-xs text-gray-600">
-              <p>Cochabamba, Bolivia</p>
+              <p>Bolivia</p>
             </div>
           </div>
           <div className="text-right">

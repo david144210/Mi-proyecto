@@ -374,6 +374,12 @@ export default function ProductosConstructivos() {
 
   const preview = previewCosto()
 
+  // Totales para el resumen del modal acero
+  const totalLongitudAcero = piezasAcero.reduce((sum, p) => sum + p.longitud_cm * p.cantidad, 0)
+  const totalTubos = totalLongitudAcero / 600
+  const totalMelaminas = piezasMelamina.reduce((sum, p) => sum + p.cantidad, 0)
+  const totalAccesorios = piezasAccesorios.reduce((sum, p) => sum + p.cantidad, 0)
+
   return (
     <div style={{ fontFamily: 'Arial, sans-serif', minHeight: '100vh', backgroundColor: '#f5f5f5' }}>
 
@@ -689,30 +695,43 @@ export default function ProductosConstructivos() {
                           piezasAcero.length === 0 ? (
                             <p style={{ padding: '24px', textAlign: 'center', color: '#bbb' }}>Sin cortes de acero registrados</p>
                           ) : (
-                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                              <thead><tr>
-                                <th style={thStyle}>Código</th>
-                                <th style={thStyle}>Descripción</th>
-                                <th style={{ ...thStyle, textAlign: 'right' }}>Long.(cm)</th>
-                                <th style={{ ...thStyle, textAlign: 'right' }}>Cant.</th>
-                                <th style={{ ...thStyle, textAlign: 'right' }}>Costo</th>
-                                {esAdmin && <th style={{ ...thStyle, textAlign: 'center' }}></th>}
-                              </tr></thead>
-                              <tbody>
-                                {piezasAcero.map((p, i) => (
-                                  <tr key={p.id} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
-                                    <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: '12px', color: '#087e0b' }}>{p.codigo_acero}</td>
-                                    <td style={{ ...tdStyle, color: '#666' }}>{p.descripcion || '—'}</td>
-                                    <td style={{ ...tdStyle, textAlign: 'right' }}>{p.longitud_cm}</td>
-                                    <td style={{ ...tdStyle, textAlign: 'right' }}>{p.cantidad}</td>
-                                    <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>{fmt(p.costo_total)}</td>
-                                    {esAdmin && <td style={{ ...tdStyle, textAlign: 'center' }}>
-                                      <button onClick={() => eliminarPieza('variante_acero', p.id)} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '16px' }}>🗑</button>
-                                    </td>}
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                            <>
+                              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead><tr>
+                                  <th style={thStyle}>Código</th>
+                                  <th style={thStyle}>Descripción</th>
+                                  <th style={{ ...thStyle, textAlign: 'right' }}>Long.(cm)</th>
+                                  <th style={{ ...thStyle, textAlign: 'right' }}>Cant.</th>
+                                  <th style={{ ...thStyle, textAlign: 'right' }}>Costo</th>
+                                  {esAdmin && <th style={{ ...thStyle, textAlign: 'center' }}></th>}
+                                </tr></thead>
+                                <tbody>
+                                  {piezasAcero.map((p, i) => (
+                                    <tr key={p.id} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                                      <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: '12px', color: '#087e0b' }}>{p.codigo_acero}</td>
+                                      <td style={{ ...tdStyle, color: '#666' }}>{p.descripcion || '—'}</td>
+                                      <td style={{ ...tdStyle, textAlign: 'right' }}>{p.longitud_cm}</td>
+                                      <td style={{ ...tdStyle, textAlign: 'right' }}>{p.cantidad}</td>
+                                      <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>{fmt(p.costo_total)}</td>
+                                      {esAdmin && <td style={{ ...tdStyle, textAlign: 'center' }}>
+                                        <button onClick={() => eliminarPieza('variante_acero', p.id)} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '16px' }}>🗑</button>
+                                      </td>}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                              {/* Resumen acero */}
+                              <div style={{ display: 'flex', gap: '32px', padding: '14px 16px', backgroundColor: '#f0fff0', borderTop: '2px solid #a3c47d', flexWrap: 'wrap', alignItems: 'center' }}>
+                                <div>
+                                  <p style={{ margin: 0, fontSize: '11px', color: '#555' }}>📏 Longitud total de acero</p>
+                                  <p style={{ margin: 0, fontSize: '15px', fontWeight: 'bold', color: '#087e0b' }}>{totalLongitudAcero.toLocaleString('es-BO')} cm</p>
+                                </div>
+                                <div>
+                                  <p style={{ margin: 0, fontSize: '11px', color: '#555' }}>🪣 Tubos necesarios (÷ 600 cm)</p>
+                                  <p style={{ margin: 0, fontSize: '15px', fontWeight: 'bold', color: '#087e0b' }}>{totalTubos.toFixed(1)} {totalTubos === 1 ? 'tubo' : 'tubos'}</p>
+                                </div>
+                              </div>
+                            </>
                           )
                         )}
 
@@ -819,7 +838,7 @@ export default function ProductosConstructivos() {
 
                   {/* Resumen costos */}
                   <div style={{ backgroundColor: '#222', padding: '16px 20px', display: 'flex', flexWrap: 'wrap', gap: '20px', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
                       {[
                         ['🔩 Acero', varianteSel.costo_acero],
                         ['🪵 Melamina', varianteSel.costo_melamina],
@@ -831,6 +850,31 @@ export default function ProductosConstructivos() {
                           <p style={{ margin: 0, fontSize: '14px', color: '#a3c47d', fontWeight: 'bold' }}>{fmt(val as number)}</p>
                         </div>
                       ))}
+                      {/* Totales de unidades según tab activa */}
+                      {tabActiva === 'acero' && piezasAcero.length > 0 && (
+                        <>
+                          <div style={{ borderLeft: '1px solid #444', paddingLeft: '20px' }}>
+                            <p style={{ margin: 0, fontSize: '10px', color: '#aaa' }}>📏 Long. total acero</p>
+                            <p style={{ margin: 0, fontSize: '14px', color: '#f0c060', fontWeight: 'bold' }}>{totalLongitudAcero.toLocaleString('es-BO')} cm</p>
+                          </div>
+                          <div>
+                            <p style={{ margin: 0, fontSize: '10px', color: '#aaa' }}>🪣 Tubos (÷600)</p>
+                            <p style={{ margin: 0, fontSize: '14px', color: '#f0c060', fontWeight: 'bold' }}>{totalTubos.toFixed(1)} {totalTubos === 1 ? 'tubo' : 'tubos'}</p>
+                          </div>
+                        </>
+                      )}
+                      {tabActiva === 'melamina' && piezasMelamina.length > 0 && (
+                        <div style={{ borderLeft: '1px solid #444', paddingLeft: '20px' }}>
+                          <p style={{ margin: 0, fontSize: '10px', color: '#aaa' }}>🪵 Total láminas melamina</p>
+                          <p style={{ margin: 0, fontSize: '14px', color: '#f0c060', fontWeight: 'bold' }}>{totalMelaminas} unid.</p>
+                        </div>
+                      )}
+                      {tabActiva === 'accesorios' && piezasAccesorios.length > 0 && (
+                        <div style={{ borderLeft: '1px solid #444', paddingLeft: '20px' }}>
+                          <p style={{ margin: 0, fontSize: '10px', color: '#aaa' }}>🔧 Total accesorios</p>
+                          <p style={{ margin: 0, fontSize: '14px', color: '#f0c060', fontWeight: 'bold' }}>{totalAccesorios} unid.</p>
+                        </div>
+                      )}
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <p style={{ margin: '0 0 2px', fontSize: '10px', color: '#aaa' }}>Costo total / Margen mínimo / Margen tienda</p>
