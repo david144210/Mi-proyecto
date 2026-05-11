@@ -184,7 +184,7 @@ export default function Ventas() {
       ))
   }, [])
 
-  const puedeEditar   = usuario?.cargos?.es_admin
+  const puedeEditar   = usuario?.cargos?.es_admin ||usuario?.cargos?.puede_editar_productos
   const puedeRegistrar = usuario?.cargos?.puede_ver_cotizador || usuario?.cargos?.es_admin
 
   // ── Cargar ventas ─────────────────────────────────────────────────────────

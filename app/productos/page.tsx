@@ -17,6 +17,9 @@ type Usuario = {
   nombre: string
   rol: string
   estado: boolean
+  cargos?: {
+    puede_editar_productos?: boolean
+  }
 }
 
 export default function Productos() {
@@ -25,12 +28,6 @@ export default function Productos() {
   const [filtro, setFiltro] = useState('')
   const [loading, setLoading] = useState(true)
   const [esAdmin, setEsAdmin] = useState(false)
-
-  // Modal admin unlock
-  const [showAdminModal, setShowAdminModal] = useState(false)
-  const [adminPass, setAdminPass] = useState('')
-  const [adminError, setAdminError] = useState('')
-  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
 
   // Modal editar
   const [showEditModal, setShowEditModal] = useState(false)
@@ -62,13 +59,17 @@ export default function Productos() {
     }
     supabase
       .from('personal')
-      .select('*')
+      .select('*, cargos(*)')
       .eq('carnet', carnetGuardado)
       .eq('estado', true)
       .single()
       .then(({ data }) => {
         if (!data) { window.location.href = '/'; return }
         setUsuario(data)
+        // Si es admin por rol o tiene permiso en cargo, activar esAdmin
+        if (data.cargos?.puede_editar_productos === true) {
+          setEsAdmin(true)
+        }
       })
   }, [])
 
@@ -88,40 +89,15 @@ export default function Productos() {
     setLoading(false)
   }
 
-  // Verificar admin en Supabase
-  const verificarAdmin = async () => {
-    if (!usuario) return
-    const { data } = await supabase
-      .from('personal')
-      .select('rol')
-      .eq('carnet', usuario.carnet)
-      .eq('estado', true)
-      .single()
-    if (data?.rol === 'admin') {
-      setEsAdmin(true)
-      setShowAdminModal(false)
-      setAdminError('')
-      setAdminPass('')
-      if (pendingAction) { pendingAction(); setPendingAction(null) }
-    } else {
-      setAdminError('No tienes permisos de administrador')
-    }
-  }
-
-  const requerirAdmin = (accion: () => void) => {
-    if (esAdmin) { accion(); return }
-    setPendingAction(() => accion)
-    setShowAdminModal(true)
-  }
+  // Acceso controlado por cargos.puede_editar_productos (se evalúa al cargar sesión)
 
   // EDITAR
   const abrirEditar = (p: Producto) => {
-    requerirAdmin(() => {
-      setEditando(p)
-      setEditForm({ ...p })
-      setSaveMsg('')
-      setShowEditModal(true)
-    })
+    if (!esAdmin) return
+    setEditando(p)
+    setEditForm({ ...p })
+    setSaveMsg('')
+    setShowEditModal(true)
   }
 
   const handleFotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -168,10 +144,9 @@ export default function Productos() {
 
   // ELIMINAR
   const abrirEliminar = (codigo: string) => {
-    requerirAdmin(() => {
-      setDeletingCodigo(codigo)
-      setShowDeleteModal(true)
-    })
+    if (!esAdmin) return
+    setDeletingCodigo(codigo)
+    setShowDeleteModal(true)
   }
 
   const confirmarEliminar = async () => {
@@ -184,11 +159,10 @@ export default function Productos() {
 
   // NUEVO PRODUCTO
   const abrirNuevo = () => {
-    requerirAdmin(() => {
-      setNuevoForm({})
-      setNuevoMsg('')
-      setShowNuevoModal(true)
-    })
+    if (!esAdmin) return
+    setNuevoForm({})
+    setNuevoMsg('')
+    setShowNuevoModal(true)
   }
 
   const handleFotoNuevoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -285,7 +259,7 @@ export default function Productos() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {esAdmin && (
             <span style={{ background: '#087e0b', color: 'white', padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '700' }}>
-              ADMIN ACTIVO
+              EDICIÓN ACTIVA
             </span>
           )}
           <span style={{ color: '#aaa', fontSize: '13px' }}>{usuario.nombre}</span>
@@ -301,12 +275,6 @@ export default function Productos() {
             <p style={{ fontSize: '13px', color: '#888', marginTop: '2px' }}>{productosFiltrados.length} productos encontrados</p>
           </div>
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            {!esAdmin && (
-              <button className="btn" style={{ background: '#fff3cd', color: '#856404', border: '1px solid #ffc107' }}
-                onClick={() => setShowAdminModal(true)}>
-                🔑 Modo Admin
-              </button>
-            )}
             {esAdmin && (
               <button className="btn" style={{ background: '#087e0b', color: 'white', padding: '8px 18px', fontSize: '13px' }}
                 onClick={abrirNuevo}>
@@ -393,48 +361,10 @@ export default function Productos() {
 
         {!esAdmin && (
           <p style={{ textAlign: 'center', color: '#bbb', fontSize: '12px', marginTop: '16px' }}>
-            Activa el modo admin para editar o eliminar productos
+            Solo administradores o usuarios con permiso pueden editar productos
           </p>
         )}
       </div>
-
-      {/* ── MODAL: VERIFICAR ADMIN ── */}
-      {showAdminModal && (
-        <div className="modal-bg" onClick={() => { setShowAdminModal(false); setAdminError(''); setAdminPass('') }}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-              <div style={{ fontSize: '40px', marginBottom: '8px' }}>🔑</div>
-              <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#1a1a2e' }}>Acceso Administrador</h2>
-              <p style={{ fontSize: '13px', color: '#888', marginTop: '6px' }}>
-                Tu cuenta necesita el rol de <strong>admin</strong> en Supabase para continuar
-              </p>
-            </div>
-            <div className="form-row">
-              <label className="form-label">Confirma tu código de acceso</label>
-              <input
-                className="form-input"
-                type="password"
-                placeholder="Código de acceso"
-                value={adminPass}
-                onChange={e => setAdminPass(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && verificarAdmin()}
-                autoFocus
-              />
-              {adminError && <p style={{ color: '#d63031', fontSize: '13px', marginTop: '8px' }}>{adminError}</p>}
-            </div>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button className="btn" style={{ flex: 1, background: '#f0f0f0', color: '#333', padding: '12px' }}
-                onClick={() => { setShowAdminModal(false); setAdminError(''); setAdminPass('') }}>
-                Cancelar
-              </button>
-              <button className="btn btn-edit" style={{ flex: 1, padding: '12px', fontSize: '14px' }}
-                onClick={verificarAdmin}>
-                Verificar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── MODAL: EDITAR PRODUCTO ── */}
       {showEditModal && editando && (

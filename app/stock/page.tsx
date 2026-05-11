@@ -11,6 +11,7 @@ export default function GestionStockPro() {
   const [ventasPendientes, setVentasPendientes] = useState<any[]>([])
   const [productosEnVenta, setProductosEnVenta] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [puedeEditar, setPuedeEditar] = useState(false)
   
   const [modalAbierto, setModalAbierto] = useState(false)
   const [tipoOperacion, setTipoOperacion] = useState<'entrada' | 'salida' | 'ajuste'>('entrada')
@@ -26,6 +27,7 @@ export default function GestionStockPro() {
         if (!carnet) return setLoading(false)
         const { data: userData } = await supabase.from('personal').select('*, cargos(*)').eq('carnet', carnet).single()
         setUsuario(userData)
+        if (userData?.cargos?.puede_editar_tienda === true) setPuedeEditar(true)
         await Promise.all([loadProductos(), loadSucursales(), loadStock(), loadVentasPendientes()])
       } catch (e) { console.error(e) } finally { setLoading(false) }
     }
@@ -144,12 +146,14 @@ export default function GestionStockPro() {
           <h1 className="text-2xl font-black italic">STOCK - MUEBLESS IS BETTER</h1>
           <p className="text-xs opacity-70">{usuario?.nombre}</p>
         </div>
-        <button onClick={() => { setTipoOperacion('entrada'); setModalAbierto(true); }} className="w-full mt-6 bg-green-500 text-slate-900 py-4 rounded-2xl font-black shadow-lg active:scale-95 transition-all max-w-xl mx-auto block uppercase text-sm">➕ Agregar Stock</button>
+        {puedeEditar && (
+          <button onClick={() => { setTipoOperacion('entrada'); setModalAbierto(true); }} className="w-full mt-6 bg-green-500 text-slate-900 py-4 rounded-2xl font-black shadow-lg active:scale-95 transition-all max-w-xl mx-auto block uppercase text-sm">➕ Agregar Stock</button>
+        )}
       </div>
 
       <div className="p-4 space-y-4 max-w-xl mx-auto mt-4">
         {stock.map((item) => (
-          <button key={item.id} onClick={() => abrirSalidaProducto(item)} className="w-full text-left bg-white rounded-[32px] p-6 shadow-sm border border-slate-200 hover:border-indigo-300 transition-all active:scale-[0.97]">
+          <button key={item.id} onClick={() => { if (puedeEditar) abrirSalidaProducto(item) }} className="w-full text-left bg-white rounded-[32px] p-6 shadow-sm border border-slate-200 hover:border-indigo-300 transition-all active:scale-[0.97]">
             <div className="flex justify-between items-center">
               <div>
                 <h2 className="font-black text-slate-800 text-lg uppercase leading-tight">{item.productos?.nombre}</h2>
