@@ -29,7 +29,7 @@ export default function Home() {
 
   useEffect(() => {
     const carnetGuardado = localStorage.getItem('carnet')
-    if (carnetGuardado) {
+    if (carnetGuardado && !usuario) {
       supabase.from('personal').select('*, cargos(*)').eq('carnet', carnetGuardado).eq('estado', true).single()
         .then(({ data }) => { if (data) setUsuario(data) })
     }
@@ -55,7 +55,7 @@ export default function Home() {
       document.removeEventListener('mousedown', handleClickOutside)
       document.removeEventListener('keydown', handleEsc)
     }
-  }, [])
+  }, [usuario])
 
   const handleLogin = async () => {
     if (!carnet || !password) { setError('Ingrese su CI y contrasena'); return }
@@ -65,19 +65,24 @@ export default function Home() {
     if (errPersona || !persona) { setError('CI no encontrado o usuario inactivo'); setCargando(false); return }
     const { data: valido, error: errPass } = await supabase.rpc('verificar_password', { password_input: password, hash_guardado: persona.password_hash })
     if (errPass || !valido) { setError('Contrasena incorrecta'); setCargando(false); return }
+    
+    localStorage.setItem('carnet', carnet)
     setUsuario(persona)
     setShowLogin(false)
     setMenuAbierto(false)
+    setCarnet('')
     setPassword('')
     setError('')
-    localStorage.setItem('carnet', carnet)
     setCargando(false)
   }
 
   const handleCerrarSesion = () => {
-    setUsuario(null); setCarnet(''); setPassword('')
-    setShowLogin(false); setMenuAbierto(false)
     localStorage.removeItem('carnet')
+    setUsuario(null)
+    setCarnet('')
+    setPassword('')
+    setShowLogin(false)
+    setMenuAbierto(false)
   }
 
   const inputStyle = {
@@ -133,7 +138,8 @@ export default function Home() {
             z-index: 1001;
           }
           .hamburger { display: block; }
-          .nav-login-desktop { display: none; }
+          .nav-login-desktop { display: flex; align-items: center; }
+          .login-modal-responsive { right: 20px !important; top: 60px !important; width: calc(100% - 40px) !important; max-width: 260px; }
         }
 
         .hero-section {
@@ -199,18 +205,18 @@ export default function Home() {
         <div className="nav-login-desktop">
           {usuario ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <span style={{ fontSize: '13px', color: '#FFD700' }}>{usuario.usuario}</span>
-              <a href="/sistema" className="btn-gold" style={{ padding: '6px 15px', fontSize: '12px' }}>Sistema</a>
+              <span className="nav-link" style={{ fontSize: '13px', color: '#FFD700' }}>{usuario.usuario}</span>
               <button onClick={handleCerrarSesion} style={{ background: 'none', border: '1px solid #ff6b6b', color: '#ff6b6b', padding: '5px 12px', borderRadius: '20px', cursor: 'pointer', fontSize: '12px' }}>Salir</button>
             </div>
           ) : (
-            <button onClick={() => setShowLogin(!showLogin)} className="btn-gold" style={{ padding: '8px 20px', fontSize: '13px' }}>Ingresar</button>
+            <button onClick={() => { setShowLogin(!showLogin); setMenuAbierto(false); }} className="btn-gold" style={{ padding: '8px 20px', fontSize: '13px' }}>Ingresar</button>
           )}
 
           {showLogin && (
-            <div ref={loginRef} style={{ position: 'absolute', right: '40px', top: '55px', background: '#161726', padding: '20px', borderRadius: '12px', width: '260px', border: '1px solid #FFD700', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
+            <div ref={loginRef} className="login-modal-responsive" style={{ position: 'absolute', right: '40px', top: '55px', background: '#161726', padding: '20px', borderRadius: '12px', width: '260px', border: '1px solid #FFD700', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
               <input type="text" placeholder="Carnet" value={carnet} onChange={e => setCarnet(e.target.value)} style={inputStyle} />
               <input type="password" placeholder="Contraseña" value={password} onChange={e => setPassword(e.target.value)} style={inputStyle} />
+              {error && <p style={{color: '#ff6b6b', fontSize: '12px', margin: '0 0 8px 0'}}>{error}</p>}
               <button onClick={handleLogin} disabled={cargando} style={{ width: '100%', padding: '10px', background: '#FFD700', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', color: '#000' }}>
                 {cargando ? '...' : 'Entrar'}
               </button>
@@ -218,7 +224,7 @@ export default function Home() {
           )}
         </div>
 
-        <button className="hamburger" onClick={() => setMenuAbierto(!menuAbierto)}>
+        <button className="hamburger" onClick={() => { setMenuAbierto(!menuAbierto); setShowLogin(false); }}>
           {menuAbierto ? '✕' : '☰'}
         </button>
       </nav>
