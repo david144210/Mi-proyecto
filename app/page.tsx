@@ -227,7 +227,7 @@ export default function Home() {
         <div className="hero-text">
           <span style={{ color: '#FFD700', fontSize: '14px', letterSpacing: '2px' }}>INGENIERÍA DE INTERIORES</span>
           <h1 className="hero-title">Muebles is Better</h1>
-          <p style={{ color: '#ccc', lineHeight: '1.6', fontSize: '1.1rem' }}>Diseñamos, fabricamos y comercializamos espacios de confort con materiales de alta resistencia.</p>
+          <p style={{ color: '#ccc', lineHeight: '1.6', fontSize: '1.1rem' }}>Más que muebles, Ingenieriía de interiores</p>
           <div style={{ display: 'flex', gap: '15px', marginTop: '10px' }}>
             <button className="btn-gold" onClick={() => document.getElementById('productos')?.scrollIntoView({ behavior: 'smooth' })}>Ver Productos</button>
             <a href="/cotizador" className="btn-outline">Cotizar</a>
