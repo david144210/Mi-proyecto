@@ -57,7 +57,7 @@ export default function Sistema() {
           </a>
 
           <a href="/stock" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>�</div>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🏪</div>
             <h3 style={{ margin: 0 }}>Tiendas</h3>
           </a>
 
@@ -70,7 +70,7 @@ export default function Sistema() {
 
             {(esAdmin || !!usuario?.cargos?.puede_ver_caja_chica) && (
               <a href="/cajas" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-                <div style={{ fontSize: '40px', marginBottom: '12px' }}>$$💰</div>
+                <div style={{ fontSize: '40px', marginBottom: '12px' }}>🧾</div>
                 <h3 style={{ margin: 0 }}>Caja Chica</h3>
               </a>
             )}
@@ -177,6 +177,31 @@ export default function Sistema() {
             <h3 style={{ margin: 0 }}>Cobros</h3>
           </a>
           )}
+
+{/* TARJETA Marketing */}
+          {(esAdmin || !!usuario?.cargos?.puede_ver_mk) && (
+          <a href="/marketing" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>Bs.</div>
+            <h3 style={{ margin: 0 }}>Marketing</h3>
+          </a>
+          )}
+
+          {/* TARJETA ASISTENCIA */}
+          {(esAdmin || !!usuario?.cargos?.puede_ver_rrhh || !!usuario?.cargos?.puede_gestionar_rrhh) && (
+          <a href="/entrada" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🕐</div>
+            <h3 style={{ margin: 0 }}>Mi Asistencia</h3>
+          </a>
+          )}
+
+          {/* TARJETA RRHH - solo admin y gestores RRHH */}
+          {(esAdmin || !!usuario?.cargos?.puede_gestionar_rrhh) && (
+          <a href="/asistencia" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>👥</div>
+            <h3 style={{ margin: 0 }}>RRHH</h3>
+          </a>
+          )}
+
           {/* Aqui agregaras mas aplicaciones */}
 
         </div>
