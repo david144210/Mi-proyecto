@@ -100,7 +100,7 @@ export default function Sistema() {
           {/* TARJETA compra tubos */}
           {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
           <a href="/compras-acero" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>⚙️</div>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>💰⛓</div>
             <h3 style={{ margin: 0 }}>Compra Acero</h3>
           </a>
           )}
@@ -115,7 +115,7 @@ export default function Sistema() {
         {/* TARJETA compra de ACCESORIOS */}
           {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
           <a href="/compras-accesorios" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>⚙️</div>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>💰⚙️</div>
             <h3 style={{ margin: 0 }}>Compra Accesorios</h3>
           </a>
           )}
@@ -131,7 +131,7 @@ export default function Sistema() {
           {/* TARJETA compra de INSUMOS */}
           {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
           <a href="/compras-insumos" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🧪</div>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>💰🧪</div>
             <h3 style={{ margin: 0 }}>Compra Insumos</h3>
           </a>
           )}
@@ -148,7 +148,7 @@ export default function Sistema() {
           {/* TARJETA construccion */}
           {(esAdmin || !!usuario?.cargos?.puede_ver_produccion) && (
           <a href="/construccion" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🏭</div>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🚧</div>
             <h3 style={{ margin: 0 }}>Construcción</h3>
           </a>
           
@@ -165,7 +165,7 @@ export default function Sistema() {
 {/* TARJETA DESPACHOS */}
           {(esAdmin || !!usuario?.cargos?.puede_ver_entregas) && (
           <a href="/entregas" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>📅</div>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>📦</div>
             <h3 style={{ margin: 0 }}>Despachos </h3>
           </a>
           )}
@@ -173,7 +173,7 @@ export default function Sistema() {
 {/* TARJETA COBROS */}
           {(esAdmin || !!usuario?.cargos?.puede_ver_entregas) && (
           <a href="/cobros" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>Bs.</div>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>💲</div>
             <h3 style={{ margin: 0 }}>Cobros</h3>
           </a>
           )}
@@ -181,7 +181,7 @@ export default function Sistema() {
 {/* TARJETA Marketing */}
           {(esAdmin || !!usuario?.cargos?.puede_ver_mk) && (
           <a href="/marketing" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>Bs.</div>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🎁</div>
             <h3 style={{ margin: 0 }}>Marketing</h3>
           </a>
           )}
@@ -196,9 +196,9 @@ export default function Sistema() {
 
           {/* TARJETA RRHH - solo admin y gestores RRHH */}
           {(esAdmin || !!usuario?.cargos?.puede_gestionar_rrhh) && (
-          <a href="/asistencia" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
+          <a href="/kiosco" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
             <div style={{ fontSize: '40px', marginBottom: '12px' }}>👥</div>
-            <h3 style={{ margin: 0 }}>RRHH</h3>
+            <h3 style={{ margin: 0 }}>Codigo de personal</h3>
           </a>
           )}
 
