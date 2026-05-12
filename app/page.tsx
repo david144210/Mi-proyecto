@@ -193,6 +193,7 @@ export default function Home() {
           <a href="#ubicacion" className="nav-link" onClick={() => setMenuAbierto(false)}>Contacto</a>
           <a href="/cotizador" className="nav-link">Cotizador</a>
           <a href="/productos" className="nav-link">Catalogo</a>
+          <a href="/sistema" className="nav-link">Sistema </a>
         </div>
 
         <div className="nav-login-desktop">
