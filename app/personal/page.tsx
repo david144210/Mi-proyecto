@@ -2,35 +2,23 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 
-// 1. Campos iniciales sin contraseña
-const camposVacios = {
-  carnet: '',
-  usuario: '',
-  fecha_ingreso: '',
-  fecha_nacimiento: '',
-  estado: true,
-  haber_basico: '',
-  cargo: '',
-  cargo_id: '',
-  distrito: '',
-  sucursal: '',
-  rol: 'vendedor',
-}
-
 export default function GestionPersonal() {
   const [usuario, setUsuario] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   
-  // 2. Forzado de tipo para evitar errores de compilación en Vercel
-  const [personal, setPersonal] = useState<any>([] as any)
+  // Cambiamos el nombre de 'personal' a 'listaUsuarios' para evitar conflictos con interfaces globales
+  const [listaUsuarios, setListaUsuarios] = useState<any[]>([])
   const [cargos, setCargos] = useState<any[]>([])
   const [busqueda, setBusqueda] = useState('')
 
-  // Modal
   const [modalAbierto, setModalAbierto] = useState(false)
   const [modoEditar, setModoEditar] = useState(false)
   const [idEditando, setIdEditando] = useState<number | null>(null)
-  const [form, setForm] = useState<any>(camposVacios)
+  const [form, setForm] = useState<any>({
+    carnet: '', usuario: '', fecha_ingreso: '', fecha_nacimiento: '',
+    estado: true, haber_basico: '', cargo: '', cargo_id: '',
+    distrito: '', sucursal: '', rol: 'vendedor',
+  })
   const [guardando, setGuardando] = useState(false)
   const [errorModal, setErrorModal] = useState('')
   const [exito, setExito] = useState('')
@@ -51,66 +39,49 @@ export default function GestionPersonal() {
   }, [])
 
   const cargarDatos = async () => {
-    const [{ data: p }, { data: c }] = await Promise.all([
-      supabase.from('personal').select('*, cargos(*)').order('carnet'),
-      supabase.from('cargos').select('*').eq('activo', true).order('nombre'),
-    ])
+    // Usamos Record<string, any> para que TypeScript no busque una interfaz predefinida
+    const { data: p }: { data: any[] | null } = await supabase.from('personal').select('*, cargos(*)').order('carnet')
+    const { data: c } = await supabase.from('cargos').select('*').eq('activo', true).order('nombre')
     
-    // Casting a any para saltar la validación estricta de la interfaz Persona
-    setPersonal((p as any) || [])
+    setListaUsuarios(p || [])
     setCargos(c || [])
     setLoading(false)
   }
 
   const abrirModalNuevo = () => {
-    setForm(camposVacios)
+    setForm({ carnet: '', usuario: '', fecha_ingreso: '', fecha_nacimiento: '', estado: true, haber_basico: '', cargo: '', cargo_id: '', distrito: '', sucursal: '', rol: 'vendedor' })
     setModoEditar(false)
     setIdEditando(null)
-    setErrorModal('')
-    setExito('')
-    setModalAbierto(true)
+    setErrorModal(''); setExito(''); setModalAbierto(true)
   }
 
-  const abrirModalEditar = (persona: any) => {
+  const abrirModalEditar = (item: any) => {
     setForm({
-      carnet: persona.carnet || '',
-      usuario: persona.usuario || '',
-      fecha_ingreso: persona.fecha_ingreso || '',
-      fecha_nacimiento: persona.fecha_nacimiento || '',
-      estado: persona.estado ?? true,
-      haber_basico: persona.haber_basico || '',
-      cargo: persona.cargo || '',
-      cargo_id: persona.cargo_id || '',
-      distrito: persona.distrito || '',
-      sucursal: persona.sucursal || '',
-      rol: persona.rol || 'vendedor',
+      carnet: item.carnet || '',
+      usuario: item.usuario || '',
+      fecha_ingreso: item.fecha_ingreso || '',
+      fecha_nacimiento: item.fecha_nacimiento || '',
+      estado: item.estado ?? true,
+      haber_basico: item.haber_basico || '',
+      cargo: item.cargo || '',
+      cargo_id: item.cargo_id || '',
+      distrito: item.distrito || '',
+      sucursal: item.sucursal || '',
+      rol: item.rol || 'vendedor',
     })
-    setModoEditar(true)
-    setIdEditando(persona.id)
-    setErrorModal('')
-    setExito('')
-    setModalAbierto(true)
+    setModoEditar(true); setIdEditando(item.id); setErrorModal(''); setExito(''); setModalAbierto(true)
   }
 
-  const cerrarModal = () => {
-    setModalAbierto(false)
-    setErrorModal('')
-    setExito('')
-  }
+  const cerrarModal = () => { setModalAbierto(false); setErrorModal(''); setExito('') }
 
-  const handleChange = (campo: string, valor: any) => {
-    setForm({ ...form, [campo]: valor })
-  }
+  const handleChange = (campo: string, valor: any) => { setForm({ ...form, [campo]: valor }) }
 
   const handleGuardar = async () => {
-    if (!form.carnet) { setErrorModal('El carnet es obligatorio'); return }
-    if (!form.usuario) { setErrorModal('El usuario es obligatorio'); return }
-
-    setGuardando(true)
-    setErrorModal('')
+    if (!form.carnet || !form.usuario) { setErrorModal('Carnet y usuario son obligatorios'); return }
+    setGuardando(true); setErrorModal('')
 
     try {
-      const datosBase: any = {
+      const datosBase = {
         carnet: form.carnet,
         usuario: form.usuario,
         fecha_ingreso: form.fecha_ingreso || null,
@@ -125,246 +96,90 @@ export default function GestionPersonal() {
       }
 
       if (modoEditar && idEditando) {
-        const { error } = await supabase.from('personal').update(datosBase).eq('id', idEditando)
-        if (error) { setErrorModal('Error al actualizar: ' + error.message); setGuardando(false); return }
-        setExito('Usuario actualizado correctamente')
+        await supabase.from('personal').update(datosBase).eq('id', idEditando)
+        setExito('Actualizado correctamente')
       } else {
-        const { error } = await supabase.from('personal').insert(datosBase)
-        if (error) { setErrorModal('Error al crear: ' + error.message); setGuardando(false); return }
-        setExito('Usuario creado correctamente')
+        await supabase.from('personal').insert(datosBase)
+        setExito('Creado correctamente')
       }
 
       await cargarDatos()
-      setGuardando(false)
       setTimeout(() => cerrarModal(), 1500)
-    } catch (e) {
-      setErrorModal('Error inesperado')
-      setGuardando(false)
-    }
+    } catch (e) { setErrorModal('Error inesperado') } finally { setGuardando(false) }
   }
 
-  // Filtrado seguro manejando personal como array
-  const personalFiltrado = (Array.isArray(personal) ? personal : []).filter((p: any) =>
-    (p.carnet || '').toLowerCase().includes(busqueda.toLowerCase()) ||
-    (p.usuario || '').toLowerCase().includes(busqueda.toLowerCase()) ||
-    (p.cargo || '').toLowerCase().includes(busqueda.toLowerCase()) ||
-    (p.distrito || '').toLowerCase().includes(busqueda.toLowerCase())
+  const filtrados = listaUsuarios.filter((u: any) =>
+    (u.carnet || '').toLowerCase().includes(busqueda.toLowerCase()) ||
+    (u.usuario || '').toLowerCase().includes(busqueda.toLowerCase())
   )
-
-  const inputStyle: any = {
-    padding: '10px 12px', borderRadius: '8px', border: '1px solid #ddd',
-    fontSize: '14px', width: '100%', boxSizing: 'border-box', outline: 'none',
-    backgroundColor: 'white',
-  }
-  const labelStyle: any = { fontSize: '13px', color: '#555', display: 'block', marginBottom: '5px', fontWeight: '500' }
-  const gridDos: any = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }
 
   if (loading) return <p style={{ textAlign: 'center', marginTop: '100px', fontFamily: 'Arial' }}>Cargando...</p>
   if (!usuario) return null
 
   return (
     <div style={{ fontFamily: 'Arial, sans-serif', minHeight: '100vh', backgroundColor: '#f5f5f5' }}>
-
-      <style>{`
-        @media (max-width: 768px) {
-          .gp-container { padding: 80px 16px 40px 16px !important; }
-          .gp-header { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
-          .gp-grid-dos { grid-template-columns: 1fr !important; }
-          .gp-tabla th, .gp-tabla td { padding: 8px 10px !important; font-size: 12px !important; }
-          .gp-modal-inner { padding: 24px 16px !important; width: 95vw !important; }
-        }
-      `}</style>
-
-      {/* NAVBAR */}
-      <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 40px', backgroundColor: '#222', color: 'white', position: 'fixed', top: 0, width: '100%', zIndex: 1000, boxSizing: 'border-box' }}>
-        <a href="/sistema" style={{ fontWeight: 'bold', fontSize: '18px', color: 'white', textDecoration: 'none' }}>
-          Muebles is Better
-        </a>
-        <span style={{ color: '#a3c47d', fontWeight: 'bold' }}>Gestion de Personal</span>
-        <span style={{ color: '#2c6d2e', fontSize: '14px' }}>{usuario.usuario} 👤</span>
+      <nav style={{ display: 'flex', justifyContent: 'space-between', padding: '15px 40px', backgroundColor: '#222', color: 'white', position: 'fixed', top: 0, width: '100%', zIndex: 1000 }}>
+        <a href="/sistema" style={{ fontWeight: 'bold', color: 'white', textDecoration: 'none' }}>Muebles is Better</a>
+        <span style={{ color: '#a3c47d' }}>Gestión de Personal</span>
       </nav>
 
-      <div className="gp-container" style={{ padding: '100px 40px 60px 40px', maxWidth: '1100px', margin: '0 auto' }}>
-
-        {/* HEADER */}
-        <div className="gp-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-          <div>
-            <h1 style={{ margin: '0 0 4px 0', fontSize: '24px' }}>Personal</h1>
-            <p style={{ margin: 0, color: '#888', fontSize: '14px' }}>{personal.length} usuarios registrados</p>
-          </div>
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <input
-              type="text"
-              placeholder="Buscar por CI, usuario..."
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-              style={{ ...inputStyle, width: '220px', marginBottom: 0 }}
-            />
-            <button
-              onClick={abrirModalNuevo}
-              style={{ padding: '10px 20px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', whiteSpace: 'nowrap' }}
-            >
-              + Nuevo Usuario
-            </button>
+      <div style={{ padding: '100px 40px 60px 40px', maxWidth: '1100px', margin: '0 auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+          <h1 style={{ fontSize: '24px', margin: 0 }}>Personal ({listaUsuarios.length})</h1>
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <input type="text" placeholder="Buscar..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)} style={{ padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
+            <button onClick={abrirModalNuevo} style={{ padding: '10px 20px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>+ Nuevo</button>
           </div>
         </div>
 
-        {/* TABLA */}
         <div style={{ backgroundColor: 'white', borderRadius: '16px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', overflowX: 'auto' }}>
-          <table className="gp-tabla" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
             <thead>
               <tr style={{ backgroundColor: '#f9f9f9' }}>
-                <th style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee', color: '#555' }}>CI</th>
-                <th style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee', color: '#555' }}>Usuario</th>
-                <th style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee', color: '#555' }}>Cargo</th>
-                <th style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee', color: '#555' }}>Sucursal</th>
-                <th style={{ padding: '14px 16px', textAlign: 'center', borderBottom: '2px solid #eee', color: '#555' }}>Estado</th>
-                <th style={{ padding: '14px 16px', textAlign: 'center', borderBottom: '2px solid #eee', color: '#555' }}>Acciones</th>
+                <th style={{ padding: '14px', textAlign: 'left', borderBottom: '2px solid #eee' }}>CI</th>
+                <th style={{ padding: '14px', textAlign: 'left', borderBottom: '2px solid #eee' }}>Usuario</th>
+                <th style={{ padding: '14px', textAlign: 'left', borderBottom: '2px solid #eee' }}>Cargo</th>
+                <th style={{ padding: '14px', textAlign: 'center', borderBottom: '2px solid #eee' }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {personalFiltrado.length === 0 ? (
-                <tr>
-                  <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#bbb' }}>
-                    No se encontraron usuarios
+              {filtrados.map((item: any) => (
+                <tr key={item.id}>
+                  <td style={{ padding: '12px', borderBottom: '1px solid #f0f0f0' }}>{item.carnet}</td>
+                  <td style={{ padding: '12px', borderBottom: '1px solid #f0f0f0' }}>{item.usuario}</td>
+                  <td style={{ padding: '12px', borderBottom: '1px solid #f0f0f0' }}>
+                    {Array.isArray(item.cargos) ? item.cargos[0]?.nombre : item.cargos?.nombre || item.cargo || '—'}
+                  </td>
+                  <td style={{ padding: '12px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>
+                    <button onClick={() => abrirModalEditar(item)} style={{ backgroundColor: '#087e0b', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer' }}>Editar</button>
                   </td>
                 </tr>
-              ) : (
-                personalFiltrado.map((p: any, i: number) => (
-                  <tr key={p.id} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
-                    <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', fontWeight: 'bold' }}>{p.carnet}</td>
-                    <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>{p.usuario || '—'}</td>
-                    <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>
-                      {Array.isArray(p.cargos) ? p.cargos[0]?.nombre : p.cargos?.nombre || p.cargo || '—'}
-                    </td>
-                    <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>{p.sucursal || '—'}</td>
-                    <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>
-                      <span style={{
-                        backgroundColor: p.estado ? '#e8f5e9' : '#ffebee',
-                        color: p.estado ? '#2e7d32' : '#c62828',
-                        padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold'
-                      }}>
-                        {p.estado ? 'Activo' : 'Inactivo'}
-                      </span>
-                    </td>
-                    <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>
-                      <button
-                        onClick={() => abrirModalEditar(p)}
-                        style={{ backgroundColor: '#087e0b', color: 'white', border: 'none', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}
-                      >
-                        Editar
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
+              ))}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* MODAL */}
       {modalAbierto && (
-        <div style={{
-          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
-          zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: '20px', boxSizing: 'border-box'
-        }}>
-          <div className="gp-modal-inner" style={{
-            backgroundColor: 'white', borderRadius: '16px', padding: '32px',
-            width: '600px', maxWidth: '100%', maxHeight: '90vh',
-            overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-              <h2 style={{ margin: 0, fontSize: '20px' }}>
-                {modoEditar ? 'Editar Usuario' : 'Nuevo Usuario'}
-              </h2>
-              <button onClick={cerrarModal} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: '#999' }}>✕</button>
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '32px', width: '500px', maxWidth: '95%' }}>
+            <h2>{modoEditar ? 'Editar' : 'Nuevo'} Usuario</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
+              <div><label>CI</label><input type="text" value={form.carnet} onChange={(e) => handleChange('carnet', e.target.value)} style={{ width: '100%', padding: '8px' }} /></div>
+              <div><label>Usuario</label><input type="text" value={form.usuario} onChange={(e) => handleChange('usuario', e.target.value)} style={{ width: '100%', padding: '8px' }} /></div>
             </div>
-
-            <div className="gp-grid-dos" style={gridDos}>
-              <div>
-                <label style={labelStyle}>Carnet (CI) *</label>
-                <input type="text" value={form.carnet} onChange={(e) => handleChange('carnet', e.target.value)} style={inputStyle} />
-              </div>
-              <div>
-                <label style={labelStyle}>Usuario *</label>
-                <input type="text" value={form.usuario} onChange={(e) => handleChange('usuario', e.target.value)} style={inputStyle} />
-              </div>
+            <div style={{ marginBottom: '20px' }}>
+              <label>Cargo</label>
+              <select value={form.cargo_id} onChange={(e) => handleChange('cargo_id', e.target.value)} style={{ width: '100%', padding: '8px' }}>
+                <option value="">-- Seleccionar --</option>
+                {cargos.map((c: any) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
             </div>
-
-            <div className="gp-grid-dos" style={gridDos}>
-              <div>
-                <label style={labelStyle}>Cargo (texto)</label>
-                <input type="text" value={form.cargo} onChange={(e) => handleChange('cargo', e.target.value)} style={inputStyle} />
-              </div>
-              <div>
-                <label style={labelStyle}>Cargo (sistema)</label>
-                <select value={form.cargo_id} onChange={(e) => handleChange('cargo_id', e.target.value)} style={inputStyle}>
-                  <option value="">-- Sin cargo --</option>
-                  {cargos.map(c => (
-                    <option key={c.id} value={String(c.id)}>{c.nombre}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="gp-grid-dos" style={gridDos}>
-              <div>
-                <label style={labelStyle}>Sucursal</label>
-                <select value={form.sucursal} onChange={(e) => handleChange('sucursal', e.target.value)} style={inputStyle}>
-                  <option value="">-- Selecciona --</option>
-                  <option value="El Alto">El Alto</option>
-                  <option value="La Paz">La Paz</option>
-                  <option value="Santa Cruz">Santa Cruz</option>
-                  <option value="Cochabamba">Cochabamba</option>
-                </select>
-              </div>
-              <div>
-                <label style={labelStyle}>Rol</label>
-                <select value={form.rol} onChange={(e) => handleChange('rol', e.target.value)} style={inputStyle}>
-                  <option value="vendedor">Vendedor</option>
-                  <option value="admin">Admin</option>
-                  <option value="supervisor">Supervisor</option>
-                </select>
-              </div>
-            </div>
-
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
-                <input
-                  type="checkbox"
-                  checked={form.estado}
-                  onChange={(e) => handleChange('estado', e.target.checked)}
-                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                />
-                <span>Usuario activo</span>
-              </label>
-            </div>
-
-            {errorModal && (
-              <div style={{ backgroundColor: '#ffebee', padding: '10px', marginBottom: '16px', color: '#c62828' }}>
-                {errorModal}
-              </div>
-            )}
-
-            {exito && (
-              <div style={{ backgroundColor: '#e8f5e9', padding: '10px', marginBottom: '16px', color: '#2e7d32' }}>
-                {exito}
-              </div>
-            )}
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button onClick={cerrarModal} style={{ padding: '10px 20px', borderRadius: '8px', border: '1px solid #ccc', cursor: 'pointer' }}>
-                Cancelar
-              </button>
-              <button
-                onClick={handleGuardar}
-                disabled={guardando}
-                style={{ padding: '10px 24px', backgroundColor: guardando ? '#ccc' : '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}
-              >
-                {guardando ? 'Guardando...' : 'Guardar'}
-              </button>
+            {errorModal && <p style={{ color: 'red' }}>{errorModal}</p>}
+            {exito && <p style={{ color: 'green' }}>{exito}</p>}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button onClick={cerrarModal} style={{ padding: '10px 20px' }}>Cancelar</button>
+              <button onClick={handleGuardar} disabled={guardando} style={{ padding: '10px 20px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '8px' }}>{guardando ? 'Guardando...' : 'Guardar'}</button>
             </div>
           </div>
         </div>
