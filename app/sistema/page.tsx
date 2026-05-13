@@ -182,7 +182,15 @@ export default function Sistema() {
           {(esAdmin || !!usuario?.cargos?.puede_ver_mk) && (
           <a href="/marketing" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
             <div style={{ fontSize: '40px', marginBottom: '12px' }}>🎁</div>
-            <h3 style={{ margin: 0 }}>Marketing</h3>
+            <h3 style={{ margin: 0 }}>Editar Portada</h3>
+          </a>
+          )}
+
+{/* TARJETA promociones */}
+          {(esAdmin || !!usuario?.cargos?.puede_ver_mk) && (
+          <a href="/admin-promociones" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🎁</div>
+            <h3 style={{ margin: 0 }}>Editar Promociones</h3>
           </a>
           )}
 
@@ -201,7 +209,13 @@ export default function Sistema() {
             <h3 style={{ margin: 0 }}>Codigo de personal</h3>
           </a>
           )}
-
+          {/* TARJETA ASISTENCIA */}
+          {(esAdmin || !!usuario?.cargos?.puede_ver_rrhh || !!usuario?.cargos?.puede_gestionar_rrhh) && (
+          <a href="/rrhh" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>👩‍🎓</div>
+            <h3 style={{ margin: 0 }}>Recursos Humanos</h3>
+          </a>
+          )}
           {/* Aqui agregaras mas aplicaciones */}
 
         </div>
