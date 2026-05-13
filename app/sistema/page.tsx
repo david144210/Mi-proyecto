@@ -195,7 +195,7 @@ export default function Sistema() {
           )}
 
           {/* TARJETA RRHH - solo admin y gestores RRHH */}
-          {(esAdmin || !!usuario?.cargos?.puede_gestionar_rrhh) && (
+          {(esAdmin || !!usuario) && (
           <a href="/kiosco" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
             <div style={{ fontSize: '40px', marginBottom: '12px' }}>👥</div>
             <h3 style={{ margin: 0 }}>Codigo de personal</h3>
