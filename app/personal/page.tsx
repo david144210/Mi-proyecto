@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 
+// 1. Campos iniciales sin contraseña
 const camposVacios = {
   carnet: '',
   usuario: '',
@@ -19,10 +20,13 @@ const camposVacios = {
 export default function GestionPersonal() {
   const [usuario, setUsuario] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [personal, setPersonal] = useState<any>([]) 
+  
+  // 2. Forzado de tipo para evitar errores de compilación en Vercel
+  const [personal, setPersonal] = useState<any>([] as any)
   const [cargos, setCargos] = useState<any[]>([])
   const [busqueda, setBusqueda] = useState('')
 
+  // Modal
   const [modalAbierto, setModalAbierto] = useState(false)
   const [modoEditar, setModoEditar] = useState(false)
   const [idEditando, setIdEditando] = useState<number | null>(null)
@@ -52,9 +56,8 @@ export default function GestionPersonal() {
       supabase.from('cargos').select('*').eq('activo', true).order('nombre'),
     ])
     
-    // @ts-ignore - Forzamos a TypeScript a ignorar este error para permitir el build en Vercel
-    setPersonal(p || [])
-    
+    // Casting a any para saltar la validación estricta de la interfaz Persona
+    setPersonal((p as any) || [])
     setCargos(c || [])
     setLoading(false)
   }
@@ -140,8 +143,8 @@ export default function GestionPersonal() {
     }
   }
 
-  // @ts-ignore - Ignoramos validación de tipo en el filtrado
-  const personalFiltrado = (personal || []).filter((p: any) =>
+  // Filtrado seguro manejando personal como array
+  const personalFiltrado = (Array.isArray(personal) ? personal : []).filter((p: any) =>
     (p.carnet || '').toLowerCase().includes(busqueda.toLowerCase()) ||
     (p.usuario || '').toLowerCase().includes(busqueda.toLowerCase()) ||
     (p.cargo || '').toLowerCase().includes(busqueda.toLowerCase()) ||
@@ -161,6 +164,7 @@ export default function GestionPersonal() {
 
   return (
     <div style={{ fontFamily: 'Arial, sans-serif', minHeight: '100vh', backgroundColor: '#f5f5f5' }}>
+
       <style>{`
         @media (max-width: 768px) {
           .gp-container { padding: 80px 16px 40px 16px !important; }
@@ -171,6 +175,7 @@ export default function GestionPersonal() {
         }
       `}</style>
 
+      {/* NAVBAR */}
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 40px', backgroundColor: '#222', color: 'white', position: 'fixed', top: 0, width: '100%', zIndex: 1000, boxSizing: 'border-box' }}>
         <a href="/sistema" style={{ fontWeight: 'bold', fontSize: '18px', color: 'white', textDecoration: 'none' }}>
           Muebles is Better
@@ -180,115 +185,184 @@ export default function GestionPersonal() {
       </nav>
 
       <div className="gp-container" style={{ padding: '100px 40px 60px 40px', maxWidth: '1100px', margin: '0 auto' }}>
+
+        {/* HEADER */}
         <div className="gp-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
           <div>
             <h1 style={{ margin: '0 0 4px 0', fontSize: '24px' }}>Personal</h1>
-            <p style={{ margin: 0, color: '#888', fontSize: '14px' }}>{personal?.length || 0} usuarios registrados</p>
+            <p style={{ margin: 0, color: '#888', fontSize: '14px' }}>{personal.length} usuarios registrados</p>
           </div>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
             <input
               type="text"
-              placeholder="Buscar..."
+              placeholder="Buscar por CI, usuario..."
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
-              style={{ ...inputStyle, width: '220px' }}
+              style={{ ...inputStyle, width: '220px', marginBottom: 0 }}
             />
             <button
               onClick={abrirModalNuevo}
-              style={{ padding: '10px 20px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}
+              style={{ padding: '10px 20px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', whiteSpace: 'nowrap' }}
             >
               + Nuevo Usuario
             </button>
           </div>
         </div>
 
+        {/* TABLA */}
         <div style={{ backgroundColor: 'white', borderRadius: '16px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', overflowX: 'auto' }}>
           <table className="gp-tabla" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
             <thead>
               <tr style={{ backgroundColor: '#f9f9f9' }}>
-                <th style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee' }}>CI</th>
-                <th style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee' }}>Usuario</th>
-                <th style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee' }}>Cargo</th>
-                <th style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee' }}>Sucursal</th>
-                <th style={{ padding: '14px 16px', textAlign: 'center', borderBottom: '2px solid #eee' }}>Estado</th>
-                <th style={{ padding: '14px 16px', textAlign: 'center', borderBottom: '2px solid #eee' }}>Acciones</th>
+                <th style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee', color: '#555' }}>CI</th>
+                <th style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee', color: '#555' }}>Usuario</th>
+                <th style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee', color: '#555' }}>Cargo</th>
+                <th style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee', color: '#555' }}>Sucursal</th>
+                <th style={{ padding: '14px 16px', textAlign: 'center', borderBottom: '2px solid #eee', color: '#555' }}>Estado</th>
+                <th style={{ padding: '14px 16px', textAlign: 'center', borderBottom: '2px solid #eee', color: '#555' }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {personalFiltrado.map((p: any, i: number) => (
-                <tr key={p.id} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
-                  <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', fontWeight: 'bold' }}>{p.carnet}</td>
-                  <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>{p.usuario || '—'}</td>
-                  <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>
-                    {Array.isArray(p.cargos) ? p.cargos[0]?.nombre : p.cargos?.nombre || p.cargo || '—'}
-                  </td>
-                  <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>{p.sucursal || '—'}</td>
-                  <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>
-                    <span style={{
-                      backgroundColor: p.estado ? '#e8f5e9' : '#ffebee',
-                      color: p.estado ? '#2e7d32' : '#c62828',
-                      padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold'
-                    }}>
-                      {p.estado ? 'Activo' : 'Inactivo'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>
-                    <button onClick={() => abrirModalEditar(p)} style={{ backgroundColor: '#087e0b', color: 'white', border: 'none', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer' }}>Editar</button>
+              {personalFiltrado.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#bbb' }}>
+                    No se encontraron usuarios
                   </td>
                 </tr>
-              ))}
+              ) : (
+                personalFiltrado.map((p: any, i: number) => (
+                  <tr key={p.id} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                    <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', fontWeight: 'bold' }}>{p.carnet}</td>
+                    <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>{p.usuario || '—'}</td>
+                    <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>
+                      {Array.isArray(p.cargos) ? p.cargos[0]?.nombre : p.cargos?.nombre || p.cargo || '—'}
+                    </td>
+                    <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>{p.sucursal || '—'}</td>
+                    <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>
+                      <span style={{
+                        backgroundColor: p.estado ? '#e8f5e9' : '#ffebee',
+                        color: p.estado ? '#2e7d32' : '#c62828',
+                        padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold'
+                      }}>
+                        {p.estado ? 'Activo' : 'Inactivo'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>
+                      <button
+                        onClick={() => abrirModalEditar(p)}
+                        style={{ backgroundColor: '#087e0b', color: 'white', border: 'none', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}
+                      >
+                        Editar
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
+      {/* MODAL */}
       {modalAbierto && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div className="gp-modal-inner" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '32px', width: '600px', maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
-              <h2 style={{ margin: 0 }}>{modoEditar ? 'Editar Usuario' : 'Nuevo Usuario'}</h2>
-              <button onClick={cerrarModal} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer' }}>✕</button>
+        <div style={{
+          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+          zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '20px', boxSizing: 'border-box'
+        }}>
+          <div className="gp-modal-inner" style={{
+            backgroundColor: 'white', borderRadius: '16px', padding: '32px',
+            width: '600px', maxWidth: '100%', maxHeight: '90vh',
+            overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+              <h2 style={{ margin: 0, fontSize: '20px' }}>
+                {modoEditar ? 'Editar Usuario' : 'Nuevo Usuario'}
+              </h2>
+              <button onClick={cerrarModal} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: '#999' }}>✕</button>
             </div>
 
             <div className="gp-grid-dos" style={gridDos}>
-              <div><label style={labelStyle}>CI *</label><input type="text" value={form.carnet} onChange={(e) => handleChange('carnet', e.target.value)} style={inputStyle} /></div>
-              <div><label style={labelStyle}>Usuario *</label><input type="text" value={form.usuario} onChange={(e) => handleChange('usuario', e.target.value)} style={inputStyle} /></div>
+              <div>
+                <label style={labelStyle}>Carnet (CI) *</label>
+                <input type="text" value={form.carnet} onChange={(e) => handleChange('carnet', e.target.value)} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Usuario *</label>
+                <input type="text" value={form.usuario} onChange={(e) => handleChange('usuario', e.target.value)} style={inputStyle} />
+              </div>
             </div>
 
             <div className="gp-grid-dos" style={gridDos}>
-              <div><label style={labelStyle}>Cargo (sistema)</label>
+              <div>
+                <label style={labelStyle}>Cargo (texto)</label>
+                <input type="text" value={form.cargo} onChange={(e) => handleChange('cargo', e.target.value)} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Cargo (sistema)</label>
                 <select value={form.cargo_id} onChange={(e) => handleChange('cargo_id', e.target.value)} style={inputStyle}>
                   <option value="">-- Sin cargo --</option>
-                  {cargos.map(c => <option key={c.id} value={String(c.id)}>{c.nombre}</option>)}
-                </select>
-              </div>
-              <div><label style={labelStyle}>Sucursal</label>
-                <select value={form.sucursal} onChange={(e) => handleChange('sucursal', e.target.value)} style={inputStyle}>
-                  <option value="">-- Selecciona --</option>
-                  <option value="El Alto">El Alto</option><option value="La Paz">La Paz</option><option value="Santa Cruz">Santa Cruz</option><option value="Cochabamba">Cochabamba</option>
+                  {cargos.map(c => (
+                    <option key={c.id} value={String(c.id)}>{c.nombre}</option>
+                  ))}
                 </select>
               </div>
             </div>
 
             <div className="gp-grid-dos" style={gridDos}>
-              <div><label style={labelStyle}>Rol</label>
-                <select value={form.rol} onChange={(e) => handleChange('rol', e.target.value)} style={inputStyle}>
-                  <option value="vendedor">Vendedor</option><option value="admin">Admin</option><option value="supervisor">Supervisor</option>
+              <div>
+                <label style={labelStyle}>Sucursal</label>
+                <select value={form.sucursal} onChange={(e) => handleChange('sucursal', e.target.value)} style={inputStyle}>
+                  <option value="">-- Selecciona --</option>
+                  <option value="El Alto">El Alto</option>
+                  <option value="La Paz">La Paz</option>
+                  <option value="Santa Cruz">Santa Cruz</option>
+                  <option value="Cochabamba">Cochabamba</option>
                 </select>
               </div>
-              <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: '10px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={form.estado} onChange={(e) => handleChange('estado', e.target.checked)} /> Activo
-                </label>
+              <div>
+                <label style={labelStyle}>Rol</label>
+                <select value={form.rol} onChange={(e) => handleChange('rol', e.target.value)} style={inputStyle}>
+                  <option value="vendedor">Vendedor</option>
+                  <option value="admin">Admin</option>
+                  <option value="supervisor">Supervisor</option>
+                </select>
               </div>
             </div>
 
-            {errorModal && <div style={{ color: '#c62828', marginBottom: '10px' }}>{errorModal}</div>}
-            {exito && <div style={{ color: '#2e7d32', marginBottom: '10px' }}>{exito}</div>}
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
+                <input
+                  type="checkbox"
+                  checked={form.estado}
+                  onChange={(e) => handleChange('estado', e.target.checked)}
+                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                />
+                <span>Usuario activo</span>
+              </label>
+            </div>
+
+            {errorModal && (
+              <div style={{ backgroundColor: '#ffebee', padding: '10px', marginBottom: '16px', color: '#c62828' }}>
+                {errorModal}
+              </div>
+            )}
+
+            {exito && (
+              <div style={{ backgroundColor: '#e8f5e9', padding: '10px', marginBottom: '16px', color: '#2e7d32' }}>
+                {exito}
+              </div>
+            )}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button onClick={cerrarModal} style={{ padding: '10px 20px', borderRadius: '8px', border: '1px solid #ccc' }}>Cancelar</button>
-              <button onClick={handleGuardar} disabled={guardando} style={{ padding: '10px 24px', backgroundColor: guardando ? '#ccc' : '#087e0b', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold' }}>
+              <button onClick={cerrarModal} style={{ padding: '10px 20px', borderRadius: '8px', border: '1px solid #ccc', cursor: 'pointer' }}>
+                Cancelar
+              </button>
+              <button
+                onClick={handleGuardar}
+                disabled={guardando}
+                style={{ padding: '10px 24px', backgroundColor: guardando ? '#ccc' : '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}
+              >
                 {guardando ? 'Guardando...' : 'Guardar'}
               </button>
             </div>
