@@ -5,7 +5,6 @@ import { supabase } from '../../lib/supabase'
 const camposVacios = {
   carnet: '',
   usuario: '',
-  password_nuevo: '',
   fecha_ingreso: '',
   fecha_nacimiento: '',
   estado: true,
@@ -20,7 +19,8 @@ const camposVacios = {
 export default function GestionPersonal() {
   const [usuario, setUsuario] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [personal, setPersonal] = useState<any[]>([])
+  // Cambio realizado para evitar error de TypeScript en Vercel
+  const [personal, setPersonal] = useState<any>([])
   const [cargos, setCargos] = useState<any[]>([])
   const [busqueda, setBusqueda] = useState('')
 
@@ -71,7 +71,6 @@ export default function GestionPersonal() {
     setForm({
       carnet: persona.carnet || '',
       usuario: persona.usuario || '',
-      password_nuevo: '',
       fecha_ingreso: persona.fecha_ingreso || '',
       fecha_nacimiento: persona.fecha_nacimiento || '',
       estado: persona.estado ?? true,
@@ -102,7 +101,6 @@ export default function GestionPersonal() {
   const handleGuardar = async () => {
     if (!form.carnet) { setErrorModal('El carnet es obligatorio'); return }
     if (!form.usuario) { setErrorModal('El usuario es obligatorio'); return }
-    if (!modoEditar && !form.password_nuevo) { setErrorModal('La contraseña es obligatoria para nuevos usuarios'); return }
 
     setGuardando(true)
     setErrorModal('')
@@ -125,25 +123,10 @@ export default function GestionPersonal() {
       if (modoEditar && idEditando) {
         const { error } = await supabase.from('personal').update(datosBase).eq('id', idEditando)
         if (error) { setErrorModal('Error al actualizar: ' + error.message); setGuardando(false); return }
-
-        if (form.password_nuevo) {
-          const { error: errPass } = await supabase.rpc('actualizar_password', {
-            p_id: idEditando,
-            p_password: form.password_nuevo
-          })
-          if (errPass) { setErrorModal('Error al cambiar password: ' + errPass.message); setGuardando(false); return }
-        }
         setExito('Usuario actualizado correctamente')
       } else {
-        const { data: nuevo, error } = await supabase.from('personal').insert(datosBase).select().single()
+        const { error } = await supabase.from('personal').insert(datosBase)
         if (error) { setErrorModal('Error al crear: ' + error.message); setGuardando(false); return }
-
-        if (form.password_nuevo && nuevo) {
-          await supabase.rpc('actualizar_password', {
-            p_id: nuevo.id,
-            p_password: form.password_nuevo
-          })
-        }
         setExito('Usuario creado correctamente')
       }
 
@@ -156,7 +139,7 @@ export default function GestionPersonal() {
     }
   }
 
-  const personalFiltrado = personal.filter(p =>
+  const personalFiltrado = personal.filter((p: any) =>
     (p.carnet || '').toLowerCase().includes(busqueda.toLowerCase()) ||
     (p.usuario || '').toLowerCase().includes(busqueda.toLowerCase()) ||
     (p.cargo || '').toLowerCase().includes(busqueda.toLowerCase()) ||
@@ -243,11 +226,13 @@ export default function GestionPersonal() {
                   </td>
                 </tr>
               ) : (
-                personalFiltrado.map((p, i) => (
+                personalFiltrado.map((p: any, i: number) => (
                   <tr key={p.id} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
                     <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', fontWeight: 'bold' }}>{p.carnet}</td>
                     <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>{p.usuario || '—'}</td>
-                    <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>{p.cargos?.nombre || p.cargo || '—'}</td>
+                    <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>
+                      {Array.isArray(p.cargos) ? p.cargos[0]?.nombre : p.cargos?.nombre || p.cargo || '—'}
+                    </td>
                     <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>{p.sucursal || '—'}</td>
                     <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>{p.distrito || '—'}</td>
                     <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>
@@ -305,11 +290,6 @@ export default function GestionPersonal() {
                 <label style={labelStyle}>Usuario *</label>
                 <input type="text" value={form.usuario} onChange={(e) => handleChange('usuario', e.target.value)} style={inputStyle} placeholder="Nombre de usuario" />
               </div>
-            </div>
-
-            <div style={{ marginBottom: '16px' }}>
-              <label style={labelStyle}>{modoEditar ? 'Nueva Contraseña (dejar vacio para no cambiar)' : 'Contraseña *'}</label>
-              <input type="password" value={form.password_nuevo} onChange={(e) => handleChange('password_nuevo', e.target.value)} style={inputStyle} placeholder={modoEditar ? 'Nueva contraseña...' : 'Contraseña'} />
             </div>
 
             <div className="gp-grid-dos" style={gridDos}>
