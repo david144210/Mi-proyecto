@@ -96,23 +96,45 @@ export default function Promociones() {
         <div className="promo-grid" style={{ display: 'flex', gap: '0', backgroundColor: '#1a1a1a', borderRadius: '20px', overflow: 'hidden', border: '1px solid #2a2a2a', minHeight: '400px' }}>
 
           {/* Media: imagen o video */}
-          {(promo.imagen_url || promo.video_url) && (
-            <div className="promo-media" style={{ width: '50%', position: 'relative', backgroundColor: '#111', flexShrink: 0 }}>
-              {promo.video_url ? (
-                <video
-                  src={promo.video_url}
-                  autoPlay muted loop playsInline
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                />
-              ) : (
-                <img
-                  src={promo.imagen_url}
-                  alt={promo.titulo || 'Promoción'}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                />
-              )}
-            </div>
-          )}
+{(promo.imagen_url || promo.video_url) && (
+  <div className="promo-media" style={{ 
+    width: '100%',           // En móvil ocupará el ancho total
+    maxWidth: '500px',       // Ajusta según tu diseño para escritorio
+    position: 'relative', 
+    backgroundColor: '#111', 
+    flexShrink: 0,
+    aspectRatio: '16/9',     // Mantiene una proporción constante
+    overflow: 'hidden'
+  }}>
+    {promo.video_url ? (
+      <video
+        src={promo.video_url}
+        autoPlay
+        loop
+        playsInline
+        controls              // Agregamos controles para que el usuario suba el volumen
+        muted                 // Mantener muted para que el autoPlay no sea bloqueado
+        style={{ 
+          width: '100%', 
+          height: '100%', 
+          objectFit: 'contain', // 'contain' evita que se corte el video en pantallas pequeñas
+          display: 'block' 
+        }}
+      />
+    ) : (
+      <img
+        src={promo.imagen_url}
+        alt={promo.titulo || 'Promoción'}
+        style={{ 
+          width: '100%', 
+          height: '100%', 
+          objectFit: 'cover', 
+          display: 'block' 
+        }}
+      />
+    )}
+  </div>
+)}
 
           {/* Contenido */}
           <div className="promo-content" style={{ flex: 1, padding: '40px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '20px' }}>
