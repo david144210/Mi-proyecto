@@ -7,9 +7,11 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 
 type Escala = { id: number; nombre: string; activa: boolean; nivel: number; venta_min: number; venta_max: number | null; sueldo_base: number; bono: number; comision_pct: number }
+type CampoEditable = 'venta_min' | 'venta_max' | 'sueldo_base' | 'bono' | 'comision_pct'
 
 const fmt = (n: number) => new Intl.NumberFormat('es-BO', { minimumFractionDigits: 2 }).format(n)
 const NIVEL_COLOR = ['', '#3b82f6', '#22c55e', '#f59e0b', '#8b5cf6', '#ec4899']
+const CAMPOS_EDITABLES: readonly CampoEditable[] = ['venta_min', 'venta_max', 'sueldo_base', 'bono', 'comision_pct']
 
 const nivelVacio = (nombre: string, nivel: number) => ({
   id: 0, nombre, activa: false, nivel,
@@ -60,10 +62,10 @@ export default function GestionEscalas() {
 
   const filasPorTemp = (nombre: string) => escalas.filter(e => e.nombre === nombre).sort((a, b) => a.nivel - b.nivel)
 
-  const editVal = (id: number, campo: keyof Escala, valor: any) =>
+  const editVal = (id: number, campo: CampoEditable, valor: number | null) =>
     setEditRows(prev => ({ ...prev, [id]: { ...prev[id], [campo]: valor } }))
 
-  const getVal = (e: Escala, campo: keyof Escala) =>
+  const getVal = (e: Escala, campo: CampoEditable): number | null =>
     editRows[e.id]?.[campo] !== undefined ? editRows[e.id][campo] : e[campo]
 
   const guardarTemporada = async (nombre: string) => {
@@ -201,7 +203,7 @@ export default function GestionEscalas() {
                         Nivel {e.nivel}
                       </span>
                     </td>
-                    {(['venta_min', 'venta_max', 'sueldo_base', 'bono', 'comision_pct'] as const).map(campo => (
+                    {CAMPOS_EDITABLES.map(campo => (
                       <td key={campo} style={{ padding: '8px 16px' }}>
                         <input
                           type="number" min="0" step={campo === 'comision_pct' ? '0.1' : '1'}
