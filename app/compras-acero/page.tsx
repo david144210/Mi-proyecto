@@ -35,7 +35,7 @@ export default function ComprasAceroResponsive() {
         if (!data) { window.location.replace('/'); return }
         setUsuario(data)
         const admin = data.cargos?.es_admin === true
-        const compras = data.cargos?.puede_editar_productos === true || admin
+        const compras = data.cargos?.puede_ver_compras === true || admin
         setEsAdmin(admin)
         setPuedeComprar(compras)
         cargarDatos()
