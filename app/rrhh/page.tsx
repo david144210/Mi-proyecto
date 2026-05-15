@@ -35,6 +35,7 @@ export default function PanelRRHH() {
     { href: '/rrhh/planilla', emoji: '⚙️', titulo: 'Config. Planilla',       desc: 'Sanciones, horas extra y seguro de salud' },
     { href: '/rrhh/cargos',   emoji: '🔑', titulo: 'Cargos y Permisos',      desc: 'Accesos al sistema por tipo de cargo' },
     { href: '/rrhh/personal', emoji: '👤', titulo: 'Personal',               desc: 'Datos, sueldo base, cargo y sucursal' },
+    { href: '/asistencia', emoji: '🕵️‍♀️🕵️‍♂️', titulo: 'Asistencia',               desc: 'Control de asistencia y permisos' },
   ]
 
   return (
