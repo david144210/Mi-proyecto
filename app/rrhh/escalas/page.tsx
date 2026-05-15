@@ -65,8 +65,10 @@ export default function GestionEscalas() {
   const editVal = (id: number, campo: CampoEditable, valor: number | null) =>
     setEditRows(prev => ({ ...prev, [id]: { ...prev[id], [campo]: valor } }))
 
-  const getVal = (e: Escala, campo: CampoEditable): number | null =>
-    editRows[e.id]?.[campo] !== undefined ? editRows[e.id][campo] : e[campo]
+  const getVal = (e: Escala, campo: CampoEditable): number | null => {
+    const valorEditado = editRows[e.id]?.[campo]
+    return valorEditado !== undefined ? valorEditado : e[campo]
+  }
 
   const guardarTemporada = async (nombre: string) => {
     setGuardando(true); setError(''); setGuardado(false)
