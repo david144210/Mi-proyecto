@@ -82,67 +82,140 @@ export default function PlanillaMensual() {
     setPlanillas((data as any) || [])
   }
 
+  // ── Helpers de fechas ─────────────────────────────────────────────────────
+  // Feriados nacionales Bolivia (formato MM-DD, se evalúan contra el año del mes)
+  const FERIADOS_BO = ['01-01','02-02','05-01','06-21','08-06','11-02','12-25']
+
+  const esFeriado = (fecha: Date): boolean => {
+    const mmdd = `${String(fecha.getMonth()+1).padStart(2,'0')}-${String(fecha.getDate()).padStart(2,'0')}`
+    return FERIADOS_BO.includes(mmdd)
+  }
+
+  // Calcula los días que DEBIÓ trabajar una persona en el mes
+  // según su turno (días laborales) excluyendo feriados y días antes de su ingreso
+  const calcDiasDebio = (
+    turno: number[],           // ej: [1,2,3,4,5]
+    anio: number,
+    mesNum: number,            // 0-based
+    fechaIngreso: string | null
+  ): number => {
+    const ingreso = fechaIngreso ? new Date(fechaIngreso + 'T00:00:00') : null
+    const diasEnMes = new Date(anio, mesNum + 1, 0).getDate()
+    let count = 0
+    for (let d = 1; d <= diasEnMes; d++) {
+      const fecha = new Date(anio, mesNum, d)
+      const diaSemana = fecha.getDay() === 0 ? 7 : fecha.getDay() // 1=Lun, 7=Dom
+      if (!turno.includes(diaSemana)) continue  // no es día laboral
+      if (esFeriado(fecha)) continue             // es feriado nacional
+      if (ingreso && fecha < ingreso) continue   // antes de su ingreso
+      count++
+    }
+    return count
+  }
+
   // ── Calcular planilla del mes ──────────────────────────────────────────────
   const calcularPlanilla = async () => {
     if (!config) return alert('Carga la configuración primero')
     setCalculando(true); setError('')
     try {
-      const mesDate  = `${mes}-01`
+      const mesDate   = `${mes}-01`
       const mesInicio = `${mes}-01`
       const mesFin    = `${mes}-31`
+      const [anio, mesNum] = mes.split('-').map(Number)
 
-      // 1. Personal activo
+      // 1. Personal activo con fecha de ingreso
       const { data: personal } = await supabase.from('personal')
-        .select('id, usuario, carnet, cargo, sucursal, tipo_trabajador, haber_basico')
+        .select('id, usuario, carnet, cargo, sucursal, sucursal_id, cargo_id, tipo_trabajador, haber_basico, fecha_ingreso')
         .eq('estado', true)
 
       if (!personal?.length) throw new Error('Sin personal activo')
 
-      // 2. Registros de asistencia del mes
+      // 2. Todos los turnos activos
+      const { data: todosLosTurnos } = await supabase.from('turnos')
+        .select('cargo_id, sucursal_id, dias_laborales, hora_entrada, hora_salida, tolerancia_min')
+        .eq('activo', true)
+
+      // 3. Registros de asistencia del mes (solo con marca de entrada o tipo falta/permiso)
       const { data: registros } = await supabase.from('registros_asistencia')
-        .select('personal_id, tipo, minutos_retraso, minutos_extra, es_sabado, hora_entrada')
+        .select('personal_id, tipo, minutos_retraso, minutos_extra, es_sabado, hora_entrada, fecha')
         .gte('fecha', mesInicio).lte('fecha', mesFin)
 
-      // 3. Ventas del mes por vendedor
+      // 4. Fechas registradas por persona (Set para búsqueda rápida)
+      const fechasRegistradas: Record<number, Set<string>> = {}
+      ;(registros || []).forEach(r => {
+        if (!fechasRegistradas[r.personal_id]) fechasRegistradas[r.personal_id] = new Set()
+        fechasRegistradas[r.personal_id].add(r.fecha)
+      })
+
+      // 5. Ventas del mes por vendedor
       const { data: ventasMes } = await supabase.from('ventas_mes_vendedor')
-        .select('cod_vendedor, total_ventas')
-        .eq('mes', mesDate)
+        .select('cod_vendedor, total_ventas').eq('mes', mesDate)
 
       const ventasMap: Record<number, number> = {}
       ;(ventasMes || []).forEach((v: any) => { ventasMap[v.cod_vendedor] = Number(v.total_ventas) })
 
-      // 4. Calcular por persona
+      // 6. Calcular por persona
       const upserts: any[] = []
 
       for (const p of personal) {
         const regsPersona = (registros || []).filter(r => r.personal_id === p.id)
 
-        // Asistencia
-        const diasTrabajados     = regsPersona.filter(r => r.hora_entrada).length
-        const diasFalta          = regsPersona.filter(r => r.tipo === 'falta').length
-        const mediasFaltas       = regsPersona.filter(r => r.tipo === 'media_falta').length
-        const minRetrasoTotal    = regsPersona.reduce((s, r) => s + (r.minutos_retraso || 0), 0)
-        const minExtra           = regsPersona.reduce((s, r) => s + (r.minutos_extra || 0), 0)
-        const minExtraSabado     = regsPersona.filter(r => r.es_sabado).reduce((s, r) => s + (r.minutos_extra || 0), 0)
+        // Turno de esta persona (cargo + sucursal)
+        const turno = (todosLosTurnos || []).find(t =>
+          t.cargo_id === p.cargo_id && t.sucursal_id === p.sucursal_id
+        )
+        const diasLaboralesTurno = turno?.dias_laborales || [1,2,3,4,5]
 
-        // Valor día y minuto
-        const sueldoBase         = Number(p.haber_basico || 0)
-        const valorDia           = sueldoBase / (config.dias_laborales_mes || 26)
-        const valorMinuto        = valorDia / 480 // 8 horas
+        // Días que DEBIÓ trabajar (turno - feriados - antes de ingreso)
+        const diasDebio = calcDiasDebio(diasLaboralesTurno, anio, mesNum - 1, p.fecha_ingreso)
 
-        // Descuentos (solo para fijos)
-        let descFaltas    = 0
-        let descRetrasos  = 0
+        // Días con registro de entrada real
+        const diasConEntrada = regsPersona.filter(r => r.hora_entrada).length
+
+        // Faltas explícitas registradas
+        const faltasRegistradas  = regsPersona.filter(r => r.tipo === 'falta').length
+        const mediasRegistradas  = regsPersona.filter(r => r.tipo === 'media_falta').length
+        const permisosRegistrados= regsPersona.filter(r => r.tipo === 'permiso').length
+
+        // Días sin ningún registro en días que debió trabajar = falta no marcada
+        const diasEnMes = new Date(anio, mesNum, 0).getDate()
+        let faltasSinRegistro = 0
+        for (let d = 1; d <= diasEnMes; d++) {
+          const fecha = new Date(anio, mesNum - 1, d)
+          const diaSemana = fecha.getDay() === 0 ? 7 : fecha.getDay()
+          if (!diasLaboralesTurno.includes(diaSemana)) continue
+          if (esFeriado(fecha)) continue
+          if (p.fecha_ingreso && fecha < new Date(p.fecha_ingreso + 'T00:00:00')) continue
+          const fechaStr = `${anio}-${String(mesNum).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+          if (!fechasRegistradas[p.id]?.has(fechaStr)) faltasSinRegistro++
+        }
+
+        // Total faltas = registradas + sin registro (el admin puede corregir después)
+        const diasFaltaTotal  = faltasRegistradas + faltasSinRegistro
+        const mediasFaltas    = mediasRegistradas
+        const minRetrasoTotal = regsPersona.reduce((s, r) => s + (r.minutos_retraso || 0), 0)
+        const minExtra        = regsPersona.reduce((s, r) => s + (r.minutos_extra || 0), 0)
+        const minExtraSabado  = regsPersona.filter(r => r.es_sabado).reduce((s, r) => s + (r.minutos_extra || 0), 0)
+
+        // Valor día y minuto (basado en días que debió trabajar, más preciso)
+        const sueldoBase  = Number(p.haber_basico || 0)
+        const valorDia    = diasDebio > 0 ? sueldoBase / diasDebio : sueldoBase / 26
+        const valorMinuto = valorDia / 480
+
+        // Descuentos por faltas y retrasos
+        let descFaltas   = 0
+        let descRetrasos = 0
         if (p.tipo_trabajador === 'fijo' || p.tipo_trabajador === 'medio_tiempo') {
-          descFaltas   = (diasFalta * valorDia) + (mediasFaltas * valorDia * 0.5)
-          const retrasos = regsPersona.filter(r => r.tipo.startsWith('retraso')).length
-          if (retrasos >= config.retrasos_descuento) descRetrasos = minRetrasoTotal * valorMinuto
+          descFaltas = (diasFaltaTotal * valorDia) + (mediasFaltas * valorDia * 0.5)
+          const cantRetrasos = regsPersona.filter(r => r.tipo.startsWith('retraso')).length
+          if (cantRetrasos >= config.retrasos_descuento) descRetrasos = minRetrasoTotal * valorMinuto
         }
 
         // Horas extra
         const minExtraNormal = minExtra - minExtraSabado
-        const valorHora      = sueldoBase / (config.dias_laborales_mes * 8)
-        const montoExtra     = (minExtraNormal / 60 * valorHora * config.mult_hora_extra) + (minExtraSabado / 60 * valorHora * config.mult_hora_sabado)
+        const valorHora      = sueldoBase / ((diasDebio || 26) * 8)
+        const montoExtra     = (minExtraNormal / 60 * valorHora * config.mult_hora_extra)
+                             + (minExtraSabado  / 60 * valorHora * config.mult_hora_sabado)
 
         // Vendedor: escala + comisión + bono
         let bonoPlanilla   = 0
@@ -162,11 +235,11 @@ export default function PlanillaMensual() {
           }
         }
 
-        const sueldoFinal   = p.tipo_trabajador === 'vendedor' ? sueldoEscala : sueldoBase
-        const descSeguro    = sueldoFinal * (config.aporte_empleado_pct / 100)
-        const totalHaberes  = sueldoFinal + bonoPlanilla + comisiones + montoExtra
+        const sueldoFinal     = p.tipo_trabajador === 'vendedor' ? sueldoEscala : sueldoBase
+        const descSeguro      = sueldoFinal * (config.aporte_empleado_pct / 100)
+        const totalHaberes    = sueldoFinal + bonoPlanilla + comisiones + montoExtra
         const totalDescuentos = descFaltas + descRetrasos + descSeguro
-        const sueldoNeto    = Math.max(0, totalHaberes - totalDescuentos)
+        const sueldoNeto      = Math.max(0, totalHaberes - totalDescuentos)
 
         upserts.push({
           personal_id:          p.id,
@@ -177,8 +250,8 @@ export default function PlanillaMensual() {
           comisiones,
           total_ventas_mes:     totalVentas,
           monto_horas_extra:    montoExtra,
-          dias_trabajados:      diasTrabajados,
-          dias_falta:           diasFalta,
+          dias_trabajados:      diasConEntrada,
+          dias_falta:           diasFaltaTotal,
           medias_faltas:        mediasFaltas,
           minutos_retraso_total:minRetrasoTotal,
           horas_extra_min:      minExtra,
