@@ -39,6 +39,7 @@ export default function PanelRRHH() {
 { href: '/planilla', emoji: '✍', titulo: 'Planilla de sueldos',               desc: 'Control de asistencia y permisos' },
 { href: '/rrhh/escalas', emoji: '📊', titulo: 'Escalas Salariales',               desc: 'Control de asistencia y permisos' },
 { href: '/rrhh/vendedores', emoji: '🤞', titulo: 'Asignacion de vendedores',               desc: 'Control de asistencia y permisos' },
+{ href: '/planilla/vendedores', emoji: '📟', titulo: 'Pagos de vendedores',               desc: 'Control de asistencia y permisos' },
 
 ]
 
