@@ -413,7 +413,7 @@ export default function AnalisisVentasBI() {
                       return (
                         <g key={i}>
                           <circle cx={x} cy={y} r="6" fill="#ef4444" stroke="white" strokeWidth="2.5" />
-                          <text x={x} y={y - 12} textAnchor="middle" style={{ fontSize: '10px', mountaineering: 'bold', fontWeight: 'bold', fill: '#ef4444' }}>
+                          <text x={x} y={y - 12} textAnchor="middle" style={{ fontSize: '10px', fontWeight: 'bold', fill: '#ef4444' }}>
                             Bs {Math.round(h.total).toLocaleString('es-BO')}
                           </text>
                         </g>
