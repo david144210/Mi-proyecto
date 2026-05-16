@@ -485,14 +485,16 @@ const labelSt = { display: 'block', fontSize: '10px', fontWeight: 'bold', color:
 const montoSt = { fontSize: '18px', fontWeight: 'bold', margin: '4px 0 0', color: '#0f172a' }
 
 // --- AJUSTE EXPLÍCITO DE SCROLLBARS Y DIMENSIONES ---
+
 const contenedorScrollGraficaSt = { 
   width: '100%', 
-  overflowX: 'scroll' as const, // Cambiado de 'auto' a 'scroll' para forzar la barra visible siempre
+  overflowX: 'scroll' as const, // Forzar la barra visible siempre para scroll táctil y de mouse
   paddingBottom: '12px', 
   marginTop: '10px',
-  scrollbarWidth: 'thick' as const, // Estilo para navegadores modernos
-  scrollbarColor: '#cbd5e1 #f1f5f9' as const 
+  scrollbarWidth: 'auto' as const, // <-- ¡Corregido de 'thick' a 'auto' para que apruebe TypeScript!
+  scrollbarColor: '#cbd5e1 #f1f5f9' as const // Mantiene tus colores personalizados en navegadores modernos
 }
+
 const columnaBarraSt = { width: '95px', minWidth: '95px', display: 'flex', flexDirection: 'column' as const, alignItems: 'center', height: '100%', justifyContent: 'flex-end' }
 const montoMinimoEtiquetaSt = { fontSize: '9px', color: '#1e293b', fontWeight: 'bold' as const, marginBottom: '4px', whiteSpace: 'nowrap' as const }
 const ejeXEtiquetaSt = { fontSize: '10px', color: '#64748b', marginTop: '8px', whiteSpace: 'nowrap' as const }
