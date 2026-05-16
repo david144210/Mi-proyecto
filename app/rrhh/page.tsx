@@ -36,9 +36,11 @@ export default function PanelRRHH() {
     { href: '/rrhh/cargos',   emoji: '🔑', titulo: 'Cargos y Permisos',      desc: 'Accesos al sistema por tipo de cargo' },
     { href: '/rrhh/personal', emoji: '👤', titulo: 'Personal',               desc: 'Datos, sueldo base, cargo y sucursal' },
     { href: '/asistencia', emoji: '🕵️‍♀️🕵️‍♂️', titulo: 'Asistencia',               desc: 'Control de asistencia y permisos' },
-{ href: '/planilla', emoji: '🕵️‍♀️🕵️‍♂️', titulo: 'Planilla de sueldos',               desc: 'Control de asistencia y permisos' },
-{ href: '/rrhh/escalas', emoji: '🕵️‍♀️🕵️‍♂️', titulo: 'Escalas Salariales',               desc: 'Control de asistencia y permisos' },
-  ]
+{ href: '/planilla', emoji: '✍', titulo: 'Planilla de sueldos',               desc: 'Control de asistencia y permisos' },
+{ href: '/rrhh/escalas', emoji: '📊', titulo: 'Escalas Salariales',               desc: 'Control de asistencia y permisos' },
+{ href: '/rrhh/vendedores', emoji: '🤞', titulo: 'Asignacion de vendedores',               desc: 'Control de asistencia y permisos' },
+
+]
 
   return (
     <div style={{ fontFamily: 'Arial, sans-serif', minHeight: '100vh', backgroundColor: '#f5f5f5' }}>
