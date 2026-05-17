@@ -130,7 +130,7 @@ export default function PlanillaVendedores() {
         .eq('cod_vendedor', v.vendedor_id)
         .gte('creado_en', inicio)
         .lte('creado_en', fin)
-        .not('estado', 'in', '(0,99)')
+        .eq('estado', 5)
         .order('fecha_pedido', { ascending: false })
       setVentas((data || []).map((d: any) => ({ cod_venta: d.cod_venta, fecha_pedido: d.fecha_pedido, total_venta: Number(d.total_venta), cliente: d.clientes?.nombre || '—' })))
     } catch (e) { console.error(e) }
