@@ -22,9 +22,11 @@ export default function ComprasInsumos() {
 
   // Modales
   const [modalNuevo, setModalNuevo] = useState(false)
+  const [modalEditar, setModalEditar] = useState(false)
   const [modalPreview, setModalPreview] = useState(false)
 
-  // Form
+  // Form y Edición
+  const [pedidoEditando, setPedidoEditando] = useState<any>(null)
   const [formFecha, setFormFecha] = useState(new Date().toISOString().split('T')[0])
   const [formTransporte, setFormTransporte] = useState('')
   const [formObservaciones, setFormObservaciones] = useState('')
@@ -71,6 +73,43 @@ export default function ComprasInsumos() {
     setLoadingDetalles(false)
   }
 
+  const iniciarEdicion = async (pedido: any, e: React.MouseEvent) => {
+    e.stopPropagation() 
+    setLoading(true)
+    setErrorForm('')
+    setExito('')
+
+    const { data: lineasPedido } = await supabase
+      .from('pedidos_insumos_detalle')
+      .select('*')
+      .eq('pedido_id', pedido.id)
+      .order('id')
+
+    setPedidoEditando(pedido)
+    setFormFecha(pedido.fecha)
+    setFormTransporte(pedido.transporte ? String(pedido.transporte) : '')
+    setFormObservaciones(pedido.observaciones || '')
+
+    if (lineasPedido) {
+      setLineas(lineasPedido.map(l => {
+        const insumoCorresp = insumos.find(i => i.codigo_insumos === l.codigo_insumo)
+        const p = parseFloat(l.precio) || 0
+        const c = parseFloat(l.cantidad) || 0
+        return {
+          codigo_insumo: l.codigo_insumo,
+          detalle: insumoCorresp?.detalle || l.codigo_insumo,
+          precio: p,
+          cantidad: c,
+          proveedor: l.proveedor || '',
+          subtotal: p * c
+        }
+      }))
+    }
+
+    setModalEditar(true)
+    setLoading(false)
+  }
+
   const agregarLinea = () => {
     if (!lineaActual.codigo_insumo || !lineaActual.precio || !lineaActual.cantidad) {
       setErrorForm('Completa código, precio y cantidad')
@@ -105,39 +144,58 @@ export default function ComprasInsumos() {
     setGuardando(true)
     setErrorForm('')
     try {
-      const { data: maxPedido } = await supabase
-        .from('pedidos_insumos').select('codigo_pedido').order('codigo_pedido', { ascending: false }).limit(1).single()
-      const nuevoCodigo = (maxPedido?.codigo_pedido || 0) + 1
+      let pId = pedidoEditando?.id
+      let cPed = pedidoEditando?.codigo_pedido
 
-      const { data: cabecera, error: errCab } = await supabase.from('pedidos_insumos').insert({
-        codigo_pedido: nuevoCodigo,
-        fecha: formFecha,
-        transporte: transporte,
-        total: totalPedido,
-        observaciones: formObservaciones || null,
-        personal_id: usuario?.id || null,
-      }).select().single()
+      if (modalEditar) {
+        const { error: errUpd } = await supabase.from('pedidos_insumos').update({
+          fecha: formFecha,
+          transporte: transporte,
+          total: totalPedido,
+          observaciones: formObservaciones || null,
+        }).eq('id', pId)
 
-      if (errCab) { setErrorForm('Error al crear pedido: ' + errCab.message); setGuardando(false); return }
+        if (errUpd) throw new Error(errUpd.message)
+        await supabase.from('pedidos_insumos_detalle').delete().eq('pedido_id', pId)
+
+      } else {
+        const { data: maxPedido } = await supabase
+          .from('pedidos_insumos').select('codigo_pedido').order('codigo_pedido', { ascending: false }).limit(1).single()
+        cPed = (maxPedido?.codigo_pedido || 0) + 1
+
+        const { data: cabecera, error: errCab } = await supabase.from('pedidos_insumos').insert({
+          codigo_pedido: cPed,
+          fecha: formFecha,
+          transporte: transporte,
+          total: totalPedido,
+          observaciones: formObservaciones || null,
+          personal_id: usuario?.id || null,
+        }).select().single()
+
+        if (errCab) throw new Error(errCab.message)
+        pId = cabecera.id
+      }
 
       const detallesInsert = lineas.map(l => ({
-        pedido_id: cabecera.id,
-        codigo_pedido: nuevoCodigo,
+        pedido_id: pId,
+        codigo_pedido: cPed,
         codigo_insumo: l.codigo_insumo,
-        precio: l.precio,
-        cantidad: l.cantidad,
+        precio: Number(l.precio),
+        cantidad: Number(l.cantidad),
         proveedor: l.proveedor || null,
       }))
+      
       const { error: errDet } = await supabase.from('pedidos_insumos_detalle').insert(detallesInsert)
-      if (errDet) { setErrorForm('Error al guardar detalle: ' + errDet.message); setGuardando(false); return }
+      if (errDet) throw new Error(errDet.message)
 
-      setExito(`Pedido #${nuevoCodigo} registrado correctamente`)
+      setExito(`Pedido #${cPed} guardado correctamente`)
       setModalPreview(false)
       setModalNuevo(false)
+      setModalEditar(false)
       resetForm()
       await cargarDatos()
     } catch (e: any) {
-      setErrorForm('Error inesperado: ' + e.message)
+      setErrorForm('Error al procesar la operación: ' + e.message)
     }
     setGuardando(false)
   }
@@ -155,6 +213,7 @@ export default function ComprasInsumos() {
     setFormTransporte('')
     setFormObservaciones('')
     setLineas([])
+    setPedidoEditando(null)
     setLineaActual({ codigo_insumo: '', precio: '', cantidad: '', proveedor: '' })
     setErrorForm('')
     setExito('')
@@ -185,14 +244,14 @@ export default function ComprasInsumos() {
         }
       `}</style>
 
-      {/* MODAL NUEVO PEDIDO */}
-      {modalNuevo && (
+      {/* MODAL NUEVO / EDITAR PEDIDO */}
+      {(modalNuevo || modalEditar) && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '20px', boxSizing: 'border-box', overflowY: 'auto' }}>
           <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '32px', width: '720px', maxWidth: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', margin: 'auto' }}>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-              <h2 style={{ margin: 0, fontSize: '20px' }}>Nuevo Pedido de Insumos</h2>
-              <button onClick={() => { setModalNuevo(false); resetForm() }} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: '#999' }}>✕</button>
+              <h2 style={{ margin: 0, fontSize: '20px' }}>{modalEditar ? `Editar Pedido #${pedidoEditando?.codigo_pedido}` : 'Nuevo Pedido de Insumos'}</h2>
+              <button onClick={() => { setModalNuevo(false); setModalEditar(false); resetForm() }} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: '#999' }}>✕</button>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '20px' }}>
@@ -218,7 +277,7 @@ export default function ComprasInsumos() {
                   <label style={labelStyle}>Código insumo *</label>
                   <select value={lineaActual.codigo_insumo} onChange={(e) => setLineaActual({ ...lineaActual, codigo_insumo: e.target.value })} style={inputStyle}>
                     <option value="">-- Selecciona --</option>
-                    {insumos.map(i => <option key={i.id} value={i.codigo_insumos}>{i.codigo_insumos} — {i.detalle}</option>)}
+                    {insumos.map((i: any) => <option key={i.id} value={i.codigo_insumos}>{i.codigo_insumos} — {i.detalle}</option>)}
                   </select>
                 </div>
                 <div>
@@ -296,7 +355,7 @@ export default function ComprasInsumos() {
             )}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button onClick={() => { setModalNuevo(false); resetForm() }} style={{ padding: '10px 20px', backgroundColor: 'transparent', border: '1px solid #ccc', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>Cancelar</button>
+              <button onClick={() => { setModalNuevo(false); setModalEditar(false); resetForm() }} style={{ padding: '10px 20px', backgroundColor: 'transparent', border: '1px solid #ccc', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>Cancelar</button>
               <button onClick={() => { if (lineas.length === 0) { setErrorForm('Agrega al menos un ítem'); return } setErrorForm(''); setModalPreview(true) }}
                 disabled={lineas.length === 0}
                 style={{ padding: '10px 24px', backgroundColor: lineas.length === 0 ? '#ccc' : '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: lineas.length === 0 ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold' }}>
@@ -311,7 +370,7 @@ export default function ComprasInsumos() {
       {modalPreview && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', boxSizing: 'border-box' }}>
           <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '32px', width: '620px', maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
-            <h2 style={{ margin: '0 0 4px 0', fontSize: '20px' }}>Confirmar Pedido</h2>
+            <h2 style={{ margin: '0 0 4px 0', fontSize: '20px' }}>Confirmar Cambios del Pedido</h2>
             <p style={{ color: '#888', fontSize: '13px', margin: '0 0 24px 0' }}>Revisa los datos antes de confirmar</p>
 
             <div style={{ backgroundColor: '#f9f9f9', borderRadius: '10px', padding: '16px', marginBottom: '20px', fontSize: '14px' }}>
@@ -391,7 +450,7 @@ export default function ComprasInsumos() {
             <p style={{ margin: 0, color: '#666', fontSize: '14px' }}>{pedidos.length} pedidos registrados</p>
           </div>
           {puedeComprar && (
-            <button onClick={() => setModalNuevo(true)}
+            <button onClick={() => { resetForm(); setModalNuevo(true) }}
               style={{ padding: '10px 20px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
               + Nuevo Pedido
             </button>
@@ -432,6 +491,12 @@ export default function ComprasInsumos() {
                               style={{ padding: '5px 12px', backgroundColor: '#e8f5e9', color: '#2e7d32', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
                               {pedidoAbierto?.id === p.id ? '▲ Cerrar' : '▼ Ver'}
                             </button>
+                            {puedeComprar && (
+                              <button onClick={(e) => iniciarEdicion(p, e)}
+                                style={{ padding: '5px 12px', backgroundColor: '#eaf2ff', color: '#1a73e8', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '500' }}>
+                                Editar
+                              </button>
+                            )}
                             {esAdmin && (
                               <button onClick={(e) => { e.stopPropagation(); handleEliminar(p) }}
                                 style={{ padding: '5px 12px', backgroundColor: '#ffebee', color: '#c62828', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
