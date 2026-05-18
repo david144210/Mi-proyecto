@@ -109,8 +109,10 @@ export default function RegistrarGastosGenerales() {
                 style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '15px', backgroundColor: '#fff', boxSizing: 'border-box' }}
               >
                 <option value="">-- Selecciona una categoría --</option>
-                {categoriasFijas.map((cat) => (
-                  <option key={cat.id} value={cat.id}>{cat.name || cat.nombre}</option>
+                {categoriasFijas.map((cat: { id: number; nombre: string }) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.nombre}
+                  </option>
                 ))}
               </select>
             </div>
