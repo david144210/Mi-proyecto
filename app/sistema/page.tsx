@@ -107,6 +107,14 @@ export default function Sistema() {
 
           {/* TARJETA compra tubos */}
           {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
+          <a href="/aceros" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>⛓</div>
+            <h3 style={{ margin: 0 }}>Registro Acero</h3>
+          </a>
+          )}
+
+          {/* TARJETA compra tubos */}
+          {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
           <a href="/compras-acero" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
             <div style={{ fontSize: '40px', marginBottom: '12px' }}>💰⛓</div>
             <h3 style={{ margin: 0 }}>Compra Acero</h3>
