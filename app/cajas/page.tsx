@@ -331,6 +331,12 @@ export default function CajaChicaPro() {
           </div>
         </div>
       </div>
+{/* BOTÓN PARA IR AL FORMULARIO DE GASTOS GENERALES */}
+<div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '15px' }}>
+  <a href="/contabilidad/gastos" style={{ textDecoration: 'none', backgroundColor: '#222', color: 'white', padding: '10px 18px', borderRadius: '10px', fontSize: '14px', fontWeight: 'bold', textAlign: 'center', boxShadow: '0 2px 6px rgba(0,0,0,0.1)' }}>
+    ➕ Registrar Gasto General (Alquiler/Servicios)
+  </a>
+</div>
 
       {/* ── Filtros ── */}
       <div className="max-w-xl mx-auto px-4 mt-5 space-y-3">

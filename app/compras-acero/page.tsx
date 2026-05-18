@@ -75,17 +75,57 @@ export default function ComprasAceroResponsive() {
     setLoadingDetalles(false)
   }
 
+  // --- NUEVA FUNCIÓN: PREPARAR EL MODO EDICIÓN ---
+  const iniciarEdicion = async (pedido: any, e: React.MouseEvent) => {
+    e.stopPropagation() // Evita que se abra el acordeón de detalles de la tabla al hacer clic en editar
+    setLoading(true)
+    
+    // 1. Obtener las líneas actuales de este pedido en la base de datos
+    const { data: lineasPedido } = await supabase
+      .from('pedidos_acero_detalle')
+      .select('*')
+      .eq('pedido_id', pedido.id)
+
+    // 2. Mapear los datos al formulario
+    setPedidoEditando(pedido)
+    setFormFecha(pedido.fecha)
+    setFormProveedor(pedido.proveedor || '')
+    setFormObservaciones(pedido.observaciones || '')
+    
+    if (lineasPedido) {
+      setLineas(lineasPedido.map(l => ({
+        codigo_acero: l.codigo_acero,
+        precio: Number(l.precio),
+        cantidad: Number(l.cantidad),
+        proveedor: l.proveedor || '',
+        subtotal: Number(l.precio) * Number(l.cantidad)
+      })))
+    }
+
+    setModalEditar(true)
+    setLoading(false)
+  }
+
   const handleConfirmar = async () => {
     setGuardando(true)
+    setErrorForm('')
     try {
       let pId = pedidoEditando?.id
       let cPed = pedidoEditando?.codigo_pedido
       const total = lineas.reduce((acc, l) => acc + l.subtotal, 0)
 
       if (modalEditar) {
-        await supabase.from('pedidos_acero').update({ fecha: formFecha, proveedor: formProveedor, observaciones: formObservaciones, total }).eq('id', pId)
+        // Modo Edición: Actualizar cabecera y borrar líneas viejas
+        await supabase.from('pedidos_acero').update({ 
+          fecha: formFecha, 
+          proveedor: formProveedor, 
+          observaciones: formObservaciones, 
+          total 
+        }).eq('id', pId)
+        
         await supabase.from('pedidos_acero_detalle').delete().eq('pedido_id', pId)
       } else {
+        // Modo Creación
         const { data: max } = await supabase.from('pedidos_acero').select('codigo_pedido').order('codigo_pedido', { ascending: false }).limit(1).single()
         cPed = (max?.codigo_pedido || 0) + 1
         const { data: nPed } = await supabase.from('pedidos_acero').insert({
@@ -94,11 +134,21 @@ export default function ComprasAceroResponsive() {
         pId = nPed.id
       }
 
-      const dets = lineas.map(l => ({ pedido_id: pId, codigo_pedido: cPed, codigo_acero: l.codigo_acero, precio: l.precio, cantidad: l.cantidad, proveedor: l.proveedor }))
+      // Insertar las nuevas líneas de ítems
+      const dets = lineas.map(l => ({ 
+        pedido_id: pId, 
+        codigo_pedido: cPed, 
+        codigo_acero: l.codigo_acero, 
+        precio: l.precio, 
+        cantidad: l.cantidad, 
+        proveedor: l.proveedor 
+      }))
       await supabase.from('pedidos_acero_detalle').insert(dets)
       
       setModalPreview(false); setModalNuevo(false); setModalEditar(false); resetForm(); await cargarDatos()
-    } catch (e) { setErrorForm('Error al guardar') }
+    } catch (e) { 
+      setErrorForm('Error al guardar los cambios') 
+    }
     setGuardando(false)
   }
 
@@ -109,9 +159,9 @@ export default function ComprasAceroResponsive() {
   const pedidosFiltrados = pedidos.filter(p => String(p.codigo_pedido).includes(busqueda) || (p.proveedor || '').toLowerCase().includes(busqueda.toLowerCase()))
 
   // --- ESTILOS RESPONSIVE ---
-  const inputStyle: any = { padding: '10px', borderRadius: '8px', border: '1px solid #ddd', width: '100%', fontSize: '16px' } // 16px evita zoom en iOS
+  const inputStyle: any = { padding: '10px', borderRadius: '8px', border: '1px solid #ddd', width: '100%', fontSize: '16px' }
 
-  if (loading) return <p style={{ textAlign: 'center', marginTop: '50px' }}>Cargando...</p>
+  if (loading) return <p style={{ textAlign: 'center', marginTop: '50px' }}>Cargando datos...</p>
 
   return (
     <div style={{ fontFamily: 'Arial, sans-serif', backgroundColor: '#f5f5f5', minHeight: '100vh' }}>
@@ -159,8 +209,16 @@ export default function ComprasAceroResponsive() {
                     <td style={{ padding: '12px', fontSize: '13px' }}>{p.fecha}</td>
                     <td style={{ padding: '12px', fontSize: '13px' }}>{p.proveedor || '—'}</td>
                     <td style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', fontSize: '13px' }}>Bs.{Number(p.total).toFixed(1)}</td>
-                    <td style={{ padding: '12px', textAlign: 'center' }}>
-                      <button style={{ fontSize: '12px' }}>Ver</button>
+                    <td style={{ padding: '12px', textAlign: 'center', display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                      <button onClick={(e) => verDetalle(p)} style={{ fontSize: '12px', padding: '4px 8px', cursor: 'pointer' }}>Ver</button>
+                      {puedeComprar && (
+                        <button 
+                          onClick={(e) => iniciarEdicion(p, e)} 
+                          style={{ fontSize: '12px', padding: '4px 8px', backgroundColor: '#ffa726', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                        >
+                          Editar
+                        </button>
+                      )}
                     </td>
                   </tr>
                   {pedidoAbierto?.id === p.id && (
@@ -168,20 +226,24 @@ export default function ComprasAceroResponsive() {
                       <td colSpan={5} style={{ backgroundColor: '#f9fff9', padding: '10px' }}>
                         <div style={{ overflowX: 'auto' }}>
                           <table style={{ width: '100%', fontSize: '12px' }}>
-                            <tr style={{ color: '#666' }}>
-                              <th>Código</th>
-                              <th style={{ textAlign: 'right' }}>P. Unit</th>
-                              <th style={{ textAlign: 'right' }}>Cant</th>
-                              <th style={{ textAlign: 'right' }}>Subt</th>
-                            </tr>
-                            {detalles.map(d => (
-                              <tr key={d.id}>
-                                <td>{d.codigo_acero}</td>
-                                <td style={{ textAlign: 'right' }}>{d.precio}</td>
-                                <td style={{ textAlign: 'right' }}>{d.cantidad}</td>
-                                <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{(d.precio * d.cantidad).toFixed(1)}</td>
+                            <thead>
+                              <tr style={{ color: '#666', borderBottom: '1px solid #ddd' }}>
+                                <th style={{ textAlign: 'left', padding: '4px' }}>Código</th>
+                                <th style={{ textAlign: 'right', padding: '4px' }}>P. Unit</th>
+                                <th style={{ textAlign: 'right', padding: '4px' }}>Cant</th>
+                                <th style={{ textAlign: 'right', padding: '4px' }}>Subt</th>
                               </tr>
-                            ))}
+                            </thead>
+                            <tbody>
+                              {detalles.map(d => (
+                                <tr key={d.id}>
+                                  <td style={{ padding: '4px' }}>{d.codigo_acero}</td>
+                                  <td style={{ textAlign: 'right', padding: '4px' }}>{d.precio}</td>
+                                  <td style={{ textAlign: 'right', padding: '4px' }}>{d.cantidad}</td>
+                                  <td style={{ textAlign: 'right', padding: '4px', fontWeight: 'bold' }}>{(d.precio * d.cantidad).toFixed(1)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
                           </table>
                         </div>
                       </td>
@@ -194,19 +256,22 @@ export default function ComprasAceroResponsive() {
         </div>
       </div>
 
-      {/* MODAL RESPONSIVE (OCUPA MÁS ANCHO EN MÓVIL) */}
+      {/* MODAL RESPONSIVE (NUEVO / EDITAR) */}
       {(modalNuevo || modalEditar) && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '10px' }}>
           <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '15px', width: '100%', maxWidth: '600px', maxHeight: '95vh', overflowY: 'auto' }}>
-            <h3 style={{ marginTop: 0 }}>{modalEditar ? 'Editar' : 'Nuevo Pedido'}</h3>
+            <h3 style={{ marginTop: 0 }}>{modalEditar ? `Editar Pedido #${pedidoEditando?.codigo_pedido}` : 'Nuevo Pedido'}</h3>
             
+            {errorForm && <p style={{ color: 'red', fontSize: '14px' }}>{errorForm}</p>}
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '15px' }}>
               <input type="date" value={formFecha} onChange={e => setFormFecha(e.target.value)} style={inputStyle} />
               <input type="text" placeholder="Proveedor General" value={formProveedor} onChange={e => setFormProveedor(e.target.value)} style={inputStyle} />
+              <input type="text" placeholder="Observaciones" value={formObservaciones} onChange={e => setFormObservaciones(e.target.value)} style={inputStyle} />
             </div>
 
             <div style={{ backgroundColor: '#f0f0f0', padding: '15px', borderRadius: '10px', marginBottom: '15px' }}>
-              <p style={{ margin: '0 0 10px 0', fontWeight: 'bold' }}>Agregar ítem</p>
+              <p style={{ margin: '0 0 10px 0', fontWeight: 'bold' }}>Agregar / Modificar ítem</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <select value={lineaActual.codigo_acero} onChange={e => handleSeleccionarAcero(e.target.value)} style={inputStyle}>
                   <option value="">Seleccionar Acero</option>
@@ -222,7 +287,7 @@ export default function ComprasAceroResponsive() {
                   const p = parseFloat(lineaActual.precio); const c = parseFloat(lineaActual.cantidad);
                   setLineas([...lineas, { ...lineaActual, precio: p, cantidad: c, subtotal: p * c }]);
                   setLineaActual({ codigo_acero: '', precio: '', cantidad: '', proveedor: '' });
-                }} style={{ padding: '12px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '8px' }}>+ Agregar a la lista</button>
+                }} style={{ padding: '12px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>+ Agregar a la lista</button>
               </div>
             </div>
 
@@ -231,17 +296,17 @@ export default function ComprasAceroResponsive() {
               <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #eee' }}>
                 <div style={{ fontSize: '13px' }}>
                   <b>{l.codigo_acero}</b> <br />
-                  <small>{l.cantidad} un. x Bs.{l.precio}</small>
+                  <small>{l.cantidad} un. x Bs.{l.precio} {l.proveedor ? `(Prov: ${l.proveedor})` : ''}</small>
                 </div>
-                <button onClick={() => setLineas(lineas.filter((_, i) => i !== idx))} style={{ color: 'red', border: 'none', background: 'none' }}>Eliminar</button>
+                <button onClick={() => setLineas(lineas.filter((_, i) => i !== idx))} style={{ color: 'red', border: 'none', background: 'none', cursor: 'pointer' }}>Eliminar</button>
               </div>
             ))}
 
             <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div style={{ fontSize: '18px', fontWeight: 'bold', textAlign: 'right' }}>Total: Bs. {lineas.reduce((acc, l) => acc + l.subtotal, 0).toFixed(1)}</div>
               <div style={{ display: 'flex', gap: '10px' }}>
-                <button onClick={() => { setModalNuevo(false); setModalEditar(false); resetForm() }} style={{ flex: 1, padding: '12px' }}>Cerrar</button>
-                <button onClick={() => setModalPreview(true)} style={{ flex: 1, padding: '12px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '8px' }}>Guardar</button>
+                <button onClick={() => { setModalNuevo(false); setModalEditar(false); resetForm() }} style={{ flex: 1, padding: '12px', cursor: 'pointer' }}>Cancelar</button>
+                <button onClick={() => setModalPreview(true)} style={{ flex: 1, padding: '12px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Guardar</button>
               </div>
             </div>
           </div>
@@ -252,11 +317,13 @@ export default function ComprasAceroResponsive() {
       {modalPreview && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000, padding: '20px' }}>
           <div style={{ backgroundColor: 'white', padding: '25px', borderRadius: '15px', width: '100%', maxWidth: '350px', textAlign: 'center' }}>
-            <h3>¿Confirmar?</h3>
+            <h3>{guardando ? 'Guardando...' : '¿Confirmar cambios?'}</h3>
             <p>Total: <b>Bs. {lineas.reduce((acc, l) => acc + l.subtotal, 0).toFixed(1)}</b></p>
             <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-              <button onClick={() => setModalPreview(false)} style={{ flex: 1, padding: '10px' }}>No</button>
-              <button onClick={handleConfirmar} style={{ flex: 1, padding: '10px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '8px' }}>Sí, Guardar</button>
+              <button disabled={guardando} onClick={() => setModalPreview(false)} style={{ flex: 1, padding: '10px', cursor: 'pointer' }}>No</button>
+              <button disabled={guardando} onClick={handleConfirmar} style={{ flex: 1, padding: '10px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
+                {guardando ? 'Procesando...' : 'Sí, Guardar'}
+              </button>
             </div>
           </div>
         </div>

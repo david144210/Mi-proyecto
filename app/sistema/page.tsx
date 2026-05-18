@@ -92,7 +92,7 @@ export default function Sistema() {
           {/* TARJETA MELAMINAS */}
           {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
           <a href="/melaminas" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>M.</div>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🧱</div>
             <h3 style={{ margin: 0 }}>Registro de Melaminas</h3>
           </a>
           )}
@@ -100,7 +100,7 @@ export default function Sistema() {
           {/* TARJETA compra-MELAMINAS */}
           {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
           <a href="/compra-melaminas" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>M.</div>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🛒</div>
             <h3 style={{ margin: 0 }}>Compra de Melaminas</h3>
           </a>
           )}
@@ -193,6 +193,14 @@ export default function Sistema() {
             <h3 style={{ margin: 0 }}>Businees Inteligence</h3>
           </a>
           )}
+
+{/* TARJETA CONTABILIDAD - Solo visible para Administradores */}
+{esAdmin && (
+  <a href="/contabilidad" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
+    <div style={{ fontSize: '40px', marginBottom: '12px' }}>📊</div>
+    <h3 style={{ margin: 0 }}>Contabilidad</h3>
+  </a>
+)}
 
 {/* TARJETA Marketing */}
           {(esAdmin || !!usuario?.cargos?.puede_ver_mk) && (

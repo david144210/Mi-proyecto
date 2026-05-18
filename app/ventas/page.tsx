@@ -1082,20 +1082,26 @@ export default function Ventas() {
       <div className="ventas-container" style={{ padding: '32px 40px', maxWidth: '1300px', margin: '0 auto' }}>
 
         {/* CABECERA */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <h1 style={{ margin: '0 0 4px', fontSize: '24px' }}>Ventas</h1>
-            <p style={{ margin: 0, color: '#888', fontSize: '13px' }}>
-              {totalCount.toLocaleString()} registros
-              {puedeEditar && <span style={{ marginLeft: '10px', color: '#1565c0', fontSize: '12px' }}>● Administrador</span>}
-            </p>
-          </div>
-          {puedeRegistrar && (
-            <button className="btn-nueva" onClick={abrirModalNueva}>
-              ＋ Registrar venta
-            </button>
-          )}
-        </div>
+<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
+  <div>
+    <h1 style={{ margin: '0 0 4px', fontSize: '24px' }}>Ventas</h1>
+    <p style={{ margin: 0, color: '#888', fontSize: '13px' }}>
+      {totalCount.toLocaleString()} registros
+      {puedeEditar && <span style={{ marginLeft: '10px', color: '#1565c0', fontSize: '12px' }}>● Administrador</span>}
+    </p>
+  </div>
+  
+  {/* GRUPO DE ACCIONES (No altera el layout gracias al flexbox externo) */}
+  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+    
+    {/* Botón original de registro */}
+    {puedeRegistrar && (
+      <button className="btn-nueva" onClick={abrirModalNueva}>
+        ＋ Registrar venta
+      </button>
+    )}
+  </div>
+</div>
 
         {/* FILTROS */}
         <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', marginBottom: '20px' }}>

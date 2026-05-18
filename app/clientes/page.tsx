@@ -21,7 +21,7 @@ export default function Clientes() {
   const [loadingTabla, setLoadingTabla] = useState(false)
   const POR_PAGINA = 30
 
-  // Modal
+  // Modal Cliente
   const [modalAbierto, setModalAbierto] = useState(false)
   const [modoEditar, setModoEditar] = useState(false)
   const [idEditando, setIdEditando] = useState<number | null>(null)
@@ -29,6 +29,12 @@ export default function Clientes() {
   const [guardando, setGuardando] = useState(false)
   const [errorModal, setErrorModal] = useState('')
   const [exito, setExito] = useState('')
+
+  // Modal Ventas (Consulta)
+  const [modalVentasAbierto, setModalVentasAbierto] = useState(false)
+  const [clienteVentas, setClienteVentas] = useState<any>(null)
+  const [ventas, setVentas] = useState<any[]>([])
+  const [loadingVentas, setLoadingVentas] = useState(false)
 
   useEffect(() => {
     const carnetGuardado = localStorage.getItem('carnet')
@@ -107,6 +113,56 @@ export default function Clientes() {
     setExito('')
   }
 
+  // Cargar Historial de Ventas
+  const abrirHistorialVentas = async (cliente: any) => {
+    setClienteVentas(cliente)
+    setModalVentasAbierto(true)
+    setLoadingVentas(true)
+    setVentas([])
+
+    const { data, error } = await supabase
+      .from('ventas')
+      .select('id, cod_venta, fecha_pedido, total_venta, anticipo, estado')
+      .eq('cod_cliente', cliente.codigo)
+      .order('fecha_pedido', { ascending: false })
+
+    if (!error && data) {
+      setVentas(data)
+    }
+    setLoadingVentas(false)
+  }
+
+  const cerrarModalVentas = () => {
+    setModalVentasAbierto(false)
+    setClienteVentas(null)
+    setVentas([])
+  }
+
+  // Helpers para estados de venta
+  const obtenerTextoEstado = (estado: number) => {
+    const estados: { [key: number]: string } = {
+      0: 'Cotización',
+      1: 'Pendiente',
+      2: 'En Producción',
+      3: 'Listo',
+      4: 'Entregado',
+      5: 'Cancelado'
+    }
+    return estados[estado] || `Estado ${estado}`
+  }
+
+  const obtenerColorEstado = (estado: number) => {
+    const colores: { [key: number]: string } = {
+      0: '#757575', // Gris
+      1: '#ff9800', // Naranja
+      2: '#0288d1', // Azul
+      3: '#9c27b0', // Morado
+      4: '#2e7d32', // Verde
+      5: '#d32f2f'  // Rojo
+    }
+    return colores[estado] || '#333'
+  }
+
   const handleGuardar = async () => {
     if (!esAdmin) return
     if (!form.codigo || !form.nombre) {
@@ -149,7 +205,7 @@ export default function Clientes() {
 
   const inputStyle: any = {
     padding: '10px 12px', borderRadius: '8px', border: '1px solid #ddd',
-    fontSize: '14px', width: '100%', boxSizing: 'border-box',
+    fontSize: '14px', width: '100%', boxSizing: 'box-sizing',
     outline: 'none', backgroundColor: 'white',
   }
   const labelStyle: any = {
@@ -185,7 +241,7 @@ export default function Clientes() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px', marginBottom: '16px' }}>
               <div>
                 <label style={labelStyle}>Codigo *</label>
-                <input type="number" value={form.codigo} onChange={(e) => setForm({ ...form, codigo: e.target.value })} style={inputStyle} placeholder="Ej: 2084" />
+                <input type="number" value={form.codigo} disabled={modoEditar} onChange={(e) => setForm({ ...form, codigo: e.target.value })} style={{ ...inputStyle, backgroundColor: modoEditar ? '#f5f5f5' : 'white' }} placeholder="Ej: 2084" />
               </div>
               <div>
                 <label style={labelStyle}>Nombre completo *</label>
@@ -234,13 +290,86 @@ export default function Clientes() {
         </div>
       )}
 
+      {/* MODAL HISTORIAL DE VENTAS */}
+      {modalVentasAbierto && clienteVentas && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', boxSizing: 'border-box' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '32px', width: '700px', maxWidth: '100%', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '20px' }}>Historial de Ventas</h2>
+                <p style={{ margin: '4px 0 0 0', color: '#666', fontSize: '14px' }}>Cliente: <strong>{clienteVentas.nombre}</strong> (Cód: {clienteVentas.codigo})</p>
+              </div>
+              <button onClick={cerrarModalVentas} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: '#999' }}>✕</button>
+            </div>
+
+            <div style={{ marginTop: '16px' }}>
+              {loadingVentas ? (
+                <p style={{ textAlign: 'center', color: '#666', padding: '20px' }}>Cargando ventas...</p>
+              ) : ventas.length === 0 ? (
+                <p style={{ textAlign: 'center', color: '#999', padding: '35px', backgroundColor: '#f9f9f9', borderRadius: '8px' }}>
+                  Este cliente no registra ventas asociadas.
+                </p>
+              ) : (
+                <div style={{ overflowX: 'auto', border: '1px solid #eee', borderRadius: '10px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f9f9f9', borderBottom: '1px solid #eee' }}>
+                        <th style={{ padding: '12px', textAlign: 'left', color: '#555' }}>Cód Venta</th>
+                        <th style={{ padding: '12px', textAlign: 'left', color: '#555' }}>Fecha Pedido</th>
+                        <th style={{ padding: '12px', textAlign: 'right', color: '#555' }}>Total</th>
+                        <th style={{ padding: '12px', textAlign: 'right', color: '#555' }}>Anticipo</th>
+                        <th style={{ padding: '12px', textAlign: 'center', color: '#555' }}>Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ventas.map((v) => (
+                        <tr key={v.id} style={{ borderBottom: '1px solid #f9f9f9' }}>
+                          <td style={{ padding: '12px', fontWeight: 'bold' }}>{v.cod_venta}</td>
+                          <td style={{ padding: '12px', color: '#555' }}>{v.fecha_pedido || '—'}</td>
+                          <td style={{ padding: '12px', textAlign: 'right', fontWeight: '500' }}>
+                            {v.total_venta ? `${Number(v.total_venta).toLocaleString()} Bs.` : '0 Bs.'}
+                          </td>
+                          <td style={{ padding: '12px', textAlign: 'right', color: '#666' }}>
+                            {v.anticipo ? `${Number(v.anticipo).toLocaleString()} Bs.` : '0 Bs.'}
+                          </td>
+                          <td style={{ padding: '12px', textAlign: 'center' }}>
+                            <span style={{ 
+                              backgroundColor: obtenerColorEstado(v.estado) + '15', 
+                              color: obtenerColorEstado(v.estado), 
+                              padding: '3px 8px', 
+                              borderRadius: '12px', 
+                              fontSize: '12px', 
+                              fontWeight: 'bold',
+                              border: `1px solid ${obtenerColorEstado(v.estado)}30`
+                            }}>
+                              {obtenerTextoEstado(v.estado)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '24px' }}>
+              <button onClick={cerrarModalVentas} style={{ padding: '10px 24px', backgroundColor: '#222', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>
+                Cerrar
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
       {/* NAVBAR */}
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 40px', backgroundColor: '#222', color: 'white', position: 'fixed', top: 0, width: '100%', zIndex: 1000, boxSizing: 'border-box' }}>
         <a href="/" style={{ fontWeight: 'bold', fontSize: '20px', color: 'white', textDecoration: 'none' }}>Muebles is Better</a>
         <span style={{ color: '#a3c47d', fontWeight: 'bold' }}>Clientes</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <a href="/sistema" style={{ color: '#a3c47d', fontSize: '14px', textDecoration: 'none' }}>Sistema</a>
-
         </div>
       </nav>
 
@@ -298,22 +427,19 @@ export default function Clientes() {
                   <th className="cli-col-dir" style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee', color: '#555' }}>Direccion</th>
                   <th style={{ padding: '14px 16px', textAlign: 'left', borderBottom: '2px solid #eee', color: '#555', whiteSpace: 'nowrap' }}>Celular</th>
                   <th style={{ padding: '14px 16px', textAlign: 'center', borderBottom: '2px solid #eee', color: '#555' }}>Estado</th>
-                  {/* Columna acciones solo si es admin */}
-                  {esAdmin && (
-                    <th style={{ padding: '14px 16px', textAlign: 'center', borderBottom: '2px solid #eee', color: '#555' }}>Acciones</th>
-                  )}
+                  <th style={{ padding: '14px 16px', textAlign: 'center', borderBottom: '2px solid #eee', color: '#555' }}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {loadingTabla ? (
                   <tr>
-                    <td colSpan={esAdmin ? 6 : 5} style={{ padding: '40px', textAlign: 'center', color: '#aaa', fontSize: '14px' }}>
+                    <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#aaa', fontSize: '14px' }}>
                       Buscando...
                     </td>
                   </tr>
                 ) : clientesPagina.length === 0 ? (
                   <tr>
-                    <td colSpan={esAdmin ? 6 : 5} style={{ padding: '40px', textAlign: 'center', color: '#bbb' }}>
+                    <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#bbb' }}>
                       {busqueda ? 'No se encontraron clientes con esa busqueda' : 'No hay clientes registrados'}
                     </td>
                   </tr>
@@ -329,15 +455,20 @@ export default function Clientes() {
                           {c.activo ? 'Activo' : 'Inactivo'}
                         </span>
                       </td>
-                      {/* Boton editar solo para admin */}
-                      {esAdmin && (
-                        <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>
-                          <button onClick={() => abrirEditar(c)}
-                            style={{ backgroundColor: '#087e0b', color: 'white', border: 'none', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
-                            Editar
+                      <td style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>
+                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                          <button onClick={() => abrirHistorialVentas(c)}
+                            style={{ backgroundColor: '#222', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
+                            👁️ Ventas
                           </button>
-                        </td>
-                      )}
+                          {esAdmin && (
+                            <button onClick={() => abrirEditar(c)}
+                              style={{ backgroundColor: '#087e0b', color: 'white', border: 'none', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
+                              Editar
+                            </button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   ))
                 )}
