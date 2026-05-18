@@ -78,20 +78,35 @@ export default function PlanillaVendedores() {
     try {
       const mesDate = `${mes}-01`
 
-      const { data: vends } = await supabase.from('vendedores')
-        .select('id, nombre, ci, alias, tipo, personal_id, personal!vendedores_personal_id_fkey(id, usuario, carnet, cargo, sucursal)')
-        .eq('activo', true).not('personal_id', 'is', null)
+      // Paso 1: vendedores activos con personal_id
+      const { data: vends, error: errVends } = await supabase.from('vendedores')
+        .select('id, nombre, ci, alias, tipo, personal_id')
+        .eq('activo', true)
+        .not('personal_id', 'is', null)
 
+      console.log('Vendedores encontrados:', vends?.length, 'Error:', errVends)
+      if (errVends) throw new Error('Error al cargar vendedores: ' + errVends.message)
       if (!vends?.length) throw new Error('Sin vendedores activos con trabajador asignado')
 
+      // Paso 2: resolver datos de personal por ids únicos
+      const personalIds = [...new Set(vends.map((v: any) => v.personal_id))]
+      const { data: personalData } = await supabase.from('personal')
+        .select('id, usuario, carnet, cargo, sucursal')
+        .in('id', personalIds)
+
+      const personalMap: Record<number, any> = {}
+      ;(personalData || []).forEach((p: any) => { personalMap[p.id] = p })
+
+      // Paso 3: ventas del mes por vendedor
       const { data: ventasMes } = await supabase.from('ventas_mes_vendedor')
         .select('cod_vendedor, total_ventas, num_ventas').eq('mes', mesDate)
 
       const ventasMap: Record<number, { total: number; num: number }> = {}
       ;(ventasMes || []).forEach((v: any) => { ventasMap[v.cod_vendedor] = { total: Number(v.total_ventas), num: Number(v.num_ventas) } })
 
+      // Paso 4: calcular por vendedor
       const resultado: VendedorPlanilla[] = (vends as any[]).map(v => {
-        const persona     = v.personal
+        const persona     = personalMap[v.personal_id]
         const totalVentas = ventasMap[v.id]?.total || 0
         const numVentas   = ventasMap[v.id]?.num   || 0
         const nivelEscala = escalas.slice().reverse().find(e => totalVentas >= e.venta_min)
@@ -102,7 +117,7 @@ export default function PlanillaVendedores() {
         const totalPago   = sueldoBase + bono + mtoComision
         const descSeguro  = totalPago * ((config?.aporte_empleado_pct || 3) / 100)
         return {
-          personal_id: persona?.id, vendedor_id: v.id,
+          personal_id: v.personal_id, vendedor_id: v.id,
           nombre: persona?.usuario || v.nombre, carnet: persona?.carnet || v.ci,
           cargo: persona?.cargo || '—', sucursal: persona?.sucursal || '—',
           alias: v.alias, tipo_vendedor: v.tipo,
@@ -122,17 +137,24 @@ export default function PlanillaVendedores() {
   const verDetalle = async (v: VendedorPlanilla) => {
     setDetalle(v); setVentas([]); setCargandoV(true)
     try {
-      // Rango del mes usando creado_en (igual que la vista ventas_mes_vendedor)
-      const inicio = `${mes}-01T00:00:00`
-      const fin    = `${mes}-31T23:59:59`
-      const { data } = await supabase.from('ventas')
-        .select('cod_venta, fecha_pedido, total_venta, estado, clientes(nombre)')
-        .eq('cod_vendedor', v.vendedor_id)
+      // Mismo rango que ventas_mes_vendedor: usa creado_en con DATE_TRUNC
+      const [anio, mesNum] = mes.split('-').map(Number)
+      const inicio = new Date(anio, mesNum - 1, 1).toISOString()
+      const fin    = new Date(anio, mesNum, 0, 23, 59, 59).toISOString()
+      const { data, error: errV } = await supabase.from('ventas')
+        .select('cod_venta, fecha_pedido, total_venta, creado_en, clientes(nombre)')
+        .eq('cod_vendedor', v.vendedor_id)   // id del vendedor, no cod_venta
         .gte('creado_en', inicio)
         .lte('creado_en', fin)
-        .eq('estado', 5)
-        .order('fecha_pedido', { ascending: false })
-      setVentas((data || []).map((d: any) => ({ cod_venta: d.cod_venta, fecha_pedido: d.fecha_pedido, total_venta: Number(d.total_venta), cliente: d.clientes?.nombre || '—' })))
+        .not('estado', 'in', '(0,99)')
+        .order('creado_en', { ascending: false })
+      if (errV) console.error('Error ventas:', JSON.stringify(errV))
+      setVentas((data || []).map((d: any) => ({
+        cod_venta:    d.cod_venta,
+        fecha_pedido: d.fecha_pedido || d.creado_en?.split('T')[0],
+        total_venta:  Number(d.total_venta),
+        cliente:      d.clientes?.nombre || '—',
+      })))
     } catch (e) { console.error(e) }
     finally { setCargandoV(false) }
   }
