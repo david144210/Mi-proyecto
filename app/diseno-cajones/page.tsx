@@ -60,6 +60,20 @@ export default function DisenoCajones() {
   const espesorFondoCm = espesorFondoMM / 10
   const espesorBaseCajonCm = espesorBaseCajonMM / 10
 
+  // Handlers: sincronizan el select (15/18/custom, 3/6/9/custom) con el valor real en mm
+  const handleEspesorCuerpo = (valor: '15' | '18' | 'custom') => {
+    setEspesorSelCuerpo(valor)
+    if (valor !== 'custom') setEspesorMM(Number(valor))
+  }
+  const handleEspesorFondo = (valor: '3' | '6' | '9' | 'custom') => {
+    setEspesorSelFondo(valor)
+    if (valor !== 'custom') setEspesorFondoMM(Number(valor))
+  }
+  const handleEspesorBase = (valor: '3' | '6' | '9' | 'custom') => {
+    setEspesorSelBase(valor)
+    if (valor !== 'custom') setEspesorBaseCajonMM(Number(valor))
+  }
+
   // ---- Holguras editables (cm) ----
   const [holguraPuerta, setHolguraPuerta] = useState(0.15)
   const [holguraFrenteCajon, setHolguraFrenteCajon] = useState(0.15)
@@ -439,6 +453,67 @@ export default function DisenoCajones() {
               <select style={inputStyle} value={colorId} onChange={e => setColorId(e.target.value)}>
                 {COLORES.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
               </select>
+            </div>
+
+            {/* Espesores de tablero */}
+            <div style={{ backgroundColor: 'white', borderRadius: '14px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+              <h2 style={{ margin: '0 0 14px 0', fontSize: '16px' }}>🪵 Espesores de tablero</h2>
+
+              {/* Cuerpo, cajones y puertas: 15 / 18 mm */}
+              <label style={labelStyle}>Cuerpo, cajones y puertas (mm)</label>
+              <div style={{ display: 'grid', gridTemplateColumns: espesorSelCuerpo === 'custom' ? '1fr 1fr 1fr' : '1fr 1fr', gap: '8px', marginBottom: '14px' }}>
+                <select style={inputStyle} value={espesorSelCuerpo} onChange={e => handleEspesorCuerpo(e.target.value as '15' | '18' | 'custom')}>
+                  <option value="15">15 mm</option>
+                  <option value="18">18 mm</option>
+                  <option value="custom">Personalizado</option>
+                </select>
+                {espesorSelCuerpo === 'custom' ? (
+                  <input type="number" style={inputStyle} value={espesorMM} min={5} max={40} step={0.5}
+                    onChange={e => setEspesorMM(Math.max(5, Number(e.target.value) || 0))} />
+                ) : (
+                  <div style={{ ...inputStyle, backgroundColor: '#f9f9f9', color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {espesorMM} mm
+                  </div>
+                )}
+              </div>
+
+              {/* Fondo (tablero posterior): 3 / 6 / 9 mm */}
+              <label style={labelStyle}>Fondo posterior (mm)</label>
+              <div style={{ display: 'grid', gridTemplateColumns: espesorSelFondo === 'custom' ? '1fr 1fr 1fr' : '1fr 1fr', gap: '8px', marginBottom: '14px' }}>
+                <select style={inputStyle} value={espesorSelFondo} onChange={e => handleEspesorFondo(e.target.value as '3' | '6' | '9' | 'custom')}>
+                  <option value="3">3 mm</option>
+                  <option value="6">6 mm</option>
+                  <option value="9">9 mm</option>
+                  <option value="custom">Personalizado</option>
+                </select>
+                {espesorSelFondo === 'custom' ? (
+                  <input type="number" style={inputStyle} value={espesorFondoMM} min={2} max={20} step={0.5}
+                    onChange={e => setEspesorFondoMM(Math.max(2, Number(e.target.value) || 0))} />
+                ) : (
+                  <div style={{ ...inputStyle, backgroundColor: '#f9f9f9', color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {espesorFondoMM} mm
+                  </div>
+                )}
+              </div>
+
+              {/* Base / piso del cajón: 3 / 6 / 9 mm */}
+              <label style={labelStyle}>Base (piso) de cajón (mm)</label>
+              <div style={{ display: 'grid', gridTemplateColumns: espesorSelBase === 'custom' ? '1fr 1fr 1fr' : '1fr 1fr', gap: '8px' }}>
+                <select style={inputStyle} value={espesorSelBase} onChange={e => handleEspesorBase(e.target.value as '3' | '6' | '9' | 'custom')}>
+                  <option value="3">3 mm</option>
+                  <option value="6">6 mm</option>
+                  <option value="9">9 mm</option>
+                  <option value="custom">Personalizado</option>
+                </select>
+                {espesorSelBase === 'custom' ? (
+                  <input type="number" style={inputStyle} value={espesorBaseCajonMM} min={2} max={20} step={0.5}
+                    onChange={e => setEspesorBaseCajonMM(Math.max(2, Number(e.target.value) || 0))} />
+                ) : (
+                  <div style={{ ...inputStyle, backgroundColor: '#f9f9f9', color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {espesorBaseCajonMM} mm
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Altura disponible */}

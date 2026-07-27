@@ -1,409 +1,296 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
-import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { useState, useEffect } from 'react'
+import { supabase } from '../../lib/supabase'
 
-// ============================================================
-// TIPOS
-// ============================================================
-type TipoSeccion = 'cajon' | 'puerta' | 'espacio'
-type TipoRiel = 'bola' | 'ocultas' | 'telescopicas'
-type Bisagra = 'izquierda' | 'derecha' | 'ambas'
-
-interface Seccion {
+interface PiezaAcero {
   id: number
-  tipo: TipoSeccion
-  alturaCm: number
-  riel: TipoRiel
-  cantidadPuertas: 1 | 2
-  bisagra: Bisagra
+  material: string
+  longitud: number
+  cantidad: number
+  precio_unitario: number
+  subtotal: number
 }
 
-const COLORES = [
-  { id: 'blanco', nombre: 'Blanco', hex: 0xf3f1ea },
-  { id: 'wengue', nombre: 'Wengue', hex: 0x352721 },
-  { id: 'gris', nombre: 'Gris Grafito', hex: 0x6b6d70 },
-  { id: 'nogal', nombre: 'Nogal', hex: 0x7a5233 },
-  { id: 'natural', nombre: 'Haya Natural', hex: 0xd9bd8f },
-]
-
-interface PiezaCorte {
-  pieza: string
-  cantidad: number
+interface PiezaMelamina {
+  id: number
+  material: string
   largo: number
   ancho: number
-  espesor: number
-  seccion: string
+  cantidad: number
+  precio_unitario: number
+  subtotal: number
 }
 
-export default function DisenoCajones() {
+interface PiezaAccesorio {
+  id: number
+  material: string
+  cantidad: number
+  precio_unitario: number
+  subtotal: number
+}
+
+interface PiezaUnion {
+  id: number
+  label: string
+  tipo: string
+  cantidad: number
+  precio_unitario: number
+  subtotal: number
+}
+
+export default function Cotizador() {
   const [usuario, setUsuario] = useState<any>(null)
-  const [checking, setChecking] = useState(true)
+  const [aceros, setAceros] = useState<any[]>([])
+  const [melaminas, setMelaminas] = useState<any[]>([])
+  const [accesorios, setAccesorios] = useState<any[]>([])
+  const [colores, setColores] = useState<any[]>([])
+  const [uniones, setUniones] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
 
-  // Dimensiones del mueble
-  const [anchoCm, setAnchoCm] = useState(80)
-  const [altoCm, setAltoCm] = useState(120)
-  const [profundoCm, setProfundoCm] = useState(55)
-  const [colorId, setColorId] = useState('blanco')
+  // Acero
+  const [aceroSelId, setAceroSelId] = useState('')
+  const [longitud, setLongitud] = useState('')
+  const [cantAcero, setCantAcero] = useState('')
+  const [piezasAcero, setPiezasAcero] = useState<PiezaAcero[]>([])
+  const [nextIdAcero, setNextIdAcero] = useState(1)
 
-  // ---- Espesores de tablero (editables, en mm) ----
-  const [espesorSelCuerpo, setEspesorSelCuerpo] = useState<'15' | '18' | 'custom'>('18')
-  const [espesorMM, setEspesorMM] = useState(18) // grosor del cuerpo, cajones y puertas
+  // Melamina
+  const [melaminaSelId, setMelaminaSelId] = useState('')
+  const [largo, setLargo] = useState('')
+  const [ancho, setAncho] = useState('')
+  const [cantMelamina, setCantMelamina] = useState('')
+  const [piezasMelamina, setPiezasMelamina] = useState<PiezaMelamina[]>([])
+  const [nextIdMelamina, setNextIdMelamina] = useState(1)
 
-  const [espesorSelFondo, setEspesorSelFondo] = useState<'3' | '6' | '9' | 'custom'>('6')
-  const [espesorFondoMM, setEspesorFondoMM] = useState(6) // grosor del tablero posterior
+  // Accesorios
+  const [accesorioSelId, setAccesorioSelId] = useState('')
+  const [cantAccesorio, setCantAccesorio] = useState('')
+  const [piezasAccesorio, setPiezasAccesorio] = useState<PiezaAccesorio[]>([])
+  const [nextIdAccesorio, setNextIdAccesorio] = useState(1)
 
-  const [espesorSelBase, setEspesorSelBase] = useState<'3' | '6' | '9' | 'custom'>('6')
-  const [espesorBaseCajonMM, setEspesorBaseCajonMM] = useState(6) // grosor del piso del cajon
+  // Uniones
+  const [unionSelId, setUnionSelId] = useState('')
+  const [cantUnion, setCantUnion] = useState('')
+  const [piezasUnion, setPiezasUnion] = useState<PiezaUnion[]>([])
+  const [nextIdUnion, setNextIdUnion] = useState(1)
 
-  const espesorCm = espesorMM / 10
-  const espesorFondoCm = espesorFondoMM / 10
-  const espesorBaseCajonCm = espesorBaseCajonMM / 10
+  // Colores
+  const [colorSelId, setColorSelId] = useState('')
 
-  // Handlers: sincronizan el select (15/18/custom, 3/6/9/custom) con el valor real en mm
-  const handleEspesorCuerpo = (valor: '15' | '18' | 'custom') => {
-    setEspesorSelCuerpo(valor)
-    if (valor !== 'custom') setEspesorMM(Number(valor))
-  }
-  const handleEspesorFondo = (valor: '3' | '6' | '9' | 'custom') => {
-    setEspesorSelFondo(valor)
-    if (valor !== 'custom') setEspesorFondoMM(Number(valor))
-  }
-  const handleEspesorBase = (valor: '3' | '6' | '9' | 'custom') => {
-    setEspesorSelBase(valor)
-    if (valor !== 'custom') setEspesorBaseCajonMM(Number(valor))
-  }
-
-  // ---- Holguras editables (cm) ----
-  const [holguraPuerta, setHolguraPuerta] = useState(0.15)
-  const [holguraFrenteCajon, setHolguraFrenteCajon] = useState(0.15)
-  const [holguraRielAlto, setHolguraRielAlto] = useState(2.5)
-  const [holguraRielFondo, setHolguraRielFondo] = useState(2)
-  const [holguraRielLateral, setHolguraRielLateral] = useState(1.2)
-  const [mostrarAjustes, setMostrarAjustes] = useState(false)
-
-  // Secciones (de abajo hacia arriba)
-  const [secciones, setSecciones] = useState<Seccion[]>([
-    { id: 1, tipo: 'cajon', alturaCm: 18, riel: 'bola', cantidadPuertas: 1, bisagra: 'izquierda' },
-    { id: 2, tipo: 'cajon', alturaCm: 18, riel: 'bola', cantidadPuertas: 1, bisagra: 'izquierda' },
-    { id: 3, tipo: 'puerta', alturaCm: 60, riel: 'bola', cantidadPuertas: 2, bisagra: 'ambas' },
-  ])
-  const [nextId, setNextId] = useState(4)
-
-  // Refs de three.js
-  const mountRef = useRef<HTMLDivElement>(null)
-  const sceneRef = useRef<THREE.Scene | null>(null)
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
-  const controlsRef = useRef<OrbitControls | null>(null)
-  const muebleGroupRef = useRef<THREE.Group | null>(null)
-
-  // ---------- Auth simple (mismo patron que el cotizador) ----------
   useEffect(() => {
     const carnetGuardado = localStorage.getItem('carnet')
     if (!carnetGuardado) { window.location.replace('/'); return }
-    setUsuario({ carnet: carnetGuardado })
-    setChecking(false)
+    supabase.from('personal').select('*, cargos(*)').eq('carnet', carnetGuardado).eq('estado', true).single()
+      .then(({ data }) => {
+        if (!data || !data.cargos?.puede_ver_cotizador) {
+          window.location.replace('/'); return
+        }
+        setUsuario(data)
+      })
+    Promise.all([
+      supabase.from('aceros').select('*').order('detalle'),
+      supabase.from('melaminas').select('*').order('detalle'),
+      supabase.from('accesorios').select('*').order('detalle'),
+      supabase.from('colores').select('*').order('detalle'),
+      supabase.from('uniones').select('*').order('codigo_union'),
+    ]).then(([a, m, ac, co, uni]) => {
+      setAceros(a.data || [])
+      setMelaminas(m.data || [])
+      setAccesorios(ac.data || [])
+      setColores(co.data || [])
+      setUniones(uni.data || [])
+      setLoading(false)
+    })
   }, [])
 
-  // ---------- Inicializar escena three.js (recién cuando el div del canvas ya existe) ----------
-  useEffect(() => {
-    if (checking) return // el div con mountRef todavía no está en el DOM
-    if (!mountRef.current) return
+  const aceroSel = aceros.find(a => String(a.id) === aceroSelId)
+  const melaminaSel = melaminas.find(m => String(m.id) === melaminaSelId)
+  const accesorioSel = accesorios.find(a => String(a.id) === accesorioSelId)
+  const colorSel = colores.find(c => String(c.id) === colorSelId)
+  const unionSel = uniones.find(u => String(u.id) === unionSelId)
 
-    // Tamaño inicial con fallback (por si el layout aun no calculó la altura real)
-    const width = mountRef.current.clientWidth || 800
-    const height = mountRef.current.clientHeight || 600
+  const COSTOS_ADMINISTRATIVOS = 166
 
-    const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0xeef0f2)
-    sceneRef.current = scene
+  const longitudTotalAcero = piezasAcero.reduce((acc, p) => acc + p.longitud * p.cantidad, 0)
 
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 500)
-    camera.position.set(4, 3.2, 6)
-    cameraRef.current = camera
+  // Cantidad total de piezas de acero (suma de cantidad de cada fila)
+  const cantidadTotalPiezasAcero = piezasAcero.reduce((acc, p) => acc + p.cantidad, 0)
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true })
-    renderer.setSize(width, height)
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-    renderer.shadowMap.enabled = true
-    mountRef.current.appendChild(renderer.domElement)
-    rendererRef.current = renderer
+  // Union recta automatica: tipo R (MLB-U00), solo registros sin M en el tipo
+  const unionRectaAuto = uniones.find(u => u.tipo === 'R')
+  const totalUnionRectaAuto = unionRectaAuto && cantidadTotalPiezasAcero > 0
+    ? cantidadTotalPiezasAcero * unionRectaAuto.precio
+    : 0
 
-    const controls = new OrbitControls(camera, renderer.domElement)
-    controls.target.set(0, 1.2, 0)
-    controls.enableDamping = true
-    controlsRef.current = controls
+  const calcSubtotalAcero = (lon: number, cant: number, precio: number) =>
+    (lon * cant / 600) * precio
 
-    // Luces
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x555555, 1.2)
-    scene.add(hemi)
-    const dir = new THREE.DirectionalLight(0xffffff, 0.9)
-    dir.position.set(5, 8, 5)
-    dir.castShadow = true
-    scene.add(dir)
+  const calcSubtotalMelamina = (lar: number, anc: number, cant: number, precio: number) =>
+    (lar / 100) * (anc / 100) * cant * precio
 
-    // Piso
-    const piso = new THREE.Mesh(
-      new THREE.PlaneGeometry(20, 20),
-      new THREE.MeshStandardMaterial({ color: 0xd8dadd })
-    )
-    piso.rotation.x = -Math.PI / 2
-    piso.receiveShadow = true
-    scene.add(piso)
+  const calcSubtotalAccesorio = (cant: number, precio: number) =>
+    cant * precio
 
-    const grupo = new THREE.Group()
-    scene.add(grupo)
-    muebleGroupRef.current = grupo
+  const calcSubtotalUnion = (cant: number, precio: number) =>
+    cant * precio
 
-    let frameId: number
-    const animate = () => {
-      frameId = requestAnimationFrame(animate)
-      controls.update()
-      renderer.render(scene, camera)
-    }
-    animate()
-
-    const resize = (w: number, h: number) => {
-      if (w <= 0 || h <= 0) return
-      camera.aspect = w / h
-      camera.updateProjectionMatrix()
-      renderer.setSize(w, h)
-    }
-
-    // ResizeObserver detecta el tamaño REAL del contenedor apenas el layout
-    // termina de calcularlo (grid + sticky pueden tardar un tick en resolverse),
-    // a diferencia del evento "resize" de window que solo dispara al mover la ventana.
-    const ro = new ResizeObserver((entries) => {
-      const entry = entries[0]
-      if (!entry) return
-      const { width: w, height: h } = entry.contentRect
-      resize(w, h)
-    })
-    ro.observe(mountRef.current)
-
-    const handleWindowResize = () => {
-      if (!mountRef.current) return
-      resize(mountRef.current.clientWidth, mountRef.current.clientHeight)
-    }
-    window.addEventListener('resize', handleWindowResize)
-
-    return () => {
-      cancelAnimationFrame(frameId)
-      ro.disconnect()
-      window.removeEventListener('resize', handleWindowResize)
-      controls.dispose()
-      renderer.dispose()
-      if (mountRef.current && renderer.domElement.parentNode === mountRef.current) {
-        mountRef.current.removeChild(renderer.domElement)
-      }
-    }
-  }, [checking])
-
-  // ---------- Reconstruir el mueble cada vez que cambian los datos ----------
-  useEffect(() => {
-    const grupo = muebleGroupRef.current
-    if (!grupo) return
-
-    // Limpiar mueble anterior
-    while (grupo.children.length) {
-      const obj = grupo.children.pop() as THREE.Mesh
-      obj.geometry?.dispose()
-      if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose())
-      else (obj.material as THREE.Material)?.dispose?.()
-    }
-
-    const SC = 1 / 30 // escala: 1 unidad three.js = 30 cm
-    const ancho = anchoCm * SC
-    const alto = altoCm * SC
-    const profundo = profundoCm * SC
-    const esp = espesorCm * SC
-    const espFondo = espesorFondoCm * SC
-
-    const colorHex = COLORES.find(c => c.id === colorId)?.hex ?? 0xf3f1ea
-    const matCarcasa = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.6 })
-    const matFrente = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.45 })
-    const matMetal = new THREE.MeshStandardMaterial({ color: 0x9a9a9a, metalness: 0.7, roughness: 0.35 })
-
-    const addBox = (w: number, h: number, d: number, x: number, y: number, z: number, mat: THREE.Material) => {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat)
-      mesh.position.set(x, y, z)
-      mesh.castShadow = true
-      mesh.receiveShadow = true
-      grupo.add(mesh)
-      return mesh
-    }
-
-    // Carcasa: laterales, piso, techo, fondo
-    addBox(esp, alto, profundo, -ancho / 2 + esp / 2, alto / 2, 0, matCarcasa) // lateral izq
-    addBox(esp, alto, profundo, ancho / 2 - esp / 2, alto / 2, 0, matCarcasa) // lateral der
-    addBox(ancho, esp, profundo, 0, esp / 2, 0, matCarcasa) // piso
-    addBox(ancho, esp, profundo, 0, alto - esp / 2, 0, matCarcasa) // techo
-    addBox(ancho, alto, espFondo, 0, alto / 2, -profundo / 2 + espFondo / 2, matCarcasa) // fondo (tablero mas delgado)
-
-    const interiorAncho = ancho - esp * 2
-    let cursorY = esp // empieza sobre el piso interior
-
-    secciones.forEach((sec) => {
-      const h = sec.alturaCm * SC
-      const centroY = cursorY + h / 2
-
-      if (sec.tipo === 'cajon') {
-        // Frente del cajon (ligeramente adelante de la carcasa, "abierto")
-        const frenteZ = profundo / 2 + esp / 2 + 0.02
-        addBox(interiorAncho - 0.01, h - 0.015, esp, 0, centroY, frenteZ, matFrente)
-        // Tirador
-        addBox(interiorAncho * 0.35, 0.02, 0.02, 0, centroY, frenteZ + esp / 2 + 0.02, matMetal)
-        // Rieles (barras metalicas a los lados, dentro del cuerpo)
-        const rielLargo = profundo - esp * 1.5
-        const rielY = cursorY + 0.02
-        addBox(0.02, 0.02, rielLargo, -interiorAncho / 2 + 0.03, rielY, 0, matMetal)
-        addBox(0.02, 0.02, rielLargo, interiorAncho / 2 - 0.03, rielY, 0, matMetal)
-      } else if (sec.tipo === 'puerta') {
-        const frenteZ = profundo / 2 + esp / 2 + 0.02
-        if (sec.cantidadPuertas === 2) {
-          const wPuerta = interiorAncho / 2 - 0.01
-          addBox(wPuerta, h - 0.015, esp, -wPuerta / 2 - 0.005, centroY, frenteZ, matFrente)
-          addBox(wPuerta, h - 0.015, esp, wPuerta / 2 + 0.005, centroY, frenteZ, matFrente)
-          addBox(0.02, 0.15, 0.02, -0.05, centroY, frenteZ + esp / 2 + 0.02, matMetal)
-          addBox(0.02, 0.15, 0.02, 0.05, centroY, frenteZ + esp / 2 + 0.02, matMetal)
-        } else {
-          addBox(interiorAncho - 0.01, h - 0.015, esp, 0, centroY, frenteZ, matFrente)
-          const lado = sec.bisagra === 'derecha' ? -1 : 1
-          addBox(0.02, 0.15, 0.02, lado * (interiorAncho / 2 - 0.08), centroY, frenteZ + esp / 2 + 0.02, matMetal)
-        }
-      }
-      // 'espacio' no dibuja frente: queda hueco (repisa abierta)
-
-      cursorY += h
-    })
-
-    // Centrar camara segun tamaño
-    const cam = cameraRef.current
-    const controls = controlsRef.current
-    if (cam && controls) {
-      controls.target.set(0, alto / 2, 0)
-      cam.position.set(ancho * 1.6 + 1.5, alto * 1.1 + 0.8, profundo * 2.2 + ancho)
-    }
-  }, [anchoCm, altoCm, profundoCm, colorId, secciones, checking, espesorCm, espesorFondoCm])
-
-  // ---------- Helpers de secciones ----------
-  const alturaUsada = secciones.reduce((acc, s) => acc + s.alturaCm, 0)
-  const alturaInterior = altoCm - espesorCm * 2
-  const alturaRestante = alturaInterior - alturaUsada
-
-  // ---------- Medidas internas ----------
-  const anchoInterior = anchoCm - espesorCm * 2
-  const profundoInterior = profundoCm - espesorFondoCm
-
-  // ---------- Lista de piezas para corte ----------
-  const calcularListaPiezas = (): PiezaCorte[] => {
-    const piezas: PiezaCorte[] = []
-
-    // Cuerpo / carcasa
-    piezas.push({ pieza: 'Lateral', cantidad: 2, largo: altoCm, ancho: profundoCm, espesor: espesorCm, seccion: 'Cuerpo' })
-    piezas.push({ pieza: 'Piso / Techo', cantidad: 2, largo: anchoInterior, ancho: profundoCm, espesor: espesorCm, seccion: 'Cuerpo' })
-    piezas.push({ pieza: 'Fondo (posterior)', cantidad: 1, largo: anchoInterior, ancho: alturaInterior > 0 ? alturaInterior : altoCm, espesor: espesorFondoCm, seccion: 'Cuerpo' })
-
-    secciones.forEach((sec, i) => {
-      const nombreSeccion = `${sec.tipo === 'cajon' ? 'Cajón' : sec.tipo === 'puerta' ? 'Puerta' : 'Espacio'} ${i + 1}`
-
-      if (sec.tipo === 'cajon') {
-        piezas.push({ pieza: 'Frente de cajón', cantidad: 1, largo: anchoInterior - holguraFrenteCajon, ancho: sec.alturaCm - holguraFrenteCajon, espesor: espesorCm, seccion: nombreSeccion })
-        piezas.push({ pieza: 'Costado de caja', cantidad: 2, largo: profundoCm - holguraRielFondo, ancho: sec.alturaCm - holguraRielAlto, espesor: espesorCm, seccion: nombreSeccion })
-        piezas.push({ pieza: 'Fondo trasero de caja', cantidad: 1, largo: anchoInterior - 2 * espesorCm - holguraRielLateral, ancho: sec.alturaCm - holguraRielAlto - espesorBaseCajonCm, espesor: espesorCm, seccion: nombreSeccion })
-        piezas.push({ pieza: 'Base de cajón', cantidad: 1, largo: anchoInterior - 2 * espesorCm - holguraRielLateral, ancho: profundoCm - holguraRielFondo, espesor: espesorBaseCajonCm, seccion: nombreSeccion })
-      } else if (sec.tipo === 'puerta') {
-        piezas.push({
-          pieza: 'Puerta',
-          cantidad: sec.cantidadPuertas,
-          largo: (anchoInterior / sec.cantidadPuertas) - holguraPuerta,
-          ancho: sec.alturaCm - holguraPuerta,
-          espesor: espesorCm,
-          seccion: nombreSeccion,
-        })
-      }
-      // 'espacio' no genera piezas: queda como hueco abierto
-    })
-
-    return piezas.filter(p => p.largo > 0 && p.ancho > 0)
+  const calcSubtotalColor = () => {
+    if (!colorSel || longitudTotalAcero === 0) return 0
+    const longitudEnMetros = longitudTotalAcero / 100
+    return (colorSel.precio_cotizador * longitudEnMetros) / colorSel.consumo
   }
 
-  // Agrupa piezas idénticas (misma pieza + medidas + espesor) sumando cantidades,
-  // útil para pedir el corte de una sola vez en vez de repetido por sección.
-  const agruparPiezas = (piezas: PiezaCorte[]): PiezaCorte[] => {
-    const mapa = new Map<string, PiezaCorte>()
-    piezas.forEach(p => {
-      const key = `${p.pieza}|${p.largo.toFixed(1)}|${p.ancho.toFixed(1)}|${p.espesor}`
-      const existente = mapa.get(key)
-      if (existente) existente.cantidad += p.cantidad
-      else mapa.set(key, { ...p })
-    })
-    return Array.from(mapa.values())
+  const handleAgregarAcero = () => {
+    if (!aceroSel || !longitud || !cantAcero) return
+    const lon = parseFloat(longitud)
+    const cant = parseFloat(cantAcero)
+    if (isNaN(lon) || isNaN(cant) || lon <= 0 || cant <= 0) return
+    const subtotal = calcSubtotalAcero(lon, cant, aceroSel.precio_cotizador)
+    setPiezasAcero([...piezasAcero, { id: nextIdAcero, material: aceroSel.detalle, longitud: lon, cantidad: cant, precio_unitario: aceroSel.precio_cotizador, subtotal }])
+    setNextIdAcero(nextIdAcero + 1)
+    setLongitud('')
+    setCantAcero('')
   }
 
-  const listaPiezasDetallada = calcularListaPiezas()
-  const listaPiezasAgrupada = agruparPiezas(listaPiezasDetallada)
-  const areaTotalM2 = listaPiezasDetallada.reduce((acc, p) => acc + (p.largo * p.ancho * p.cantidad) / 10000, 0)
-
-  const copiarListaPiezas = () => {
-    const texto = [
-      `LISTA DE PIEZAS — ${anchoCm}×${altoCm}×${profundoCm} cm`,
-      '',
-      ...listaPiezasAgrupada.map(p => `${p.cantidad} x ${p.pieza} — ${p.largo.toFixed(1)} x ${p.ancho.toFixed(1)} cm (esp. ${p.espesor} cm)`),
-      '',
-      `Área total aprox.: ${areaTotalM2.toFixed(2)} m²`,
-    ].join('\n')
-    navigator.clipboard?.writeText(texto)
+  const handleAgregarMelamina = () => {
+    if (!melaminaSel || !largo || !ancho || !cantMelamina) return
+    const lar = parseFloat(largo)
+    const anc = parseFloat(ancho)
+    const cant = parseFloat(cantMelamina)
+    if (isNaN(lar) || isNaN(anc) || isNaN(cant) || lar <= 0 || anc <= 0 || cant <= 0) return
+    const subtotal = calcSubtotalMelamina(lar, anc, cant, melaminaSel.precio_cotizador)
+    setPiezasMelamina([...piezasMelamina, { id: nextIdMelamina, material: melaminaSel.detalle, largo: lar, ancho: anc, cantidad: cant, precio_unitario: melaminaSel.precio_cotizador, subtotal }])
+    setNextIdMelamina(nextIdMelamina + 1)
+    setLargo('')
+    setAncho('')
+    setCantMelamina('')
   }
 
-  const agregarSeccion = (tipo: TipoSeccion) => {
-    setSecciones([...secciones, {
-      id: nextId,
-      tipo,
-      alturaCm: tipo === 'cajon' ? 18 : tipo === 'puerta' ? 40 : 20,
-      riel: 'bola',
-      cantidadPuertas: 1,
-      bisagra: 'izquierda',
+  const handleAgregarAccesorio = () => {
+    if (!accesorioSel || !cantAccesorio) return
+    const cant = parseFloat(cantAccesorio)
+    if (isNaN(cant) || cant <= 0) return
+    const subtotal = calcSubtotalAccesorio(cant, accesorioSel.precio_cotizador)
+    setPiezasAccesorio([...piezasAccesorio, { id: nextIdAccesorio, material: accesorioSel.detalle, cantidad: cant, precio_unitario: accesorioSel.precio_cotizador, subtotal }])
+    setNextIdAccesorio(nextIdAccesorio + 1)
+    setCantAccesorio('')
+    setAccesorioSelId('')
+  }
+
+  const handleAgregarUnion = () => {
+    if (!unionSel || !cantUnion) return
+    const cant = parseFloat(cantUnion)
+    if (isNaN(cant) || cant <= 0) return
+    const subtotal = calcSubtotalUnion(cant, unionSel.precio)
+    setPiezasUnion([...piezasUnion, {
+      id: nextIdUnion,
+      label: `${unionSel.codigo_union} — ${unionSel.tipo}`,
+      tipo: unionSel.tipo,
+      cantidad: cant,
+      precio_unitario: unionSel.precio,
+      subtotal,
     }])
-    setNextId(nextId + 1)
+    setNextIdUnion(nextIdUnion + 1)
+    setCantUnion('')
+    setUnionSelId('')
   }
 
-  const actualizarSeccion = (id: number, cambios: Partial<Seccion>) => {
-    setSecciones(secciones.map(s => s.id === id ? { ...s, ...cambios } : s))
+  const totalAcero = piezasAcero.reduce((acc, p) => acc + p.subtotal, 0)
+  const totalMelamina = piezasMelamina.reduce((acc, p) => acc + p.subtotal, 0)
+  const totalAccesorio = piezasAccesorio.reduce((acc, p) => acc + p.subtotal, 0)
+  const totalUnion = piezasUnion.reduce((acc, p) => acc + p.subtotal, 0)
+  const totalColor = calcSubtotalColor()
+  const totalGeneral = totalAcero + totalMelamina + totalAccesorio + totalUnion + totalUnionRectaAuto + totalColor + COSTOS_ADMINISTRATIVOS
+
+  // Precios de venta
+  const precioMarginal = totalGeneral * 1.11
+  const precioNeto = precioMarginal * 1.11
+  const precioFacturado = precioMarginal * 1.16
+
+  const puedeVerPrecioMinimo =
+    usuario?.cargos?.puede_ver_precio_minimo === true ||
+    usuario?.cargos?.puede_ver_precio_minimo === 1 ||
+    usuario?.cargos?.es_admin === true ||
+    usuario?.cargos?.es_admin === 1
+
+  const esJerarquia = puedeVerPrecioMinimo
+  
+  const inputStyle = {
+    padding: '10px 14px',
+    borderRadius: '8px',
+    border: '1px solid #ddd',
+    fontSize: '14px',
+    outline: 'none',
+    width: '100%',
+    boxSizing: 'border-box' as const,
+    backgroundColor: 'white',
   }
 
-  const eliminarSeccion = (id: number) => {
-    setSecciones(secciones.filter(s => s.id !== id))
+  const labelStyle = {
+    fontSize: '13px',
+    color: '#666',
+    display: 'block' as const,
+    marginBottom: '6px',
   }
 
-  const moverSeccion = (id: number, dir: -1 | 1) => {
-    const idx = secciones.findIndex(s => s.id === id)
-    const nuevoIdx = idx + dir
-    if (nuevoIdx < 0 || nuevoIdx >= secciones.length) return
-    const copia = [...secciones]
-    ;[copia[idx], copia[nuevoIdx]] = [copia[nuevoIdx], copia[idx]]
-    setSecciones(copia)
+  const thStyle = {
+    padding: '12px 16px',
+    textAlign: 'left' as const,
+    borderBottom: '2px solid #eee',
+    color: '#555',
+    whiteSpace: 'nowrap' as const,
   }
 
-  // Lista de piezas (informativa, sin precios)
-  const totalCajones = secciones.filter(s => s.tipo === 'cajon').length
-  const totalPuertas = secciones.filter(s => s.tipo === 'puerta').reduce((a, s) => a + s.cantidadPuertas, 0)
+  const tdStyle = (i: number) => ({
+    padding: '12px 16px',
+    borderBottom: '1px solid #f0f0f0',
+    backgroundColor: i % 2 === 0 ? 'white' : '#fafafa',
+    fontSize: '14px',
+  })
 
-  const inputStyle: React.CSSProperties = {
-    padding: '9px 12px', borderRadius: '8px', border: '1px solid #ddd',
-    fontSize: '13px', outline: 'none', width: '100%', boxSizing: 'border-box', backgroundColor: 'white',
+  const emptyBox = (
+    <div style={{ textAlign: 'center', padding: '24px', color: '#bbb', border: '2px dashed #eee', borderRadius: '10px' }}>
+      <p style={{ margin: 0, fontSize: '14px' }}>No hay piezas agregadas todavia</p>
+    </div>
+  )
+
+  const handleLimpiarTodo = () => {
+    setPiezasAcero([])
+    setPiezasMelamina([])
+    setPiezasAccesorio([])
+    setPiezasUnion([])
+    setAceroSelId('')
+    setMelaminaSelId('')
+    setAccesorioSelId('')
+    setUnionSelId('')
+    setColorSelId('')
+    setLongitud('')
+    setCantAcero('')
+    setLargo('')
+    setAncho('')
+    setCantMelamina('')
+    setCantAccesorio('')
+    setCantUnion('')
   }
-  const labelStyle: React.CSSProperties = { fontSize: '12px', color: '#888', display: 'block', marginBottom: '4px' }
 
-  if (checking) return null
+  if (!usuario && !loading) return null
 
   return (
     <div style={{ fontFamily: 'Arial, sans-serif', minHeight: '100vh', backgroundColor: '#f5f5f5' }}>
+
       <style>{`
-        @media (max-width: 900px) {
-          .diseno-layout { grid-template-columns: 1fr !important; }
-          .diseno-canvas { height: 380px !important; }
+        @media (max-width: 768px) {
+          .cot-container { padding: 80px 16px 40px 16px !important; }
+          .grid-acero { grid-template-columns: 1fr 1fr !important; }
+          .grid-acero .col-full { grid-column: 1 / -1; }
+          .grid-melamina { grid-template-columns: 1fr 1fr !important; }
+          .grid-melamina .col-full { grid-column: 1 / -1; }
+          .grid-accesorio { grid-template-columns: 1fr 1fr !important; }
+          .grid-accesorio .col-full { grid-column: 1 / -1; }
+          .grid-union { grid-template-columns: 1fr 1fr !important; }
+          .grid-union .col-full { grid-column: 1 / -1; }
+          .cot-tabla th, .cot-tabla td { padding: 8px 10px !important; font-size: 12px !important; color: #222 !important; }
+          .resumen-bar { flex-direction: column !important; gap: 16px !important; text-align: center !important; }
         }
       `}</style>
 
@@ -416,295 +303,536 @@ export default function DisenoCajones() {
         <a href="/" style={{ fontWeight: 'bold', fontSize: '20px', color: 'white', textDecoration: 'none' }}>
           Muebles is Better
         </a>
-        <span style={{ color: '#a3c47d', fontSize: '16px', fontWeight: 'bold' }}>Diseñador 3D de Cajones</span>
-        <a href="/cotizador" style={{ color: '#a3c47d', fontSize: '13px', textDecoration: 'none', border: '1px solid #a3c47d', padding: '7px 14px', borderRadius: '8px' }}>
-          ← Volver al Cotizador
-        </a>
+        <span style={{ color: '#a3c47d', fontSize: '16px', fontWeight: 'bold' }}>Cotizador</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <a
+            href="/diseno-cajones"
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              padding: '8px 16px', backgroundColor: '#a3c47d', color: '#1a1a2e',
+              borderRadius: '8px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold',
+            }}
+          >
+            🗄️ Diseñador 3D de Cajones
+          </a>
+          {usuario && <span style={{ color: '#a3c47d', fontSize: '14px' }}>{usuario.nombre} 👤</span>}
+        </div>
       </nav>
 
-      <div style={{ padding: '90px 24px 40px 24px', maxWidth: '1400px', margin: '0 auto' }}>
+      <div className="cot-container" style={{ padding: '100px 40px 60px 40px', maxWidth: '960px', margin: '0 auto' }}>
+        {loading ? (
+          <p style={{ textAlign: 'center', color: '#666' }}>Cargando materiales...</p>
+        ) : (
+          <>
 
-        <div className="diseno-layout" style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '20px', alignItems: 'start' }}>
-
-          {/* ===== PANEL DE CONTROLES ===== */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-
-            {/* Dimensiones */}
-            <div style={{ backgroundColor: 'white', borderRadius: '14px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
-              <h2 style={{ margin: '0 0 14px 0', fontSize: '16px' }}>📐 Dimensiones del mueble</h2>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '12px' }}>
-                <div>
-                  <label style={labelStyle}>Ancho (cm)</label>
-                  <input type="number" style={inputStyle} value={anchoCm} min={20} max={300}
-                    onChange={e => setAnchoCm(Math.max(20, Number(e.target.value) || 0))} />
-                </div>
-                <div>
-                  <label style={labelStyle}>Alto (cm)</label>
-                  <input type="number" style={inputStyle} value={altoCm} min={20} max={300}
-                    onChange={e => setAltoCm(Math.max(20, Number(e.target.value) || 0))} />
-                </div>
-                <div>
-                  <label style={labelStyle}>Fondo (cm)</label>
-                  <input type="number" style={inputStyle} value={profundoCm} min={20} max={100}
-                    onChange={e => setProfundoCm(Math.max(20, Number(e.target.value) || 0))} />
-                </div>
-              </div>
-              <label style={labelStyle}>Color / melamina</label>
-              <select style={inputStyle} value={colorId} onChange={e => setColorId(e.target.value)}>
-                {COLORES.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-              </select>
-            </div>
-
-            {/* Espesores de tablero */}
-            <div style={{ backgroundColor: 'white', borderRadius: '14px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
-              <h2 style={{ margin: '0 0 14px 0', fontSize: '16px' }}>🪵 Espesores de tablero</h2>
-
-              {/* Cuerpo, cajones y puertas: 15 / 18 mm */}
-              <label style={labelStyle}>Cuerpo, cajones y puertas (mm)</label>
-              <div style={{ display: 'grid', gridTemplateColumns: espesorSelCuerpo === 'custom' ? '1fr 1fr 1fr' : '1fr 1fr', gap: '8px', marginBottom: '14px' }}>
-                <select style={inputStyle} value={espesorSelCuerpo} onChange={e => handleEspesorCuerpo(e.target.value as '15' | '18' | 'custom')}>
-                  <option value="15">15 mm</option>
-                  <option value="18">18 mm</option>
-                  <option value="custom">Personalizado</option>
-                </select>
-                {espesorSelCuerpo === 'custom' ? (
-                  <input type="number" style={inputStyle} value={espesorMM} min={5} max={40} step={0.5}
-                    onChange={e => setEspesorMM(Math.max(5, Number(e.target.value) || 0))} />
-                ) : (
-                  <div style={{ ...inputStyle, backgroundColor: '#f9f9f9', color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {espesorMM} mm
-                  </div>
-                )}
-              </div>
-
-              {/* Fondo (tablero posterior): 3 / 6 / 9 mm */}
-              <label style={labelStyle}>Fondo posterior (mm)</label>
-              <div style={{ display: 'grid', gridTemplateColumns: espesorSelFondo === 'custom' ? '1fr 1fr 1fr' : '1fr 1fr', gap: '8px', marginBottom: '14px' }}>
-                <select style={inputStyle} value={espesorSelFondo} onChange={e => handleEspesorFondo(e.target.value as '3' | '6' | '9' | 'custom')}>
-                  <option value="3">3 mm</option>
-                  <option value="6">6 mm</option>
-                  <option value="9">9 mm</option>
-                  <option value="custom">Personalizado</option>
-                </select>
-                {espesorSelFondo === 'custom' ? (
-                  <input type="number" style={inputStyle} value={espesorFondoMM} min={2} max={20} step={0.5}
-                    onChange={e => setEspesorFondoMM(Math.max(2, Number(e.target.value) || 0))} />
-                ) : (
-                  <div style={{ ...inputStyle, backgroundColor: '#f9f9f9', color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {espesorFondoMM} mm
-                  </div>
-                )}
-              </div>
-
-              {/* Base / piso del cajón: 3 / 6 / 9 mm */}
-              <label style={labelStyle}>Base (piso) de cajón (mm)</label>
-              <div style={{ display: 'grid', gridTemplateColumns: espesorSelBase === 'custom' ? '1fr 1fr 1fr' : '1fr 1fr', gap: '8px' }}>
-                <select style={inputStyle} value={espesorSelBase} onChange={e => handleEspesorBase(e.target.value as '3' | '6' | '9' | 'custom')}>
-                  <option value="3">3 mm</option>
-                  <option value="6">6 mm</option>
-                  <option value="9">9 mm</option>
-                  <option value="custom">Personalizado</option>
-                </select>
-                {espesorSelBase === 'custom' ? (
-                  <input type="number" style={inputStyle} value={espesorBaseCajonMM} min={2} max={20} step={0.5}
-                    onChange={e => setEspesorBaseCajonMM(Math.max(2, Number(e.target.value) || 0))} />
-                ) : (
-                  <div style={{ ...inputStyle, backgroundColor: '#f9f9f9', color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {espesorBaseCajonMM} mm
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Altura disponible */}
-            <div style={{
-              backgroundColor: alturaRestante < 0 ? '#fff0f0' : '#f0fff0',
-              border: `1px solid ${alturaRestante < 0 ? '#ff8a8a' : '#a3c47d'}`,
-              borderRadius: '10px', padding: '12px 16px', fontSize: '13px',
-              color: alturaRestante < 0 ? '#b53030' : '#2c6d2e',
-            }}>
-              Altura interior: <strong>{alturaInterior.toFixed(1)} cm</strong> — Usada: <strong>{alturaUsada.toFixed(1)} cm</strong>
-              {alturaRestante < 0
-                ? <div>⚠️ Te pasaste por {Math.abs(alturaRestante).toFixed(1)} cm, ajusta las secciones.</div>
-                : <div>Disponible: {alturaRestante.toFixed(1)} cm</div>}
-            </div>
-
-            {/* Secciones */}
-            <div style={{ backgroundColor: 'white', borderRadius: '14px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <h2 style={{ margin: 0, fontSize: '16px' }}>🗄️ Secciones (de abajo a arriba)</h2>
-              </div>
-
-              <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
-                <button onClick={() => agregarSeccion('cajon')} style={btnAdd}>+ Cajón</button>
-                <button onClick={() => agregarSeccion('puerta')} style={btnAdd}>+ Puerta</button>
-                <button onClick={() => agregarSeccion('espacio')} style={{ ...btnAdd, backgroundColor: '#888' }}>+ Espacio abierto</button>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {secciones.map((sec, i) => (
-                  <div key={sec.id} style={{ border: '1px solid #eee', borderRadius: '10px', padding: '12px', backgroundColor: '#fafafa' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <strong style={{ fontSize: '13px' }}>
-                        {i + 1}. {sec.tipo === 'cajon' ? '🗃️ Cajón' : sec.tipo === 'puerta' ? '🚪 Puerta' : '⬜ Espacio abierto'}
-                      </strong>
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        <button onClick={() => moverSeccion(sec.id, -1)} disabled={i === 0} style={btnMini}>↑</button>
-                        <button onClick={() => moverSeccion(sec.id, 1)} disabled={i === secciones.length - 1} style={btnMini}>↓</button>
-                        <button onClick={() => eliminarSeccion(sec.id)} style={{ ...btnMini, color: '#ff4444' }}>🗑</button>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: sec.tipo === 'espacio' ? '1fr' : '1fr 1fr', gap: '8px' }}>
-                      <div>
-                        <label style={labelStyle}>Altura (cm)</label>
-                        <input type="number" style={inputStyle} value={sec.alturaCm} min={5} max={100}
-                          onChange={e => actualizarSeccion(sec.id, { alturaCm: Math.max(5, Number(e.target.value) || 0) })} />
-                      </div>
-
-                      {sec.tipo === 'cajon' && (
-                        <div>
-                          <label style={labelStyle}>Tipo de riel</label>
-                          <select style={inputStyle} value={sec.riel} onChange={e => actualizarSeccion(sec.id, { riel: e.target.value as TipoRiel })}>
-                            <option value="bola">Rodamiento (bola)</option>
-                            <option value="ocultas">Ocultas</option>
-                            <option value="telescopicas">Telescópicas</option>
-                          </select>
-                        </div>
-                      )}
-
-                      {sec.tipo === 'puerta' && (
-                        <div>
-                          <label style={labelStyle}>Puertas</label>
-                          <select style={inputStyle} value={sec.cantidadPuertas}
-                            onChange={e => actualizarSeccion(sec.id, { cantidadPuertas: Number(e.target.value) as 1 | 2 })}>
-                            <option value={1}>1 puerta</option>
-                            <option value={2}>2 puertas</option>
-                          </select>
-                        </div>
-                      )}
-
-                      {sec.tipo === 'puerta' && sec.cantidadPuertas === 1 && (
-                        <div style={{ gridColumn: '1 / -1' }}>
-                          <label style={labelStyle}>Bisagra</label>
-                          <select style={inputStyle} value={sec.bisagra} onChange={e => actualizarSeccion(sec.id, { bisagra: e.target.value as Bisagra })}>
-                            <option value="izquierda">Izquierda</option>
-                            <option value="derecha">Derecha</option>
-                          </select>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                {secciones.length === 0 && (
-                  <div style={{ textAlign: 'center', padding: '20px', color: '#bbb', border: '2px dashed #eee', borderRadius: '10px', fontSize: '13px' }}>
-                    Agrega cajones, puertas o espacios para armar el mueble
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Resumen simple */}
-            <div style={{ backgroundColor: '#1a1a2e', borderRadius: '14px', padding: '18px 20px', color: 'white', fontSize: '13px' }}>
-              <p style={{ margin: '0 0 6px 0', color: '#a3c47d', fontWeight: 'bold' }}>Resumen del diseño</p>
-              <p style={{ margin: '2px 0' }}>Cajones: <strong>{totalCajones}</strong></p>
-              <p style={{ margin: '2px 0' }}>Puertas: <strong>{totalPuertas}</strong></p>
-              <p style={{ margin: '2px 0' }}>Dimensiones: <strong>{anchoCm} × {altoCm} × {profundoCm} cm</strong> (an. × alt. × fondo)</p>
-              <p style={{ margin: '8px 0 0 0', color: '#888', fontSize: '11px' }}>
-                Este diseño no se guarda ni se envía al cotizador — es solo para visualizar el mueble en 3D.
-              </p>
-            </div>
-
-            {/* Medidas internas */}
-            <div style={{ backgroundColor: 'white', borderRadius: '14px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
-              <h2 style={{ margin: '0 0 4px 0', fontSize: '16px' }}>📏 Medidas internas</h2>
-              <p style={{ color: '#888', fontSize: '12px', margin: '0 0 14px 0' }}>
-                Calculadas a partir de las medidas externas menos el espesor de melamina ({espesorCm} cm por tablero).
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-                <div style={{ backgroundColor: '#f9f9f9', borderRadius: '8px', padding: '10px', textAlign: 'center' }}>
-                  <p style={{ margin: 0, color: '#888', fontSize: '11px' }}>Ancho int.</p>
-                  <p style={{ margin: '4px 0 0 0', fontWeight: 'bold', fontSize: '15px' }}>{anchoInterior.toFixed(1)} cm</p>
-                </div>
-                <div style={{ backgroundColor: '#f9f9f9', borderRadius: '8px', padding: '10px', textAlign: 'center' }}>
-                  <p style={{ margin: 0, color: '#888', fontSize: '11px' }}>Alto int.</p>
-                  <p style={{ margin: '4px 0 0 0', fontWeight: 'bold', fontSize: '15px' }}>{alturaInterior.toFixed(1)} cm</p>
-                </div>
-                <div style={{ backgroundColor: '#f9f9f9', borderRadius: '8px', padding: '10px', textAlign: 'center' }}>
-                  <p style={{ margin: 0, color: '#888', fontSize: '11px' }}>Fondo int.</p>
-                  <p style={{ margin: '4px 0 0 0', fontWeight: 'bold', fontSize: '15px' }}>{profundoInterior.toFixed(1)} cm</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Lista de piezas para corte */}
-            <div style={{ backgroundColor: 'white', borderRadius: '14px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <h2 style={{ margin: 0, fontSize: '16px' }}>✂️ Lista de piezas para corte</h2>
-                <button onClick={copiarListaPiezas} style={{ ...btnMini, padding: '6px 12px' }}>📋 Copiar</button>
-              </div>
-              <p style={{ color: '#888', fontSize: '11px', margin: '0 0 14px 0' }}>
-                Holguras estándar aplicadas: {holguraFrenteCajon} cm en frentes, {holguraPuerta} cm en puertas, {holguraRielAlto} cm de despeje de riel. Ajusta según tus rieles/bisagras reales.
+            {/* ===== SECCION ACERO ===== */}
+            <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', marginBottom: '24px' }}>
+              <h2 style={{ margin: '0 0 4px 0', fontSize: '20px' }}>🔩 Tuberia / Acero</h2>
+              <p style={{ color: '#888', fontSize: '13px', margin: '0 0 20px 0' }}>
+                {esJerarquia && 'Precio por barra de 6 metros (600 cm). Formula: (longitud x cantidad / 600) x precio'}
               </p>
 
-              {listaPiezasAgrupada.length > 0 ? (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                    <thead>
-                      <tr style={{ backgroundColor: '#f9f9f9' }}>
-                        <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '2px solid #eee' }}>Pieza</th>
-                        <th style={{ padding: '8px 10px', textAlign: 'center', borderBottom: '2px solid #eee' }}>Cant.</th>
-                        <th style={{ padding: '8px 10px', textAlign: 'center', borderBottom: '2px solid #eee' }}>Largo</th>
-                        <th style={{ padding: '8px 10px', textAlign: 'center', borderBottom: '2px solid #eee' }}>Ancho</th>
-                        <th style={{ padding: '8px 10px', textAlign: 'center', borderBottom: '2px solid #eee' }}>Esp.</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {listaPiezasAgrupada.map((p, i) => (
-                        <tr key={i} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
-                          <td style={{ padding: '7px 10px', borderBottom: '1px solid #f0f0f0' }}>{p.pieza}</td>
-                          <td style={{ padding: '7px 10px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>{p.cantidad}</td>
-                          <td style={{ padding: '7px 10px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>{p.largo.toFixed(1)} cm</td>
-                          <td style={{ padding: '7px 10px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>{p.ancho.toFixed(1)} cm</td>
-                          <td style={{ padding: '7px 10px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>{p.espesor} cm</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              <div className="grid-acero" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '12px', alignItems: 'end', marginBottom: '12px' }}>
+                <div className="col-full">
+                  <label style={labelStyle}>Material</label>
+                  <select value={aceroSelId} onChange={(e) => setAceroSelId(e.target.value)} style={inputStyle}>
+                    <option value="">-- Selecciona un acero --</option>
+                    {aceros.map((a) => (
+                      <option key={a.id} value={String(a.id)}>
+                        {esJerarquia ? `${a.detalle} — Bs. ${Number(a.precio_cotizador).toFixed(2)}/barra` : a.detalle}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              ) : (
-                <div style={{ textAlign: 'center', padding: '20px', color: '#bbb', border: '2px dashed #eee', borderRadius: '10px', fontSize: '13px' }}>
-                  Agrega secciones para generar la lista de piezas
+                <div>
+                  <label style={labelStyle}>Longitud (cm)</label>
+                  <input type="number" placeholder="Ej: 120" value={longitud} onChange={(e) => setLongitud(e.target.value)} style={inputStyle} min="1" />
+                </div>
+                <div>
+                  <label style={labelStyle}>Cantidad</label>
+                  <input type="number" placeholder="Ej: 4" value={cantAcero} onChange={(e) => setCantAcero(e.target.value)} style={inputStyle} min="1" />
+                </div>
+                <div style={{ paddingTop: '22px' }}>
+                  <button
+                    onClick={handleAgregarAcero}
+                    disabled={!aceroSel || !longitud || !cantAcero}
+                    style={{ padding: '10px 20px', backgroundColor: (!aceroSel || !longitud || !cantAcero) ? '#ccc' : '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: (!aceroSel || !longitud || !cantAcero) ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold', whiteSpace: 'nowrap' as const }}
+                  >
+                    + Agregar
+                  </button>
+                </div>
+              </div>
+
+              {esJerarquia && aceroSel && longitud && cantAcero && (
+                <div style={{ backgroundColor: '#f0fff0', border: '1px solid #a3c47d', borderRadius: '8px', padding: '10px 16px', marginBottom: '16px', fontSize: '13px', color: '#2c6d2e' }}>
+                  Preview: ({longitud} cm x {cantAcero} piezas / 600) x Bs. {Number(aceroSel.precio_cotizador).toFixed(2)} =
+                  <strong> Bs. {calcSubtotalAcero(parseFloat(longitud) || 0, parseFloat(cantAcero) || 0, aceroSel.precio_cotizador).toFixed(2)}</strong>
                 </div>
               )}
 
-              <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid #eee', fontSize: '12px', color: '#555', display: 'flex', justifyContent: 'space-between' }}>
-                <span>Piezas totales: <strong>{listaPiezasAgrupada.reduce((a, p) => a + p.cantidad, 0)}</strong></span>
-                <span>Área aprox.: <strong>{areaTotalM2.toFixed(2)} m²</strong></span>
-              </div>
+              {piezasAcero.length > 0 ? (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="cot-tabla" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f9f9f9' }}>
+                        <th style={thStyle}>Material</th>
+                        <th style={{ ...thStyle, textAlign: 'center' }}>Long. (cm)</th>
+                        <th style={{ ...thStyle, textAlign: 'center' }}>Cant.</th>
+                        {esJerarquia && <th style={{ ...thStyle, textAlign: 'center' }}>Precio/barra</th>}
+                        {esJerarquia && <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>}
+                        <th style={{ ...thStyle, textAlign: 'center' }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {piezasAcero.map((p, i) => (
+                        <tr key={p.id}>
+                          <td style={tdStyle(i)}>{p.material}</td>
+                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.longitud}</td>
+                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.cantidad}</td>
+                          {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'center' }}>Bs. {Number(p.precio_unitario).toFixed(2)}</td>}
+                          {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>Bs. {p.subtotal.toFixed(2)}</td>}
+                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>
+                            <button onClick={() => setPiezasAcero(piezasAcero.filter(x => x.id !== p.id))} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '18px' }}>🗑</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    {esJerarquia && <tfoot>
+                      <tr style={{ backgroundColor: '#f0fff0' }}>
+                        <td colSpan={esJerarquia ? 4 : 2} style={{ padding: '14px 16px', fontWeight: 'bold', fontSize: '15px', borderTop: '2px solid #087e0b' }}>Total Tuberia</td>
+                        {esJerarquia && <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px', color: '#087e0b', borderTop: '2px solid #087e0b' }}>Bs. {totalAcero.toFixed(2)}</td>}
+                        <td style={{ borderTop: '2px solid #087e0b' }}></td>
+                      </tr>
+                    </tfoot>}
+                  </table>
+                </div>
+              ) : emptyBox}
             </div>
-          </div>
 
-          {/* ===== VISTA 3D ===== */}
-          <div className="diseno-canvas" style={{
-            height: 'calc(100vh - 130px)', minHeight: '500px', borderRadius: '14px', overflow: 'hidden',
-            boxShadow: '0 2px 12px rgba(0,0,0,0.08)', position: 'sticky', top: '90px',
-          }}>
-            <div ref={mountRef} style={{ width: '100%', height: '100%' }} />
-          </div>
+            {/* ===== SECCION MELAMINA ===== */}
+            <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', marginBottom: '24px' }}>
+              <h2 style={{ margin: '0 0 4px 0', fontSize: '20px' }}>🪵 Melamina</h2>
+              <p style={{ color: '#888', fontSize: '13px', margin: '0 0 20px 0' }}>
+                {esJerarquia && 'Precio por m². Formula: (largo/100 x ancho/100) x cantidad x precio'}
+              </p>
 
-        </div>
+              <div className="grid-melamina" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: '12px', alignItems: 'end', marginBottom: '12px' }}>
+                <div className="col-full">
+                  <label style={labelStyle}>Material</label>
+                  <select value={melaminaSelId} onChange={(e) => setMelaminaSelId(e.target.value)} style={inputStyle}>
+                    <option value="">-- Selecciona una melamina --</option>
+                    {melaminas.map((m) => (
+                      <option key={m.id} value={String(m.id)}>
+                        {esJerarquia ? `${m.detalle} — Bs. ${Number(m.precio_cotizador).toFixed(2)}/m²` : m.detalle}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Largo (cm)</label>
+                  <input type="number" placeholder="Ej: 80" value={largo} onChange={(e) => setLargo(e.target.value)} style={inputStyle} min="1" />
+                </div>
+                <div>
+                  <label style={labelStyle}>Ancho (cm)</label>
+                  <input type="number" placeholder="Ej: 40" value={ancho} onChange={(e) => setAncho(e.target.value)} style={inputStyle} min="1" />
+                </div>
+                <div>
+                  <label style={labelStyle}>Cantidad</label>
+                  <input type="number" placeholder="Ej: 2" value={cantMelamina} onChange={(e) => setCantMelamina(e.target.value)} style={inputStyle} min="1" />
+                </div>
+                <div style={{ paddingTop: '22px' }}>
+                  <button
+                    onClick={handleAgregarMelamina}
+                    disabled={!melaminaSel || !largo || !ancho || !cantMelamina}
+                    style={{ padding: '10px 20px', backgroundColor: (!melaminaSel || !largo || !ancho || !cantMelamina) ? '#ccc' : '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: (!melaminaSel || !largo || !ancho || !cantMelamina) ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold', whiteSpace: 'nowrap' as const }}
+                  >
+                    + Agregar
+                  </button>
+                </div>
+              </div>
+
+              {esJerarquia && melaminaSel && largo && ancho && cantMelamina && (
+                <div style={{ backgroundColor: '#f0fff0', border: '1px solid #a3c47d', borderRadius: '8px', padding: '10px 16px', marginBottom: '16px', fontSize: '13px', color: '#2c6d2e' }}>
+                  Preview: ({largo}/100 x {ancho}/100) x {cantMelamina} x Bs. {Number(melaminaSel.precio_cotizador).toFixed(2)} =
+                  <strong> Bs. {calcSubtotalMelamina(parseFloat(largo) || 0, parseFloat(ancho) || 0, parseFloat(cantMelamina) || 0, melaminaSel.precio_cotizador).toFixed(2)}</strong>
+                </div>
+              )}
+
+              {piezasMelamina.length > 0 ? (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="cot-tabla" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f9f9f9' }}>
+                        <th style={thStyle}>Material</th>
+                        <th style={{ ...thStyle, textAlign: 'center' }}>Largo (cm)</th>
+                        <th style={{ ...thStyle, textAlign: 'center' }}>Ancho (cm)</th>
+                        <th style={{ ...thStyle, textAlign: 'center' }}>Cant.</th>
+                        {esJerarquia && <th style={{ ...thStyle, textAlign: 'center' }}>Precio/m²</th>}
+                        {esJerarquia && <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>}
+                        <th style={{ ...thStyle, textAlign: 'center' }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {piezasMelamina.map((p, i) => (
+                        <tr key={p.id}>
+                          <td style={tdStyle(i)}>{p.material}</td>
+                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.largo}</td>
+                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.ancho}</td>
+                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.cantidad}</td>
+                          {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'center' }}>Bs. {Number(p.precio_unitario).toFixed(2)}</td>}
+                          {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>Bs. {p.subtotal.toFixed(2)}</td>}
+                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>
+                            <button onClick={() => setPiezasMelamina(piezasMelamina.filter(x => x.id !== p.id))} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '18px' }}>🗑</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    {esJerarquia && <tfoot>
+                      <tr style={{ backgroundColor: '#f0fff0' }}>
+                        <td colSpan={esJerarquia ? 5 : 3} style={{ padding: '14px 16px', fontWeight: 'bold', fontSize: '15px', borderTop: '2px solid #087e0b' }}>Total Melamina</td>
+                        {esJerarquia && <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px', color: '#087e0b', borderTop: '2px solid #087e0b' }}>Bs. {totalMelamina.toFixed(2)}</td>}
+                        <td style={{ borderTop: '2px solid #087e0b' }}></td>
+                      </tr>
+                    </tfoot>}
+                  </table>
+                </div>
+              ) : emptyBox}
+            </div>
+
+            {/* ===== SECCION ACCESORIOS ===== */}
+            <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', marginBottom: '24px' }}>
+              <h2 style={{ margin: '0 0 4px 0', fontSize: '20px' }}>🔧 Accesorios</h2>
+              <p style={{ color: '#888', fontSize: '13px', margin: '0 0 20px 0' }}>
+                {esJerarquia && 'Formula: cantidad x precio unitario'}
+              </p>
+
+              <div className="grid-accesorio" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: '12px', alignItems: 'end', marginBottom: '12px' }}>
+                <div className="col-full">
+                  <label style={labelStyle}>Accesorio</label>
+                  <select value={accesorioSelId} onChange={(e) => setAccesorioSelId(e.target.value)} style={inputStyle}>
+                    <option value="">-- Selecciona un accesorio --</option>
+                    {accesorios.map((a) => (
+                      <option key={a.id} value={String(a.id)}>
+                        {esJerarquia ? `${a.detalle}${a.medidas ? ` (${a.medidas})` : ''} — Bs. ${Number(a.precio_cotizador).toFixed(2)}/u` : `${a.detalle}${a.medidas ? ` (${a.medidas})` : ''}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Cantidad</label>
+                  <input type="number" placeholder="Ej: 4" value={cantAccesorio} onChange={(e) => setCantAccesorio(e.target.value)} style={inputStyle} min="1" />
+                </div>
+                <div style={{ paddingTop: '22px' }}>
+                  <button
+                    onClick={handleAgregarAccesorio}
+                    disabled={!accesorioSel || !cantAccesorio}
+                    style={{ padding: '10px 20px', backgroundColor: (!accesorioSel || !cantAccesorio) ? '#ccc' : '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: (!accesorioSel || !cantAccesorio) ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold', whiteSpace: 'nowrap' as const }}
+                  >
+                    + Agregar
+                  </button>
+                </div>
+              </div>
+
+              {esJerarquia && accesorioSel && cantAccesorio && (
+                <div style={{ backgroundColor: '#f0fff0', border: '1px solid #a3c47d', borderRadius: '8px', padding: '10px 16px', marginBottom: '16px', fontSize: '13px', color: '#2c6d2e' }}>
+                  Preview: {cantAccesorio} x Bs. {Number(accesorioSel.precio_cotizador).toFixed(2)} =
+                  <strong> Bs. {calcSubtotalAccesorio(parseFloat(cantAccesorio) || 0, accesorioSel.precio_cotizador).toFixed(2)}</strong>
+                </div>
+              )}
+
+              {piezasAccesorio.length > 0 ? (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="cot-tabla" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f9f9f9' }}>
+                        <th style={thStyle}>Accesorio</th>
+                        <th style={{ ...thStyle, textAlign: 'center' }}>Cant.</th>
+                        {esJerarquia && <th style={{ ...thStyle, textAlign: 'center' }}>Precio/u</th>}
+                        {esJerarquia && <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>}
+                        <th style={{ ...thStyle, textAlign: 'center' }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {piezasAccesorio.map((p, i) => (
+                        <tr key={p.id}>
+                          <td style={tdStyle(i)}>{p.material}</td>
+                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.cantidad}</td>
+                          {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'center' }}>Bs. {Number(p.precio_unitario).toFixed(2)}</td>}
+                          {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>Bs. {p.subtotal.toFixed(2)}</td>}
+                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>
+                            <button onClick={() => setPiezasAccesorio(piezasAccesorio.filter(x => x.id !== p.id))} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '18px' }}>🗑</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    {esJerarquia && <tfoot>
+                      <tr style={{ backgroundColor: '#f0fff0' }}>
+                        <td colSpan={esJerarquia ? 3 : 1} style={{ padding: '14px 16px', fontWeight: 'bold', fontSize: '15px', borderTop: '2px solid #087e0b' }}>Total Accesorios</td>
+                        {esJerarquia && <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px', color: '#087e0b', borderTop: '2px solid #087e0b' }}>Bs. {totalAccesorio.toFixed(2)}</td>}
+                        <td style={{ borderTop: '2px solid #087e0b' }}></td>
+                      </tr>
+                    </tfoot>}
+                  </table>
+                </div>
+              ) : emptyBox}
+            </div>
+
+            {/* ===== SECCION UNIONES ===== */}
+            <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', marginBottom: '24px' }}>
+              <h2 style={{ margin: '0 0 4px 0', fontSize: '20px' }}>🔗 Uniones</h2>
+              <p style={{ color: '#888', fontSize: '13px', margin: '0 0 20px 0' }}>
+                {esJerarquia && 'Formula: cantidad x precio unitario. La union recta (R) se calcula automaticamente segun las piezas de tuberia.'}
+              </p>
+
+              {/* Union recta automatica */}
+              {esJerarquia && unionRectaAuto && cantidadTotalPiezasAcero > 0 && (
+                <div style={{ backgroundColor: '#f0fff0', border: '1px solid #a3c47d', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: '#2c6d2e', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>
+                    🔩 Union Recta ({unionRectaAuto.codigo_union}) — calculada automaticamente: {cantidadTotalPiezasAcero} piezas x Bs. {Number(unionRectaAuto.precio).toFixed(2)}
+                  </span>
+                  <strong style={{ fontSize: '15px' }}>Bs. {totalUnionRectaAuto.toFixed(2)}</strong>
+                </div>
+              )}
+
+              {esJerarquia && unionRectaAuto && cantidadTotalPiezasAcero === 0 && (
+                <div style={{ backgroundColor: '#f9f9f9', border: '1px solid #eee', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: '#aaa' }}>
+                  🔩 Union Recta ({unionRectaAuto.codigo_union}) — se calculara automaticamente cuando agregues piezas de tuberia
+                </div>
+              )}
+
+              <div className="grid-union" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: '12px', alignItems: 'end', marginBottom: '12px' }}>
+                <div className="col-full">
+                  <label style={labelStyle}>Otras uniones</label>
+                  <select value={unionSelId} onChange={(e) => setUnionSelId(e.target.value)} style={inputStyle}>
+                    <option value="">-- Selecciona una union --</option>
+                    {uniones.filter(u => u.tipo !== 'R').map((u) => (
+                      <option key={u.id} value={String(u.id)}>
+                        {esJerarquia ? `${u.codigo_union} — ${u.tipo} — Bs. ${Number(u.precio).toFixed(2)}/u` : `${u.codigo_union} — ${u.tipo}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Cantidad</label>
+                  <input type="number" placeholder="Ej: 8" value={cantUnion} onChange={(e) => setCantUnion(e.target.value)} style={inputStyle} min="1" />
+                </div>
+                <div style={{ paddingTop: '22px' }}>
+                  <button
+                    onClick={handleAgregarUnion}
+                    disabled={!unionSel || !cantUnion}
+                    style={{ padding: '10px 20px', backgroundColor: (!unionSel || !cantUnion) ? '#ccc' : '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: (!unionSel || !cantUnion) ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold', whiteSpace: 'nowrap' as const }}
+                  >
+                    + Agregar
+                  </button>
+                </div>
+              </div>
+
+              {esJerarquia && unionSel && cantUnion && (
+                <div style={{ backgroundColor: '#f0fff0', border: '1px solid #a3c47d', borderRadius: '8px', padding: '10px 16px', marginBottom: '16px', fontSize: '13px', color: '#2c6d2e' }}>
+                  Preview: {cantUnion} x Bs. {Number(unionSel.precio).toFixed(2)} =
+                  <strong> Bs. {calcSubtotalUnion(parseFloat(cantUnion) || 0, unionSel.precio).toFixed(2)}</strong>
+                </div>
+              )}
+
+              {piezasUnion.length > 0 ? (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="cot-tabla" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f9f9f9' }}>
+                        <th style={thStyle}>Union</th>
+                        <th style={{ ...thStyle, textAlign: 'center' }}>Cant.</th>
+                        {esJerarquia && <th style={{ ...thStyle, textAlign: 'center' }}>Precio/u</th>}
+                        {esJerarquia && <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>}
+                        <th style={{ ...thStyle, textAlign: 'center' }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {piezasUnion.map((p, i) => (
+                        <tr key={p.id}>
+                          <td style={tdStyle(i)}>{p.label}</td>
+                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.cantidad}</td>
+                          {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'center' }}>Bs. {Number(p.precio_unitario).toFixed(2)}</td>}
+                          {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>Bs. {p.subtotal.toFixed(2)}</td>}
+                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>
+                            <button onClick={() => setPiezasUnion(piezasUnion.filter(x => x.id !== p.id))} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '18px' }}>🗑</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    {esJerarquia && <tfoot>
+                      <tr style={{ backgroundColor: '#f0fff0' }}>
+                        <td colSpan={esJerarquia ? 3 : 1} style={{ padding: '14px 16px', fontWeight: 'bold', fontSize: '15px', borderTop: '2px solid #087e0b' }}>Total Uniones (manuales)</td>
+                        {esJerarquia && <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px', color: '#087e0b', borderTop: '2px solid #087e0b' }}>Bs. {totalUnion.toFixed(2)}</td>}
+                        <td style={{ borderTop: '2px solid #087e0b' }}></td>
+                      </tr>
+                    </tfoot>}
+                  </table>
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '24px', color: '#bbb', border: '2px dashed #eee', borderRadius: '10px' }}>
+                  <p style={{ margin: 0, fontSize: '14px' }}>No hay otras uniones agregadas</p>
+                </div>
+              )}
+            </div>
+
+            {/* ===== SECCION COLOR ===== */}
+            <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', marginBottom: '24px' }}>
+              <h2 style={{ margin: '0 0 4px 0', fontSize: '20px' }}>🎨 Color / Pintura</h2>
+              <p style={{ color: '#888', fontSize: '13px', margin: '0 0 20px 0' }}>
+                {esJerarquia && 'Formula: (precio x longitud total de tuberia) / consumo. Se calcula automaticamente segun la tuberia ingresada.'}
+              </p>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px', marginBottom: '12px' }}>
+                <div>
+                  <label style={labelStyle}>Color</label>
+                  <select value={colorSelId} onChange={(e) => setColorSelId(e.target.value)} style={inputStyle}>
+                    <option value="">-- Selecciona un color --</option>
+                    {colores.map((c) => (
+                      <option key={c.id} value={String(c.id)}>
+                        {esJerarquia ? `${c.detalle} — Bs. ${Number(c.precio_cotizador).toFixed(2)} | Consumo: ${c.consumo}` : c.detalle}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {esJerarquia && <div style={{ backgroundColor: '#f9f9f9', border: '1px solid #eee', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: '#555' }}>
+                📏 Longitud total de tubería ingresada:
+                <strong style={{ color: longitudTotalAcero > 0 ? '#087e0b' : '#aaa' }}> {longitudTotalAcero.toFixed(0)} cm</strong>
+                {longitudTotalAcero === 0 && <span style={{ color: '#aaa' }}> — Agrega tubería primero</span>}
+              </div>}
+
+              {esJerarquia && colorSel && longitudTotalAcero > 0 && (
+                <div style={{ backgroundColor: '#f0fff0', border: '1px solid #a3c47d', borderRadius: '8px', padding: '10px 16px', fontSize: '13px', color: '#2c6d2e' }}>
+                  Preview: (Bs. {Number(colorSel.precio_cotizador).toFixed(2)} x {longitudTotalAcero.toFixed(0)} cm) / {colorSel.consumo} =
+                  <strong> Bs. {calcSubtotalColor().toFixed(2)}</strong>
+                </div>
+              )}
+
+              {esJerarquia && colorSel && longitudTotalAcero === 0 && (
+                <div style={{ backgroundColor: '#fff8e1', border: '1px solid #ffd54f', borderRadius: '8px', padding: '10px 16px', fontSize: '13px', color: '#f57f17' }}>
+                  ⚠️ Agrega piezas de tubería para calcular el color automáticamente.
+                </div>
+              )}
+
+              {!colorSel && (
+                <div style={{ textAlign: 'center', padding: '24px', color: '#bbb', border: '2px dashed #eee', borderRadius: '10px' }}>
+                  <p style={{ margin: 0, fontSize: '14px' }}>Selecciona un color para ver el cálculo</p>
+                </div>
+              )}
+            </div>
+
+            {/* RESUMEN TOTAL */}
+            {(piezasAcero.length > 0 || piezasMelamina.length > 0 || piezasAccesorio.length > 0 || piezasUnion.length > 0 || colorSel) && (
+              <>
+                {/* DETALLE DE COSTOS — solo jerarquia */}
+                {esJerarquia && (
+                  <div className="resumen-bar" style={{ backgroundColor: '#222', borderRadius: '16px', padding: '24px 32px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' as const, alignItems: 'flex-end' }}>
+                      {piezasAcero.length > 0 && (
+                        <div>
+                          <p style={{ margin: 0, color: '#aaa', fontSize: '11px' }}>Tuberia</p>
+                          <p style={{ margin: '2px 0 0 0', color: '#a3c47d', fontSize: '15px', fontWeight: 'bold' }}>Bs. {totalAcero.toFixed(2)}</p>
+                        </div>
+                      )}
+                      {piezasMelamina.length > 0 && (
+                        <div>
+                          <p style={{ margin: 0, color: '#aaa', fontSize: '11px' }}>Melamina</p>
+                          <p style={{ margin: '2px 0 0 0', color: '#a3c47d', fontSize: '15px', fontWeight: 'bold' }}>Bs. {totalMelamina.toFixed(2)}</p>
+                        </div>
+                      )}
+                      {piezasAccesorio.length > 0 && (
+                        <div>
+                          <p style={{ margin: 0, color: '#aaa', fontSize: '11px' }}>Accesorios</p>
+                          <p style={{ margin: '2px 0 0 0', color: '#a3c47d', fontSize: '15px', fontWeight: 'bold' }}>Bs. {totalAccesorio.toFixed(2)}</p>
+                        </div>
+                      )}
+                      {totalUnionRectaAuto > 0 && (
+                        <div>
+                          <p style={{ margin: 0, color: '#aaa', fontSize: '11px' }}>Union Recta</p>
+                          <p style={{ margin: '2px 0 0 0', color: '#a3c47d', fontSize: '15px', fontWeight: 'bold' }}>Bs. {totalUnionRectaAuto.toFixed(2)}</p>
+                        </div>
+                      )}
+                      {piezasUnion.length > 0 && (
+                        <div>
+                          <p style={{ margin: 0, color: '#aaa', fontSize: '11px' }}>Otras Uniones</p>
+                          <p style={{ margin: '2px 0 0 0', color: '#a3c47d', fontSize: '15px', fontWeight: 'bold' }}>Bs. {totalUnion.toFixed(2)}</p>
+                        </div>
+                      )}
+                      {colorSel && longitudTotalAcero > 0 && (
+                        <div>
+                          <p style={{ margin: 0, color: '#aaa', fontSize: '11px' }}>Color</p>
+                          <p style={{ margin: '2px 0 0 0', color: '#a3c47d', fontSize: '15px', fontWeight: 'bold' }}>Bs. {totalColor.toFixed(2)}</p>
+                        </div>
+                      )}
+                      <div>
+                        <p style={{ margin: 0, color: '#aaa', fontSize: '11px' }}>Costos Adm.</p>
+                        <p style={{ margin: '2px 0 0 0', color: '#a3c47d', fontSize: '15px', fontWeight: 'bold' }}>Bs. {COSTOS_ADMINISTRATIVOS.toFixed(2)}</p>
+                      </div>
+                      <div style={{ borderLeft: '1px solid #444', paddingLeft: '24px' }}>
+                        <p style={{ margin: 0, color: '#aaa', fontSize: '11px' }}>Costo Total</p>
+                        <p style={{ margin: '2px 0 0 0', color: 'white', fontSize: '20px', fontWeight: 'bold' }}>Bs. {totalGeneral.toFixed(2)}</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleLimpiarTodo}
+                      style={{ padding: '10px 20px', backgroundColor: 'transparent', color: '#ff6b6b', border: '1px solid #ff6b6b', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', flexShrink: 0 }}
+                    >
+                      Limpiar todo
+                    </button>
+                  </div>
+                )}
+
+                {/* PRECIOS DE VENTA — todos los usuarios */}
+                <div style={{ borderRadius: '16px', overflow: 'hidden', boxShadow: '0 2px 12px rgba(0,0,0,0.10)' }}>
+                  <div style={{ backgroundColor: '#1a1a2e', padding: '14px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#a3c47d', fontSize: '13px', fontWeight: 'bold', letterSpacing: '0.5px' }}>💰 PRECIOS DE VENTA</span>
+                    {!esJerarquia && (
+                      <button
+                        onClick={handleLimpiarTodo}
+                        style={{ padding: '8px 16px', backgroundColor: 'transparent', color: '#ff6b6b', border: '1px solid #ff6b6b', borderRadius: '8px', cursor: 'pointer', fontSize: '12px' }}
+                      >
+                        Limpiar todo
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+
+                    {/* Precio Marginal */}
+                    <div style={{ backgroundColor: '#0f3460', padding: '24px 28px', borderRight: '1px solid rgba(255,255,255,0.08)' }}>
+                      <p style={{ margin: '0 0 4px 0', color: '#7eb8d4', fontSize: '12px', fontWeight: 'bold', letterSpacing: '0.5px' }}>PRECIO MARGINAL</p>
+                      <p style={{ margin: '0 0 6px 0', color: 'white', fontSize: '28px', fontWeight: 'bold' }}>Bs. {precioMarginal.toFixed(2)}</p>
+                      {esJerarquia && (
+                        <p style={{ margin: 0, color: '#7eb8d4', fontSize: '11px' }}>Costo × 1.11 (utilidad 11%)</p>
+                      )}
+                    </div>
+
+                    {/* Precio Neto */}
+                    <div style={{ backgroundColor: '#16213e', padding: '24px 28px', borderRight: '1px solid rgba(255,255,255,0.08)' }}>
+                      <p style={{ margin: '0 0 4px 0', color: '#a3c47d', fontSize: '12px', fontWeight: 'bold', letterSpacing: '0.5px' }}>PRECIO NETO</p>
+                      <p style={{ margin: '0 0 6px 0', color: 'white', fontSize: '28px', fontWeight: 'bold' }}>Bs. {precioNeto.toFixed(2)}</p>
+                      {esJerarquia && (
+                        <p style={{ margin: 0, color: '#a3c47d', fontSize: '11px' }}>Marginal × 1.11 (ventas y marketing)</p>
+                      )}
+                    </div>
+
+                    {/* Precio Facturado */}
+                    <div style={{ backgroundColor: '#1a1a2e', padding: '24px 28px' }}>
+                      <p style={{ margin: '0 0 4px 0', color: '#f5c842', fontSize: '12px', fontWeight: 'bold', letterSpacing: '0.5px' }}>PRECIO FACTURADO</p>
+                      <p style={{ margin: '0 0 6px 0', color: 'white', fontSize: '28px', fontWeight: 'bold' }}>Bs. {precioFacturado.toFixed(2)}</p>
+                      {esJerarquia && (
+                        <p style={{ margin: 0, color: '#f5c842', fontSize: '11px' }}>Marginal × 1.16 (con factura)</p>
+                      )}
+                    </div>
+
+                  </div>
+                </div>
+              </>
+            )}
+
+          </>
+        )}
       </div>
     </div>
   )
-}
-
-const btnAdd: React.CSSProperties = {
-  padding: '8px 14px', backgroundColor: '#087e0b', color: 'white', border: 'none',
-  borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold',
-}
-
-const btnMini: React.CSSProperties = {
-  padding: '4px 8px', backgroundColor: 'white', border: '1px solid #ddd',
-  borderRadius: '6px', cursor: 'pointer', fontSize: '12px',
 }
