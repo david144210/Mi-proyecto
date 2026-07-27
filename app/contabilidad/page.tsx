@@ -8,6 +8,22 @@ export default function Contabilidad() {
   const [asientos, setAsientos] = useState<any[]>([])
   const [balances, setBalances] = useState<any[]>([])
 
+  // Función auxiliar para formatear fechas a DD/MM/YYYY
+  const formatearFecha = (fechaStr: string): string => {
+    if (!fechaStr) return ''
+    try {
+      // Extraer solo la parte de la fecha (YYYY-MM-DD)
+      const partes = fechaStr.split('T')[0].split('-')
+      if (partes.length !== 3) return fechaStr
+      const [anio, mes, dia] = partes
+      console.log('Fecha BD:', fechaStr, '-> Formateada:', `${dia}/${mes}/${anio}`)
+      return `${dia}/${mes}/${anio}`
+    } catch (e) {
+      console.error('Error formateo fecha:', fechaStr, e)
+      return fechaStr
+    }
+  }
+
   // Estados para los Filtros y Buscador
   const [busqueda, setBusqueda] = useState('')
   const [fechaDesde, setFechaDesde] = useState('')
@@ -65,7 +81,7 @@ export default function Contabilidad() {
     const coincideBusqueda = asiento.glosa.toLowerCase().includes(busqueda.toLowerCase())
     
     // Filtro de Fechas
-    const fechaAsiento = new Date(asiento.fecha).toISOString().split('T')[0] // Formato YYYY-MM-DD
+    const fechaAsiento = asiento.fecha.split('T')[0]
     const coincideDesde = fechaDesde ? fechaAsiento >= fechaDesde : true
     const coincideHasta = fechaHasta ? fechaAsiento <= fechaHasta : true
 
@@ -188,7 +204,7 @@ export default function Contabilidad() {
                 <div key={asiento.id} style={{ backgroundColor: 'white', borderRadius: '14px', padding: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '5px', marginBottom: '10px', borderBottom: '1px solid #eee', paddingBottom: '8px' }}>
                     <span style={{ fontWeight: 'bold', color: '#555', fontSize: '14px' }}>Asiento #{asiento.id}</span>
-                    <span style={{ color: '#888', fontSize: '13px' }}>{new Date(asiento.fecha).toLocaleDateString()}</span>
+                    <span style={{ color: '#888', fontSize: '13px' }}>{formatearFecha(asiento.fecha)}</span>
                   </div>
                   <p style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: 500, color: '#333' }}>{asiento.glosa}</p>
                   

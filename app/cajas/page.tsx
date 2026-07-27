@@ -278,7 +278,7 @@ export default function CajaChicaPro() {
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-slate-100 pb-16">
+    <div className="min-h-screen bg-slate-100 pb-16" style={{ colorScheme: 'light' }}>
 
       {/* ── Header ── */}
       <div className="bg-slate-900 text-white p-6 rounded-b-[40px] shadow-xl">
@@ -420,13 +420,13 @@ export default function CajaChicaPro() {
                         </span>
                       )}
                     </div>
-                    <p className="text-[10px] text-slate-300 mt-1">{fmtFecha(g.created_at)} · {reg?.nombre}</p>
+                    <p className="text-[10px] text-slate-500 mt-1">{fmtFecha(g.created_at)} · {reg?.nombre}</p>
                   </div>
                 </div>
 
                 {/* Monto + estado */}
                 <div className="text-right flex-shrink-0">
-                  <p className="text-xl font-black text-slate-800">{fmt(g.monto)}</p>
+                  <p className="text-xl font-black text-slate-900">{fmt(g.monto)}</p>
                   <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full mt-1 inline-flex items-center gap-1 ${estado.bg} ${estado.text}`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${estado.dot}`} />
                     {estado.label}
@@ -528,8 +528,8 @@ export default function CajaChicaPro() {
                 >
                   {cat?.icono || '💰'}
                 </div>
-                <p className="text-4xl font-black text-slate-800">{fmt(gastoDetalle.monto)}</p>
-                <p className="text-slate-500 text-sm font-bold mt-1">{gastoDetalle.descripcion}</p>
+                <p className="text-4xl font-black text-slate-900">{fmt(gastoDetalle.monto)}</p>
+                <p className="text-slate-700 text-sm font-bold mt-1">{gastoDetalle.descripcion}</p>
                 <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full mt-2 inline-flex items-center gap-1.5 ${estado.bg} ${estado.text}`}>
                   <span className={`w-2 h-2 rounded-full ${estado.dot}`} />
                   {estado.label}
@@ -584,7 +584,7 @@ function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between">
       <span className="text-slate-400 font-bold text-xs uppercase tracking-wide">{label}</span>
-      <span className="text-slate-700 font-black text-xs text-right max-w-[60%]">{value}</span>
+      <span className="text-slate-900 font-black text-xs text-right max-w-[60%]">{value}</span>
     </div>
   )
 }

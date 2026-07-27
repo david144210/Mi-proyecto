@@ -17,6 +17,7 @@ interface Venta {
   anticipo: number | null
   forma_pago: string | null
   cod_transaccion: string | null
+  ubicacion_pedido: string | null
   nombre_cliente?: string
   nombre_vendedor?: string
 }
@@ -63,6 +64,7 @@ interface FiltrosState {
 }
 
 const FORMAS_PAGO = ['ANTICIPO', 'CONTRA_ENTREGA', 'EFECTIVO', 'TRANSFERENCIA']
+const UBICACIONES_PEDIDO = ['La Paz', 'El Alto', 'Cochabamba', 'Santa Cruz']
 const PAGE_SIZE = 30
 
 const fmt = (v: number | null | undefined) =>
@@ -79,6 +81,16 @@ const badgePago: Record<string, { bg: string; color: string }> = {
   CONTRA_ENTREGA: { bg: '#fff8e1', color: '#f57f17' },
   EFECTIVO:       { bg: '#e3f2fd', color: '#1565c0' },
   TRANSFERENCIA:  { bg: '#f3e5f5', color: '#6a1b9a' },
+}
+
+const obtenerColorUbicacion = (ubicacion: string | null | undefined) => {
+  switch (ubicacion) {
+    case 'La Paz': return '#1565c0'
+    case 'El Alto': return '#ef6c00'
+    case 'Cochabamba': return '#2e7d32'
+    case 'Santa Cruz': return '#8e24aa'
+    default: return '#64748b'
+  }
 }
 
 const LINEA_VACIA = (tempId: number): NuevaLinea => ({
@@ -141,6 +153,7 @@ export default function Ventas() {
     fecha_pedido: new Date().toISOString().split('T')[0],
     fecha_entrega: '',
     hora_entrega: '',
+    ubicacion_pedido: '',
     delivery_cotizado: '',
     delivery_pagado: '',
     anticipo: '',
@@ -260,6 +273,7 @@ export default function Ventas() {
       delivery_pagado: formVenta.delivery_pagado, total_venta: formVenta.total_venta,
       anticipo: formVenta.anticipo, forma_pago: formVenta.forma_pago || null,
       cod_transaccion: formVenta.cod_transaccion || null,
+      ubicacion_pedido: formVenta.ubicacion_pedido || null,
     }).eq('cod_venta', ventaSel.cod_venta)
 
     if (eVenta) { setMensajeGuardado('Error: ' + eVenta.message); setGuardando(false); return }
@@ -305,7 +319,7 @@ export default function Ventas() {
     setNv({
       cod_vendedor: String(usuario?.id || ''),
       fecha_pedido: new Date().toISOString().split('T')[0],
-      fecha_entrega: '', hora_entrega: '', delivery_cotizado: '',
+      fecha_entrega: '', hora_entrega: '', ubicacion_pedido: '', delivery_cotizado: '',
       delivery_pagado: '', anticipo: '', forma_pago: '', cod_transaccion: '',
     })
 
@@ -408,6 +422,7 @@ export default function Ventas() {
     if (!nv.cod_vendedor) { ec.cod_vendedor = 'Selecciona un vendedor'; ok = false }
     if (!nv.fecha_pedido) { ec.fecha_pedido = 'Ingresa la fecha de pedido'; ok = false }
     if (!nv.fecha_entrega) { ec.fecha_entrega = 'Ingresa la fecha de entrega'; ok = false }
+    if (!nv.ubicacion_pedido) { ec.ubicacion_pedido = 'Selecciona la ubicación del pedido'; ok = false }
     if (!nv.forma_pago) { ec.forma_pago = 'Selecciona la forma de pago'; ok = false }
 
     lineas.forEach((l, i) => {
@@ -689,6 +704,7 @@ export default function Ventas() {
               <div class="info-item"><strong>Vendedor:</strong> ${datos.vendedor || '—'}</div>
               <div class="info-item"><strong>Fecha Pedido:</strong> ${datos.fechaPedido || '—'}</div>
               <div class="info-item"><strong>Fecha Entrega:</strong> ${datos.fechaEntrega || '—'}${datos.horaEntrega ? ` ${datos.horaEntrega}` : ''}</div>
+              <div class="info-item"><strong>Ubicación:</strong> ${datos.ubicacionPedido || '—'}</div>
               <div class="info-item"><strong>Forma de Pago:</strong> ${datos.formaPago || '—'}</div>
               ${datos.codTransaccion ? `<div class="info-item"><strong>Cód. Transacción:</strong> ${datos.codTransaccion}</div>` : ''}
             </div>
@@ -850,9 +866,10 @@ export default function Ventas() {
 *16. Delivery cotizado:* ${nv.delivery_cotizado ? parseFloat(nv.delivery_cotizado).toLocaleString('es-BO', { minimumFractionDigits: 0 }) : '0'}
 *17. Nombre cliente:* ${modoCliente === 'nuevo' ? nuevoClienteNombre : clienteSeleccionado?.nombre || '—'}
 *18. Celular cliente:* ${modoCliente === 'nuevo' ? nuevoClienteCelular : clienteSeleccionado?.celular || '—'}
-*19. Ubicacion:* ${modoCliente === 'nuevo' ? nuevoClienteDireccion : clienteSeleccionado?.direccion || '—'}
-*20. Número y color de puerta:* 
-*21. Foto pedido especial:* `
+*19. Ubicación:* ${nv.ubicacion_pedido || '—'}
+*20. Dirección del cliente:* ${modoCliente === 'nuevo' ? nuevoClienteDireccion : clienteSeleccionado?.direccion || '—'}
+*21. Número y color de puerta:* 
+*22. Foto pedido especial:* `
     
     setTextoWhatsApp(texto)
     setMostrarTextoWA(true)
@@ -918,6 +935,7 @@ export default function Ventas() {
       anticipo:          nv.anticipo          ? parseFloat(nv.anticipo)          : null,
       forma_pago:        nv.forma_pago,
       cod_transaccion:   nv.cod_transaccion || null,
+      ubicacion_pedido:  nv.ubicacion_pedido || null,
       estado:            1,
     })
 
@@ -982,6 +1000,7 @@ export default function Ventas() {
       fechaPedido: nv.fecha_pedido,
       fechaEntrega: nv.fecha_entrega,
       horaEntrega: nv.hora_entrega,
+      ubicacionPedido: nv.ubicacion_pedido,
       deliveryCotizado: nv.delivery_cotizado ? parseFloat(nv.delivery_cotizado) : 0,
       deliveryPagado: nv.delivery_pagado ? parseFloat(nv.delivery_pagado) : 0,
       anticipo: nv.anticipo ? parseFloat(nv.anticipo) : 0,
@@ -1165,6 +1184,7 @@ export default function Ventas() {
                     <th style={thStyle}># Venta</th>
                     <th style={thStyle}>Cliente</th>
                     <th style={thStyle}>Vendedor</th>
+                    <th style={thStyle}>Ubicación</th>
                     <th style={thStyle}>F. Pedido</th>
                     <th style={thStyle}>F. Entrega</th>
                     <th style={thStyle}>Hora</th>
@@ -1185,6 +1205,7 @@ export default function Ventas() {
                         <td style={{ ...tdStyle, fontWeight: 'bold', color: '#087e0b' }}>#{v.cod_venta}</td>
                         <td style={tdStyle}>{v.nombre_cliente}</td>
                         <td style={tdStyle}>{v.nombre_vendedor}</td>
+                        <td style={tdStyle}>{v.ubicacion_pedido || '—'}</td>
                         <td style={tdStyle}>{fmtFecha(v.fecha_pedido)}</td>
                         <td style={tdStyle}>{fmtFecha(v.fecha_entrega)}</td>
                         <td style={tdStyle}>{v.hora_entrega || '—'}</td>
@@ -1393,6 +1414,15 @@ export default function Ventas() {
                         onChange={e => setNv(p => ({ ...p, hora_entrega: e.target.value }))} />
                     </div>
                     <div>
+                      <label style={labelStyle}>Ubicación del pedido *</label>
+                      <select style={erroresCab.ubicacion_pedido ? inputErr : inputStyle} value={nv.ubicacion_pedido}
+                        onChange={e => { setNv(p => ({ ...p, ubicacion_pedido: e.target.value })); setErroresCab(p => ({ ...p, ubicacion_pedido: '' })) }}>
+                        <option value="">— Selecciona —</option>
+                        {UBICACIONES_PEDIDO.map(ubicacion => <option key={ubicacion} value={ubicacion}>{ubicacion}</option>)}
+                      </select>
+                      {erroresCab.ubicacion_pedido && <p style={errMsg}>{erroresCab.ubicacion_pedido}</p>}
+                    </div>
+                    <div>
                       <label style={labelStyle}>Forma de pago *</label>
                       <select style={erroresCab.forma_pago ? inputErr : inputStyle} value={nv.forma_pago}
                         onChange={e => { setNv(p => ({ ...p, forma_pago: e.target.value })); setErroresCab(p => ({ ...p, forma_pago: '' })) }}>
@@ -1565,6 +1595,7 @@ export default function Ventas() {
                       ['Fecha pedido', fmtFecha(nv.fecha_pedido)],
                       ['Fecha entrega', fmtFecha(nv.fecha_entrega)],
                       ['Hora entrega', nv.hora_entrega || '—'],
+                      ['Ubicación', nv.ubicacion_pedido || '—'],
                       ['Forma de pago', nv.forma_pago.replace('_', ' ')],
                       ['Anticipo', nv.anticipo ? `Bs. ${parseFloat(nv.anticipo).toLocaleString('es-BO', { minimumFractionDigits: 2 })}` : '—'],
                       ['Delivery cotizado', nv.delivery_cotizado ? `Bs. ${parseFloat(nv.delivery_cotizado).toLocaleString('es-BO', { minimumFractionDigits: 2 })}` : '—'],
@@ -1770,6 +1801,14 @@ export default function Ventas() {
                       onChange={e => setFormVenta(f => ({ ...f, hora_entrega: e.target.value || null }))} />
                   </div>
                   <div>
+                    <label style={labelStyle}>Ubicación del pedido</label>
+                    <select value={formVenta.ubicacion_pedido || ''} style={inputStyle}
+                      onChange={e => setFormVenta(f => ({ ...f, ubicacion_pedido: e.target.value || null }))}>
+                      <option value="">— Sin especificar —</option>
+                      {UBICACIONES_PEDIDO.map(ubicacion => <option key={ubicacion} value={ubicacion}>{ubicacion}</option>)}
+                    </select>
+                  </div>
+                  <div>
                     <label style={labelStyle}>Delivery cotizado (Bs.)</label>
                     <input type="number" step="0.01" value={formVenta.delivery_cotizado ?? ''} style={inputStyle}
                       onChange={e => setFormVenta(f => ({ ...f, delivery_cotizado: parseFloat(e.target.value) || null }))} />
@@ -1857,6 +1896,7 @@ export default function Ventas() {
                     ['Fecha pedido', fmtFecha(ventaSel.fecha_pedido)],
                     ['Fecha entrega', fmtFecha(ventaSel.fecha_entrega)],
                     ['Hora entrega', ventaSel.hora_entrega || '—'],
+                    ['Ubicación', ventaSel.ubicacion_pedido || '—'],
                     ['Delivery cotizado', fmt(ventaSel.delivery_cotizado)],
                     ['Delivery pagado', fmt(ventaSel.delivery_pagado)],
                     ['Anticipo', fmt(ventaSel.anticipo)],

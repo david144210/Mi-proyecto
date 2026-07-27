@@ -11,6 +11,7 @@ interface Pedido {
   vendedor: string
   fecha_entrega: string | null
   estado: number | null
+  ubicacion_pedido: string | null
   total?: number | null
   reprogramado: boolean
 }
@@ -22,6 +23,16 @@ const ESTADOS = [
   { value: 3, label: 'Terminado', color: '#66bb6a' },
   { value: 4, label: 'Despachado', color: '#ab47bc' }
 ]
+
+const obtenerColorUbicacion = (ubicacion: string | null | undefined) => {
+  switch (ubicacion) {
+    case 'La Paz': return '#1565c0'
+    case 'El Alto': return '#ef6c00'
+    case 'Cochabamba': return '#2e7d32'
+    case 'Santa Cruz': return '#8e24aa'
+    default: return '#64748b'
+  }
+}
 
 // ── Helpers ───────────────────────────────────────────────────
 const obtenerColorEstado = (estado: number | null) => {
@@ -164,6 +175,7 @@ useEffect(() => {
         vendedor: vendedoresMap[v.cod_vendedor] || 'Sin vendedor',
         fecha_entrega: v.fecha_entrega,
         estado: v.estado,
+        ubicacion_pedido: v.ubicacion_pedido || null,
         total: v.total_venta,
         reprogramado: progresoMap[v.cod_venta] || false
       }))
@@ -288,6 +300,7 @@ useEffect(() => {
         cliente: clienteNombre,
         vendedor: vendedorNombre,
         reprogramado,
+        ubicacion_pedido: ventaData.ubicacion_pedido || null,
         detalles: detallesConNombres
       })
 
@@ -604,7 +617,9 @@ useEffect(() => {
                               borderRadius: '10px',
                               padding: '8px',
                               fontSize: '12px',
-                              cursor: 'pointer'
+                              cursor: 'pointer',
+                              border: `2px solid ${obtenerColorUbicacion(pedido.ubicacion_pedido)}`,
+                              boxShadow: `0 0 0 1px ${obtenerColorUbicacion(pedido.ubicacion_pedido)}22`
                             }}
                           >
 
@@ -629,6 +644,20 @@ useEffect(() => {
                               }}
                             >
                               Vendedor: {pedido.vendedor}
+                            </div>
+
+                            <div
+                              style={{
+                                marginTop: '5px',
+                                display: 'inline-block',
+                                backgroundColor: 'rgba(255,255,255,0.2)',
+                                borderRadius: '999px',
+                                padding: '3px 7px',
+                                fontSize: '10px',
+                                fontWeight: 'bold'
+                              }}
+                            >
+                              📍 {pedido.ubicacion_pedido || 'Sin ubicación'}
                             </div>
 
                             {pedido.reprogramado && (
@@ -774,6 +803,13 @@ useEffect(() => {
               <div>
                 <strong>Fecha entrega:</strong>
                 <div>{pedidoSeleccionado.fecha_entrega}</div>
+              </div>
+
+              <div>
+                <strong>Ubicación:</strong>
+                <div style={{ color: obtenerColorUbicacion(pedidoSeleccionado.ubicacion_pedido), fontWeight: 'bold' }}>
+                  {pedidoSeleccionado.ubicacion_pedido || 'Sin ubicación'}
+                </div>
               </div>
 
               {pedidoSeleccionado.reprogramado && (
