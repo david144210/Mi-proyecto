@@ -19,6 +19,12 @@ interface Seccion {
   bisagra: Bisagra
 }
 
+interface Columna {
+  id: number
+  anchoCm: number // ancho interior de esta columna
+  secciones: Seccion[]
+}
+
 const COLORES = [
   { id: 'blanco', nombre: 'Blanco', hex: 0xf3f1ea },
   { id: 'wengue', nombre: 'Wengue', hex: 0x352721 },
@@ -48,7 +54,7 @@ export default function DisenoCajones() {
 
   // ---- Espesores de tablero (editables, en mm) ----
   const [espesorSelCuerpo, setEspesorSelCuerpo] = useState<'15' | '18' | 'custom'>('18')
-  const [espesorMM, setEspesorMM] = useState(18) // grosor del cuerpo, cajones y puertas
+  const [espesorMM, setEspesorMM] = useState(18) // grosor del cuerpo, cajones, puertas y divisores
 
   const [espesorSelFondo, setEspesorSelFondo] = useState<'3' | '6' | '9' | 'custom'>('6')
   const [espesorFondoMM, setEspesorFondoMM] = useState(6) // grosor del tablero posterior
@@ -82,13 +88,20 @@ export default function DisenoCajones() {
   const [holguraRielLateral, setHolguraRielLateral] = useState(1.2)
   const [mostrarAjustes, setMostrarAjustes] = useState(false)
 
-  // Secciones (de abajo hacia arriba)
-  const [secciones, setSecciones] = useState<Seccion[]>([
-    { id: 1, tipo: 'cajon', alturaCm: 18, riel: 'bola', cantidadPuertas: 1, bisagra: 'izquierda' },
-    { id: 2, tipo: 'cajon', alturaCm: 18, riel: 'bola', cantidadPuertas: 1, bisagra: 'izquierda' },
-    { id: 3, tipo: 'puerta', alturaCm: 60, riel: 'bola', cantidadPuertas: 2, bisagra: 'ambas' },
+  // ---- Columnas (division horizontal), cada una con sus propias secciones (division vertical) ----
+  const [columnas, setColumnas] = useState<Columna[]>([
+    {
+      id: 1,
+      anchoCm: 76.4, // ancho interior por defecto (80 - 2*1.8)
+      secciones: [
+        { id: 1, tipo: 'cajon', alturaCm: 18, riel: 'bola', cantidadPuertas: 1, bisagra: 'izquierda' },
+        { id: 2, tipo: 'cajon', alturaCm: 18, riel: 'bola', cantidadPuertas: 1, bisagra: 'izquierda' },
+        { id: 3, tipo: 'puerta', alturaCm: 60, riel: 'bola', cantidadPuertas: 2, bisagra: 'ambas' },
+      ],
+    },
   ])
-  const [nextId, setNextId] = useState(4)
+  const [nextColId, setNextColId] = useState(2)
+  const [nextSecId, setNextSecId] = useState(4)
 
   // Refs de three.js
   const mountRef = useRef<HTMLDivElement>(null)
@@ -241,41 +254,54 @@ export default function DisenoCajones() {
     addBox(ancho, esp, profundo, 0, alto - esp / 2, 0, matCarcasa) // techo
     addBox(ancho, alto, espFondo, 0, alto / 2, -profundo / 2 + espFondo / 2, matCarcasa) // fondo (tablero mas delgado)
 
-    const interiorAncho = ancho - esp * 2
-    let cursorY = esp // empieza sobre el piso interior
+    // ---- Columnas: se ubican una al lado de otra a lo largo del eje X ----
+    const alturaInteriorSC = alto - esp * 2
+    let cursorX = -ancho / 2 + esp // arranca justo después del lateral izquierdo
 
-    secciones.forEach((sec) => {
-      const h = sec.alturaCm * SC
-      const centroY = cursorY + h / 2
+    columnas.forEach((col, ci) => {
+      const colWidthSC = col.anchoCm * SC
+      const colCenterX = cursorX + colWidthSC / 2
 
-      if (sec.tipo === 'cajon') {
-        // Frente del cajon (ligeramente adelante de la carcasa, "abierto")
-        const frenteZ = profundo / 2 + esp / 2 + 0.02
-        addBox(interiorAncho - 0.01, h - 0.015, esp, 0, centroY, frenteZ, matFrente)
-        // Tirador
-        addBox(interiorAncho * 0.35, 0.02, 0.02, 0, centroY, frenteZ + esp / 2 + 0.02, matMetal)
-        // Rieles (barras metalicas a los lados, dentro del cuerpo)
-        const rielLargo = profundo - esp * 1.5
-        const rielY = cursorY + 0.02
-        addBox(0.02, 0.02, rielLargo, -interiorAncho / 2 + 0.03, rielY, 0, matMetal)
-        addBox(0.02, 0.02, rielLargo, interiorAncho / 2 - 0.03, rielY, 0, matMetal)
-      } else if (sec.tipo === 'puerta') {
-        const frenteZ = profundo / 2 + esp / 2 + 0.02
-        if (sec.cantidadPuertas === 2) {
-          const wPuerta = interiorAncho / 2 - 0.01
-          addBox(wPuerta, h - 0.015, esp, -wPuerta / 2 - 0.005, centroY, frenteZ, matFrente)
-          addBox(wPuerta, h - 0.015, esp, wPuerta / 2 + 0.005, centroY, frenteZ, matFrente)
-          addBox(0.02, 0.15, 0.02, -0.05, centroY, frenteZ + esp / 2 + 0.02, matMetal)
-          addBox(0.02, 0.15, 0.02, 0.05, centroY, frenteZ + esp / 2 + 0.02, matMetal)
-        } else {
-          addBox(interiorAncho - 0.01, h - 0.015, esp, 0, centroY, frenteZ, matFrente)
-          const lado = sec.bisagra === 'derecha' ? -1 : 1
-          addBox(0.02, 0.15, 0.02, lado * (interiorAncho / 2 - 0.08), centroY, frenteZ + esp / 2 + 0.02, matMetal)
+      let cursorY = esp // empieza sobre el piso interior
+
+      col.secciones.forEach((sec) => {
+        const h = sec.alturaCm * SC
+        const centroY = cursorY + h / 2
+
+        if (sec.tipo === 'cajon') {
+          const frenteZ = profundo / 2 + esp / 2 + 0.02
+          addBox(colWidthSC - 0.01, h - 0.015, esp, colCenterX, centroY, frenteZ, matFrente)
+          addBox(colWidthSC * 0.35, 0.02, 0.02, colCenterX, centroY, frenteZ + esp / 2 + 0.02, matMetal)
+          const rielLargo = profundo - esp * 1.5
+          const rielY = cursorY + 0.02
+          addBox(0.02, 0.02, rielLargo, colCenterX - colWidthSC / 2 + 0.03, rielY, 0, matMetal)
+          addBox(0.02, 0.02, rielLargo, colCenterX + colWidthSC / 2 - 0.03, rielY, 0, matMetal)
+        } else if (sec.tipo === 'puerta') {
+          const frenteZ = profundo / 2 + esp / 2 + 0.02
+          if (sec.cantidadPuertas === 2) {
+            const wPuerta = colWidthSC / 2 - 0.01
+            addBox(wPuerta, h - 0.015, esp, colCenterX - wPuerta / 2 - 0.005, centroY, frenteZ, matFrente)
+            addBox(wPuerta, h - 0.015, esp, colCenterX + wPuerta / 2 + 0.005, centroY, frenteZ, matFrente)
+            addBox(0.02, 0.15, 0.02, colCenterX - 0.05, centroY, frenteZ + esp / 2 + 0.02, matMetal)
+            addBox(0.02, 0.15, 0.02, colCenterX + 0.05, centroY, frenteZ + esp / 2 + 0.02, matMetal)
+          } else {
+            addBox(colWidthSC - 0.01, h - 0.015, esp, colCenterX, centroY, frenteZ, matFrente)
+            const lado = sec.bisagra === 'derecha' ? -1 : 1
+            addBox(0.02, 0.15, 0.02, colCenterX + lado * (colWidthSC / 2 - 0.08), centroY, frenteZ + esp / 2 + 0.02, matMetal)
+          }
         }
-      }
-      // 'espacio' no dibuja frente: queda hueco (repisa abierta)
+        // 'espacio' no dibuja frente: queda hueco (repisa abierta)
 
-      cursorY += h
+        cursorY += h
+      })
+
+      cursorX += colWidthSC
+
+      // Divisor vertical entre columnas (si no es la última)
+      if (ci < columnas.length - 1) {
+        addBox(esp, alturaInteriorSC, profundo, cursorX + esp / 2, alto / 2, 0, matCarcasa)
+        cursorX += esp
+      }
     })
 
     // Centrar camara segun tamaño
@@ -285,45 +311,54 @@ export default function DisenoCajones() {
       controls.target.set(0, alto / 2, 0)
       cam.position.set(ancho * 1.6 + 1.5, alto * 1.1 + 0.8, profundo * 2.2 + ancho)
     }
-  }, [anchoCm, altoCm, profundoCm, colorId, secciones, checking, espesorCm, espesorFondoCm])
-
-  // ---------- Helpers de secciones ----------
-  const alturaUsada = secciones.reduce((acc, s) => acc + s.alturaCm, 0)
-  const alturaInterior = altoCm - espesorCm * 2
-  const alturaRestante = alturaInterior - alturaUsada
+  }, [anchoCm, altoCm, profundoCm, colorId, columnas, checking, espesorCm, espesorFondoCm])
 
   // ---------- Medidas internas ----------
+  const alturaInterior = altoCm - espesorCm * 2
   const anchoInterior = anchoCm - espesorCm * 2
   const profundoInterior = profundoCm - espesorFondoCm
+
+  // ---------- Uso de ancho entre columnas y divisores ----------
+  const anchoColumnasUsado = columnas.reduce((acc, c) => acc + c.anchoCm, 0)
+  const anchoDivisores = Math.max(0, columnas.length - 1) * espesorCm
+  const anchoUsadoTotal = anchoColumnasUsado + anchoDivisores
+  const anchoRestante = anchoInterior - anchoUsadoTotal
 
   // ---------- Lista de piezas para corte ----------
   const calcularListaPiezas = (): PiezaCorte[] => {
     const piezas: PiezaCorte[] = []
 
-    // Cuerpo / carcasa
+    // Cuerpo / carcasa (comunes a todo el mueble, sin importar columnas)
     piezas.push({ pieza: 'Lateral', cantidad: 2, largo: altoCm, ancho: profundoCm, espesor: espesorCm, seccion: 'Cuerpo' })
     piezas.push({ pieza: 'Piso / Techo', cantidad: 2, largo: anchoInterior, ancho: profundoCm, espesor: espesorCm, seccion: 'Cuerpo' })
     piezas.push({ pieza: 'Fondo (posterior)', cantidad: 1, largo: anchoInterior, ancho: alturaInterior > 0 ? alturaInterior : altoCm, espesor: espesorFondoCm, seccion: 'Cuerpo' })
 
-    secciones.forEach((sec, i) => {
-      const nombreSeccion = `${sec.tipo === 'cajon' ? 'Cajón' : sec.tipo === 'puerta' ? 'Puerta' : 'Espacio'} ${i + 1}`
+    // Divisores verticales entre columnas
+    if (columnas.length > 1) {
+      piezas.push({ pieza: 'Divisor vertical', cantidad: columnas.length - 1, largo: alturaInterior > 0 ? alturaInterior : altoCm, ancho: profundoCm, espesor: espesorCm, seccion: 'Cuerpo' })
+    }
 
-      if (sec.tipo === 'cajon') {
-        piezas.push({ pieza: 'Frente de cajón', cantidad: 1, largo: anchoInterior - holguraFrenteCajon, ancho: sec.alturaCm - holguraFrenteCajon, espesor: espesorCm, seccion: nombreSeccion })
-        piezas.push({ pieza: 'Costado de caja', cantidad: 2, largo: profundoCm - holguraRielFondo, ancho: sec.alturaCm - holguraRielAlto, espesor: espesorCm, seccion: nombreSeccion })
-        piezas.push({ pieza: 'Fondo trasero de caja', cantidad: 1, largo: anchoInterior - 2 * espesorCm - holguraRielLateral, ancho: sec.alturaCm - holguraRielAlto - espesorBaseCajonCm, espesor: espesorCm, seccion: nombreSeccion })
-        piezas.push({ pieza: 'Base de cajón', cantidad: 1, largo: anchoInterior - 2 * espesorCm - holguraRielLateral, ancho: profundoCm - holguraRielFondo, espesor: espesorBaseCajonCm, seccion: nombreSeccion })
-      } else if (sec.tipo === 'puerta') {
-        piezas.push({
-          pieza: 'Puerta',
-          cantidad: sec.cantidadPuertas,
-          largo: (anchoInterior / sec.cantidadPuertas) - holguraPuerta,
-          ancho: sec.alturaCm - holguraPuerta,
-          espesor: espesorCm,
-          seccion: nombreSeccion,
-        })
-      }
-      // 'espacio' no genera piezas: queda como hueco abierto
+    columnas.forEach((col, ci) => {
+      col.secciones.forEach((sec, i) => {
+        const nombreSeccion = `Col.${ci + 1} — ${sec.tipo === 'cajon' ? 'Cajón' : sec.tipo === 'puerta' ? 'Puerta' : 'Espacio'} ${i + 1}`
+
+        if (sec.tipo === 'cajon') {
+          piezas.push({ pieza: 'Frente de cajón', cantidad: 1, largo: col.anchoCm - holguraFrenteCajon, ancho: sec.alturaCm - holguraFrenteCajon, espesor: espesorCm, seccion: nombreSeccion })
+          piezas.push({ pieza: 'Costado de caja', cantidad: 2, largo: profundoCm - holguraRielFondo, ancho: sec.alturaCm - holguraRielAlto, espesor: espesorCm, seccion: nombreSeccion })
+          piezas.push({ pieza: 'Fondo trasero de caja', cantidad: 1, largo: col.anchoCm - 2 * espesorCm - holguraRielLateral, ancho: sec.alturaCm - holguraRielAlto - espesorBaseCajonCm, espesor: espesorCm, seccion: nombreSeccion })
+          piezas.push({ pieza: 'Base de cajón', cantidad: 1, largo: col.anchoCm - 2 * espesorCm - holguraRielLateral, ancho: profundoCm - holguraRielFondo, espesor: espesorBaseCajonCm, seccion: nombreSeccion })
+        } else if (sec.tipo === 'puerta') {
+          piezas.push({
+            pieza: 'Puerta',
+            cantidad: sec.cantidadPuertas,
+            largo: (col.anchoCm / sec.cantidadPuertas) - holguraPuerta,
+            ancho: sec.alturaCm - holguraPuerta,
+            espesor: espesorCm,
+            seccion: nombreSeccion,
+          })
+        }
+        // 'espacio' no genera piezas: queda como hueco abierto
+      })
     })
 
     return piezas.filter(p => p.largo > 0 && p.ancho > 0)
@@ -357,38 +392,78 @@ export default function DisenoCajones() {
     navigator.clipboard?.writeText(texto)
   }
 
-  const agregarSeccion = (tipo: TipoSeccion) => {
-    setSecciones([...secciones, {
-      id: nextId,
-      tipo,
-      alturaCm: tipo === 'cajon' ? 18 : tipo === 'puerta' ? 40 : 20,
-      riel: 'bola',
-      cantidadPuertas: 1,
-      bisagra: 'izquierda',
-    }])
-    setNextId(nextId + 1)
+  // ---------- Helpers de columnas ----------
+  const agregarColumna = () => {
+    // Reparte un ancho por defecto razonable: la mitad de lo que queda disponible, o 30cm mínimo
+    const anchoDefault = anchoRestante > 20 ? Math.max(20, anchoRestante - espesorCm) : 30
+    setColumnas([...columnas, { id: nextColId, anchoCm: Math.round(anchoDefault * 10) / 10, secciones: [] }])
+    setNextColId(nextColId + 1)
   }
 
-  const actualizarSeccion = (id: number, cambios: Partial<Seccion>) => {
-    setSecciones(secciones.map(s => s.id === id ? { ...s, ...cambios } : s))
+  const eliminarColumna = (id: number) => {
+    if (columnas.length <= 1) return
+    setColumnas(columnas.filter(c => c.id !== id))
   }
 
-  const eliminarSeccion = (id: number) => {
-    setSecciones(secciones.filter(s => s.id !== id))
+  const actualizarAnchoColumna = (id: number, anchoCm: number) => {
+    setColumnas(columnas.map(c => c.id === id ? { ...c, anchoCm } : c))
   }
 
-  const moverSeccion = (id: number, dir: -1 | 1) => {
-    const idx = secciones.findIndex(s => s.id === id)
-    const nuevoIdx = idx + dir
-    if (nuevoIdx < 0 || nuevoIdx >= secciones.length) return
-    const copia = [...secciones]
-    ;[copia[idx], copia[nuevoIdx]] = [copia[nuevoIdx], copia[idx]]
-    setSecciones(copia)
+  // ---------- Helpers de secciones (dentro de una columna) ----------
+  const agregarSeccion = (columnaId: number, tipo: TipoSeccion) => {
+    setColumnas(columnas.map(c => c.id !== columnaId ? c : {
+      ...c,
+      secciones: [...c.secciones, {
+        id: nextSecId,
+        tipo,
+        alturaCm: tipo === 'cajon' ? 18 : tipo === 'puerta' ? 40 : 20,
+        riel: 'bola',
+        cantidadPuertas: 1,
+        bisagra: 'izquierda',
+      }],
+    }))
+    setNextSecId(nextSecId + 1)
+  }
+
+  const actualizarSeccion = (columnaId: number, seccionId: number, cambios: Partial<Seccion>) => {
+    setColumnas(columnas.map(c => c.id !== columnaId ? c : {
+      ...c,
+      secciones: c.secciones.map(s => s.id === seccionId ? { ...s, ...cambios } : s),
+    }))
+  }
+
+  const eliminarSeccion = (columnaId: number, seccionId: number) => {
+    setColumnas(columnas.map(c => c.id !== columnaId ? c : {
+      ...c,
+      secciones: c.secciones.filter(s => s.id !== seccionId),
+    }))
+  }
+
+  const moverSeccion = (columnaId: number, seccionId: number, dir: -1 | 1) => {
+    setColumnas(columnas.map(c => {
+      if (c.id !== columnaId) return c
+      const idx = c.secciones.findIndex(s => s.id === seccionId)
+      const nuevoIdx = idx + dir
+      if (idx < 0 || nuevoIdx < 0 || nuevoIdx >= c.secciones.length) return c
+      const copia = [...c.secciones]
+      ;[copia[idx], copia[nuevoIdx]] = [copia[nuevoIdx], copia[idx]]
+      return { ...c, secciones: copia }
+    }))
   }
 
   // Lista de piezas (informativa, sin precios)
-  const totalCajones = secciones.filter(s => s.tipo === 'cajon').length
-  const totalPuertas = secciones.filter(s => s.tipo === 'puerta').reduce((a, s) => a + s.cantidadPuertas, 0)
+  const todasLasSecciones = columnas.flatMap(c => c.secciones)
+  const totalCajones = todasLasSecciones.filter(s => s.tipo === 'cajon').length
+  const totalPuertas = todasLasSecciones.filter(s => s.tipo === 'puerta').reduce((a, s) => a + s.cantidadPuertas, 0)
+
+  // Ajusta un valor a un rango [min, max] — se usa en onBlur, nunca en onChange,
+  // para no interrumpir al usuario mientras está escribiendo un número.
+  const clamp = (val: number, min: number, max?: number) => {
+    let v = Number.isFinite(val) ? val : min
+    v = Math.max(min, v)
+    if (max !== undefined) v = Math.min(max, v)
+    return v
+  }
 
   const inputStyle: React.CSSProperties = {
     padding: '9px 12px', borderRadius: '8px', border: '1px solid #ddd',
@@ -435,18 +510,21 @@ export default function DisenoCajones() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '12px' }}>
                 <div>
                   <label style={labelStyle}>Ancho (cm)</label>
-                  <input type="number" style={inputStyle} value={anchoCm} min={20} max={300}
-                    onChange={e => setAnchoCm(Math.max(20, Number(e.target.value) || 0))} />
+                  <input type="number" style={inputStyle} value={Number.isNaN(anchoCm) ? '' : anchoCm} min={20} max={300}
+                    onChange={e => setAnchoCm(e.target.value === '' ? NaN : Number(e.target.value))}
+                    onBlur={e => setAnchoCm(clamp(Number(e.target.value), 20, 300))} />
                 </div>
                 <div>
                   <label style={labelStyle}>Alto (cm)</label>
-                  <input type="number" style={inputStyle} value={altoCm} min={20} max={300}
-                    onChange={e => setAltoCm(Math.max(20, Number(e.target.value) || 0))} />
+                  <input type="number" style={inputStyle} value={Number.isNaN(altoCm) ? '' : altoCm} min={20} max={300}
+                    onChange={e => setAltoCm(e.target.value === '' ? NaN : Number(e.target.value))}
+                    onBlur={e => setAltoCm(clamp(Number(e.target.value), 20, 300))} />
                 </div>
                 <div>
                   <label style={labelStyle}>Fondo (cm)</label>
-                  <input type="number" style={inputStyle} value={profundoCm} min={20} max={100}
-                    onChange={e => setProfundoCm(Math.max(20, Number(e.target.value) || 0))} />
+                  <input type="number" style={inputStyle} value={Number.isNaN(profundoCm) ? '' : profundoCm} min={20} max={100}
+                    onChange={e => setProfundoCm(e.target.value === '' ? NaN : Number(e.target.value))}
+                    onBlur={e => setProfundoCm(clamp(Number(e.target.value), 20, 100))} />
                 </div>
               </div>
               <label style={labelStyle}>Color / melamina</label>
@@ -468,8 +546,9 @@ export default function DisenoCajones() {
                   <option value="custom">Personalizado</option>
                 </select>
                 {espesorSelCuerpo === 'custom' ? (
-                  <input type="number" style={inputStyle} value={espesorMM} min={5} max={40} step={0.5}
-                    onChange={e => setEspesorMM(Math.max(5, Number(e.target.value) || 0))} />
+                  <input type="number" style={inputStyle} value={Number.isNaN(espesorMM) ? '' : espesorMM} min={5} max={40} step={0.5}
+                    onChange={e => setEspesorMM(e.target.value === '' ? NaN : Number(e.target.value))}
+                    onBlur={e => setEspesorMM(clamp(Number(e.target.value), 5, 40))} />
                 ) : (
                   <div style={{ ...inputStyle, backgroundColor: '#f9f9f9', color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {espesorMM} mm
@@ -487,8 +566,9 @@ export default function DisenoCajones() {
                   <option value="custom">Personalizado</option>
                 </select>
                 {espesorSelFondo === 'custom' ? (
-                  <input type="number" style={inputStyle} value={espesorFondoMM} min={2} max={20} step={0.5}
-                    onChange={e => setEspesorFondoMM(Math.max(2, Number(e.target.value) || 0))} />
+                  <input type="number" style={inputStyle} value={Number.isNaN(espesorFondoMM) ? '' : espesorFondoMM} min={2} max={20} step={0.5}
+                    onChange={e => setEspesorFondoMM(e.target.value === '' ? NaN : Number(e.target.value))}
+                    onBlur={e => setEspesorFondoMM(clamp(Number(e.target.value), 2, 20))} />
                 ) : (
                   <div style={{ ...inputStyle, backgroundColor: '#f9f9f9', color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {espesorFondoMM} mm
@@ -506,8 +586,9 @@ export default function DisenoCajones() {
                   <option value="custom">Personalizado</option>
                 </select>
                 {espesorSelBase === 'custom' ? (
-                  <input type="number" style={inputStyle} value={espesorBaseCajonMM} min={2} max={20} step={0.5}
-                    onChange={e => setEspesorBaseCajonMM(Math.max(2, Number(e.target.value) || 0))} />
+                  <input type="number" style={inputStyle} value={Number.isNaN(espesorBaseCajonMM) ? '' : espesorBaseCajonMM} min={2} max={20} step={0.5}
+                    onChange={e => setEspesorBaseCajonMM(e.target.value === '' ? NaN : Number(e.target.value))}
+                    onBlur={e => setEspesorBaseCajonMM(clamp(Number(e.target.value), 2, 20))} />
                 ) : (
                   <div style={{ ...inputStyle, backgroundColor: '#f9f9f9', color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {espesorBaseCajonMM} mm
@@ -516,97 +597,138 @@ export default function DisenoCajones() {
               </div>
             </div>
 
-            {/* Altura disponible */}
+            {/* Ancho disponible (entre columnas y divisores) */}
             <div style={{
-              backgroundColor: alturaRestante < 0 ? '#fff0f0' : '#f0fff0',
-              border: `1px solid ${alturaRestante < 0 ? '#ff8a8a' : '#a3c47d'}`,
+              backgroundColor: anchoRestante < -0.05 ? '#fff0f0' : '#f0fff0',
+              border: `1px solid ${anchoRestante < -0.05 ? '#ff8a8a' : '#a3c47d'}`,
               borderRadius: '10px', padding: '12px 16px', fontSize: '13px',
-              color: alturaRestante < 0 ? '#b53030' : '#2c6d2e',
+              color: anchoRestante < -0.05 ? '#b53030' : '#2c6d2e',
             }}>
-              Altura interior: <strong>{alturaInterior.toFixed(1)} cm</strong> — Usada: <strong>{alturaUsada.toFixed(1)} cm</strong>
-              {alturaRestante < 0
-                ? <div>⚠️ Te pasaste por {Math.abs(alturaRestante).toFixed(1)} cm, ajusta las secciones.</div>
-                : <div>Disponible: {alturaRestante.toFixed(1)} cm</div>}
+              Ancho interior: <strong>{anchoInterior.toFixed(1)} cm</strong> — Columnas + divisores: <strong>{anchoUsadoTotal.toFixed(1)} cm</strong>
+              {anchoRestante < -0.05
+                ? <div>⚠️ Te pasaste por {Math.abs(anchoRestante).toFixed(1)} cm, ajusta el ancho de las columnas.</div>
+                : <div>Disponible: {anchoRestante.toFixed(1)} cm</div>}
             </div>
 
-            {/* Secciones */}
+            {/* Columnas (división horizontal) */}
             <div style={{ backgroundColor: 'white', borderRadius: '14px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <h2 style={{ margin: 0, fontSize: '16px' }}>🗄️ Secciones (de abajo a arriba)</h2>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <h2 style={{ margin: 0, fontSize: '16px' }}>🏛️ Columnas (de izquierda a derecha)</h2>
               </div>
+              <p style={{ color: '#888', fontSize: '11px', margin: '0 0 12px 0' }}>
+                Divide el mueble en compartimentos lado a lado. Cada columna arma su propia pila de cajones/puertas de abajo hacia arriba.
+              </p>
 
-              <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
-                <button onClick={() => agregarSeccion('cajon')} style={btnAdd}>+ Cajón</button>
-                <button onClick={() => agregarSeccion('puerta')} style={btnAdd}>+ Puerta</button>
-                <button onClick={() => agregarSeccion('espacio')} style={{ ...btnAdd, backgroundColor: '#888' }}>+ Espacio abierto</button>
-              </div>
+              <button onClick={agregarColumna} style={{ ...btnAdd, backgroundColor: '#0f3460', marginBottom: '14px' }}>+ Agregar columna</button>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {secciones.map((sec, i) => (
-                  <div key={sec.id} style={{ border: '1px solid #eee', borderRadius: '10px', padding: '12px', backgroundColor: '#fafafa' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <strong style={{ fontSize: '13px' }}>
-                        {i + 1}. {sec.tipo === 'cajon' ? '🗃️ Cajón' : sec.tipo === 'puerta' ? '🚪 Puerta' : '⬜ Espacio abierto'}
-                      </strong>
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        <button onClick={() => moverSeccion(sec.id, -1)} disabled={i === 0} style={btnMini}>↑</button>
-                        <button onClick={() => moverSeccion(sec.id, 1)} disabled={i === secciones.length - 1} style={btnMini}>↓</button>
-                        <button onClick={() => eliminarSeccion(sec.id)} style={{ ...btnMini, color: '#ff4444' }}>🗑</button>
-                      </div>
-                    </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {columnas.map((col, ci) => {
+                  const alturaUsadaCol = col.secciones.reduce((acc, s) => acc + s.alturaCm, 0)
+                  const alturaRestanteCol = alturaInterior - alturaUsadaCol
 
-                    <div style={{ display: 'grid', gridTemplateColumns: sec.tipo === 'espacio' ? '1fr' : '1fr 1fr', gap: '8px' }}>
-                      <div>
-                        <label style={labelStyle}>Altura (cm)</label>
-                        <input type="number" style={inputStyle} value={sec.alturaCm} min={5} max={100}
-                          onChange={e => actualizarSeccion(sec.id, { alturaCm: Math.max(5, Number(e.target.value) || 0) })} />
+                  return (
+                    <div key={col.id} style={{ border: '1px solid #ddd', borderRadius: '10px', padding: '14px', backgroundColor: '#fcfcfc' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <strong style={{ fontSize: '13px', color: '#0f3460' }}>Columna {ci + 1}</strong>
+                        {columnas.length > 1 && (
+                          <button onClick={() => eliminarColumna(col.id)} style={{ ...btnMini, color: '#ff4444' }}>🗑 Quitar columna</button>
+                        )}
                       </div>
 
-                      {sec.tipo === 'cajon' && (
-                        <div>
-                          <label style={labelStyle}>Tipo de riel</label>
-                          <select style={inputStyle} value={sec.riel} onChange={e => actualizarSeccion(sec.id, { riel: e.target.value as TipoRiel })}>
-                            <option value="bola">Rodamiento (bola)</option>
-                            <option value="ocultas">Ocultas</option>
-                            <option value="telescopicas">Telescópicas</option>
-                          </select>
-                        </div>
-                      )}
+                      <label style={labelStyle}>Ancho de columna (cm)</label>
+                      <input type="number" style={{ ...inputStyle, marginBottom: '10px' }} value={Number.isNaN(col.anchoCm) ? '' : col.anchoCm} min={10} max={200} step={0.1}
+                        onChange={e => actualizarAnchoColumna(col.id, e.target.value === '' ? NaN : Number(e.target.value))}
+                        onBlur={e => actualizarAnchoColumna(col.id, clamp(Number(e.target.value), 10, 200))} />
 
-                      {sec.tipo === 'puerta' && (
-                        <div>
-                          <label style={labelStyle}>Puertas</label>
-                          <select style={inputStyle} value={sec.cantidadPuertas}
-                            onChange={e => actualizarSeccion(sec.id, { cantidadPuertas: Number(e.target.value) as 1 | 2 })}>
-                            <option value={1}>1 puerta</option>
-                            <option value={2}>2 puertas</option>
-                          </select>
-                        </div>
-                      )}
+                      {/* Altura usada dentro de esta columna */}
+                      <div style={{
+                        backgroundColor: alturaRestanteCol < -0.05 ? '#fff0f0' : '#f7f7f7',
+                        border: `1px solid ${alturaRestanteCol < -0.05 ? '#ff8a8a' : '#e5e5e5'}`,
+                        borderRadius: '8px', padding: '8px 10px', fontSize: '11px', color: alturaRestanteCol < -0.05 ? '#b53030' : '#666',
+                        marginBottom: '10px',
+                      }}>
+                        Altura usada: <strong>{alturaUsadaCol.toFixed(1)} / {alturaInterior.toFixed(1)} cm</strong>
+                        {alturaRestanteCol < -0.05 && <span> ⚠️ te pasaste por {Math.abs(alturaRestanteCol).toFixed(1)} cm</span>}
+                      </div>
 
-                      {sec.tipo === 'puerta' && sec.cantidadPuertas === 1 && (
-                        <div style={{ gridColumn: '1 / -1' }}>
-                          <label style={labelStyle}>Bisagra</label>
-                          <select style={inputStyle} value={sec.bisagra} onChange={e => actualizarSeccion(sec.id, { bisagra: e.target.value as Bisagra })}>
-                            <option value="izquierda">Izquierda</option>
-                            <option value="derecha">Derecha</option>
-                          </select>
-                        </div>
-                      )}
+                      <div style={{ display: 'flex', gap: '6px', marginBottom: '10px', flexWrap: 'wrap' }}>
+                        <button onClick={() => agregarSeccion(col.id, 'cajon')} style={btnAdd}>+ Cajón</button>
+                        <button onClick={() => agregarSeccion(col.id, 'puerta')} style={btnAdd}>+ Puerta</button>
+                        <button onClick={() => agregarSeccion(col.id, 'espacio')} style={{ ...btnAdd, backgroundColor: '#888' }}>+ Espacio</button>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {col.secciones.map((sec, i) => (
+                          <div key={sec.id} style={{ border: '1px solid #eee', borderRadius: '10px', padding: '10px', backgroundColor: '#fafafa' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                              <strong style={{ fontSize: '12px' }}>
+                                {i + 1}. {sec.tipo === 'cajon' ? '🗃️ Cajón' : sec.tipo === 'puerta' ? '🚪 Puerta' : '⬜ Espacio abierto'}
+                              </strong>
+                              <div style={{ display: 'flex', gap: '4px' }}>
+                                <button onClick={() => moverSeccion(col.id, sec.id, -1)} disabled={i === 0} style={btnMini}>↑</button>
+                                <button onClick={() => moverSeccion(col.id, sec.id, 1)} disabled={i === col.secciones.length - 1} style={btnMini}>↓</button>
+                                <button onClick={() => eliminarSeccion(col.id, sec.id)} style={{ ...btnMini, color: '#ff4444' }}>🗑</button>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: sec.tipo === 'espacio' ? '1fr' : '1fr 1fr', gap: '8px' }}>
+                              <div>
+                                <label style={labelStyle}>Altura (cm)</label>
+                                <input type="number" style={inputStyle} value={Number.isNaN(sec.alturaCm) ? '' : sec.alturaCm} min={5} max={100}
+                                  onChange={e => actualizarSeccion(col.id, sec.id, { alturaCm: e.target.value === '' ? NaN : Number(e.target.value) })}
+                                  onBlur={e => actualizarSeccion(col.id, sec.id, { alturaCm: clamp(Number(e.target.value), 5, 100) })} />
+                              </div>
+
+                              {sec.tipo === 'cajon' && (
+                                <div>
+                                  <label style={labelStyle}>Tipo de riel</label>
+                                  <select style={inputStyle} value={sec.riel} onChange={e => actualizarSeccion(col.id, sec.id, { riel: e.target.value as TipoRiel })}>
+                                    <option value="bola">Rodamiento (bola)</option>
+                                    <option value="ocultas">Ocultas</option>
+                                    <option value="telescopicas">Telescópicas</option>
+                                  </select>
+                                </div>
+                              )}
+
+                              {sec.tipo === 'puerta' && (
+                                <div>
+                                  <label style={labelStyle}>Puertas</label>
+                                  <select style={inputStyle} value={sec.cantidadPuertas}
+                                    onChange={e => actualizarSeccion(col.id, sec.id, { cantidadPuertas: Number(e.target.value) as 1 | 2 })}>
+                                    <option value={1}>1 puerta</option>
+                                    <option value={2}>2 puertas</option>
+                                  </select>
+                                </div>
+                              )}
+
+                              {sec.tipo === 'puerta' && sec.cantidadPuertas === 1 && (
+                                <div style={{ gridColumn: '1 / -1' }}>
+                                  <label style={labelStyle}>Bisagra</label>
+                                  <select style={inputStyle} value={sec.bisagra} onChange={e => actualizarSeccion(col.id, sec.id, { bisagra: e.target.value as Bisagra })}>
+                                    <option value="izquierda">Izquierda</option>
+                                    <option value="derecha">Derecha</option>
+                                  </select>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                        {col.secciones.length === 0 && (
+                          <div style={{ textAlign: 'center', padding: '14px', color: '#bbb', border: '2px dashed #eee', borderRadius: '10px', fontSize: '12px' }}>
+                            Agrega cajones, puertas o espacios a esta columna
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
-                {secciones.length === 0 && (
-                  <div style={{ textAlign: 'center', padding: '20px', color: '#bbb', border: '2px dashed #eee', borderRadius: '10px', fontSize: '13px' }}>
-                    Agrega cajones, puertas o espacios para armar el mueble
-                  </div>
-                )}
+                  )
+                })}
               </div>
             </div>
 
             {/* Resumen simple */}
             <div style={{ backgroundColor: '#1a1a2e', borderRadius: '14px', padding: '18px 20px', color: 'white', fontSize: '13px' }}>
               <p style={{ margin: '0 0 6px 0', color: '#a3c47d', fontWeight: 'bold' }}>Resumen del diseño</p>
+              <p style={{ margin: '2px 0' }}>Columnas: <strong>{columnas.length}</strong></p>
               <p style={{ margin: '2px 0' }}>Cajones: <strong>{totalCajones}</strong></p>
               <p style={{ margin: '2px 0' }}>Puertas: <strong>{totalPuertas}</strong></p>
               <p style={{ margin: '2px 0' }}>Dimensiones: <strong>{anchoCm} × {altoCm} × {profundoCm} cm</strong> (an. × alt. × fondo)</p>
