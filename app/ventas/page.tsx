@@ -18,6 +18,7 @@ interface Venta {
   forma_pago: string | null
   cod_transaccion: string | null
   ubicacion_pedido: string | null
+  detalles_especificos: string | null
   nombre_cliente?: string
   nombre_vendedor?: string
 }
@@ -154,6 +155,7 @@ export default function Ventas() {
     fecha_entrega: '',
     hora_entrega: '',
     ubicacion_pedido: '',
+    detalles_especificos: '',
     delivery_cotizado: '',
     delivery_pagado: '',
     anticipo: '',
@@ -274,6 +276,7 @@ export default function Ventas() {
       anticipo: formVenta.anticipo, forma_pago: formVenta.forma_pago || null,
       cod_transaccion: formVenta.cod_transaccion || null,
       ubicacion_pedido: formVenta.ubicacion_pedido || null,
+      detalles_especificos: formVenta.detalles_especificos || null,
     }).eq('cod_venta', ventaSel.cod_venta)
 
     if (eVenta) { setMensajeGuardado('Error: ' + eVenta.message); setGuardando(false); return }
@@ -319,7 +322,7 @@ export default function Ventas() {
     setNv({
       cod_vendedor: String(usuario?.id || ''),
       fecha_pedido: new Date().toISOString().split('T')[0],
-      fecha_entrega: '', hora_entrega: '', ubicacion_pedido: '', delivery_cotizado: '',
+      fecha_entrega: '', hora_entrega: '', ubicacion_pedido: '', detalles_especificos: '', delivery_cotizado: '',
       delivery_pagado: '', anticipo: '', forma_pago: '', cod_transaccion: '',
     })
 
@@ -444,6 +447,72 @@ export default function Ventas() {
     if (validar()) setPasoNueva('preview')
   }
 
+  const generarNotaVentaDesdeVenta = async (venta: Venta) => {
+    try {
+      const [{ data: detalleData }, { data: clienteData }] = await Promise.all([
+        supabase.from('detalle_venta').select('*').eq('cod_venta', venta.cod_venta).order('item'),
+        venta.cod_cliente
+          ? supabase.from('clientes').select('codigo, nombre, celular, direccion').eq('id', venta.cod_cliente).maybeSingle()
+          : Promise.resolve({ data: null })
+      ])
+
+      const codigosProductos = [...new Set((detalleData || []).map(d => d.cod_producto).filter(Boolean))]
+      const codigosColores = [...new Set((detalleData || []).map(d => d.color_estructura).filter(Boolean))]
+      const codigosMelaminas = [...new Set((detalleData || []).map(d => d.color_melamina).filter(Boolean))]
+
+      const [{ data: productosData }, { data: coloresData }, { data: melaminasData }] = await Promise.all([
+        codigosProductos.length > 0
+          ? supabase.from('productos').select('codigo, nombre').in('codigo', codigosProductos)
+          : Promise.resolve({ data: [] }),
+        codigosColores.length > 0
+          ? supabase.from('colores').select('codigo_color, detalle').in('codigo_color', codigosColores)
+          : Promise.resolve({ data: [] }),
+        codigosMelaminas.length > 0
+          ? supabase.from('melaminas').select('codigo_melamina, detalle').in('codigo_melamina', codigosMelaminas)
+          : Promise.resolve({ data: [] })
+      ])
+
+      const productosMap = Object.fromEntries((productosData || []).map((p: any) => [p.codigo, p.nombre]))
+      const coloresMap = Object.fromEntries((coloresData || []).map((c: any) => [c.codigo_color, c.detalle]))
+      const melaminasMap = Object.fromEntries((melaminasData || []).map((m: any) => [m.codigo_melamina, m.detalle]))
+
+      const lineas = (detalleData || []).map((detalle: any) => ({
+        producto: productosMap[detalle.cod_producto] || detalle.cod_producto || '—',
+        dimensiones: detalle.dimensiones || '—',
+        colorEstructura: coloresMap[detalle.color_estructura] || detalle.color_estructura || '—',
+        colorMelamina: melaminasMap[detalle.color_melamina] || detalle.color_melamina || '—',
+        cantidad: detalle.cantidad ?? 0,
+        precioVendido: Number(detalle.precio_vendido ?? 0),
+        subtotal: Number((detalle.precio_vendido ?? 0) * (detalle.cantidad ?? 0))
+      }))
+
+      generarNotaVenta({
+        codVenta: venta.cod_venta,
+        cliente: {
+          nombre: clienteData?.nombre || '—',
+          codigo: clienteData?.codigo || '—',
+          celular: clienteData?.celular || '',
+          direccion: clienteData?.direccion || ''
+        },
+        vendedor: venta.nombre_vendedor || '—',
+        fechaPedido: fmtFecha(venta.fecha_pedido),
+        fechaEntrega: fmtFecha(venta.fecha_entrega),
+        horaEntrega: venta.hora_entrega || '',
+        ubicacionPedido: venta.ubicacion_pedido || '—',
+        formaPago: venta.forma_pago?.replace('_', ' ') || '—',
+        codTransaccion: venta.cod_transaccion || '',
+        deliveryCotizado: Number(venta.delivery_cotizado || 0),
+        deliveryPagado: Number(venta.delivery_pagado || 0),
+        anticipo: Number(venta.anticipo || 0),
+        total: Number(venta.total_venta || 0),
+        lineas,
+      })
+    } catch (error) {
+      console.error(error)
+      alert('No se pudo generar la nota de venta para esta venta.')
+    }
+  }
+
   // ── Generar nota de venta ─────────────────────────────────────────────────
   const generarNotaVenta = (datos: any) => {
     const ventana = window.open('', '_blank', 'width=950,height=900')
@@ -459,9 +528,14 @@ export default function Ventas() {
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
         <style>
+          @page {
+            size: A4;
+            margin: 10mm;
+          }
           @media print {
             body { margin: 0; background: white; }
             .no-print { display: none; }
+            #nota-container { box-shadow: none; padding: 0; }
           }
           * {
             box-sizing: border-box;
@@ -487,18 +561,20 @@ export default function Ventas() {
             padding-bottom: 25px;
             margin-bottom: 35px;
             position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
           }
           .logo-container {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 120px;
+            width: 110px;
             height: auto;
+            margin-bottom: 10px;
           }
           .logo {
             width: 100%;
             height: auto;
             object-fit: contain;
+            display: block;
           }
           .company-name {
             font-size: 28px;
@@ -537,6 +613,10 @@ export default function Ventas() {
             border-radius: 8px;
             background: #f9f9f9;
           }
+          .productos-table-wrap {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+          }
           .info-title {
             font-weight: bold;
             margin-bottom: 12px;
@@ -557,6 +637,13 @@ export default function Ventas() {
             border-collapse: collapse;
             margin: 25px 0;
             font-size: 12px;
+            table-layout: fixed;
+          }
+          .productos-table th,
+          .productos-table td {
+            word-break: break-word;
+            overflow-wrap: anywhere;
+            white-space: normal;
           }
           .productos-table th {
             background: #0d0d1f;
@@ -675,6 +762,67 @@ export default function Ventas() {
             background: #ccc;
             cursor: not-allowed;
           }
+          @media (max-width: 700px) {
+            body {
+              padding: 8px;
+            }
+            #nota-container {
+              padding: 14px;
+            }
+            .header {
+              padding-bottom: 16px;
+              margin-bottom: 20px;
+            }
+            .company-name {
+              font-size: 22px;
+            }
+            .company-tagline {
+              font-size: 12px;
+            }
+            .nota-title {
+              font-size: 18px;
+              margin: 18px 0 8px 0;
+            }
+            .nota-number {
+              font-size: 14px;
+              margin-bottom: 18px;
+            }
+            .info-section {
+              grid-template-columns: 1fr;
+              gap: 12px;
+              margin-bottom: 20px;
+            }
+            .info-box {
+              padding: 12px;
+            }
+            .productos-table {
+              font-size: 10px;
+              min-width: 620px;
+            }
+            .productos-table th,
+            .productos-table td {
+              padding: 8px;
+            }
+            .total-row {
+              flex-direction: column;
+              align-items: flex-end;
+              gap: 2px;
+            }
+            .total-row span:first-child {
+              min-width: 0;
+              padding-right: 0;
+            }
+            .contact-section {
+              grid-template-columns: 1fr;
+            }
+            .button-container {
+              flex-direction: column;
+            }
+            .btn-print,
+            .btn-download {
+              width: 100%;
+            }
+          }
         </style>
       </head>
       <body>
@@ -711,34 +859,36 @@ export default function Ventas() {
           </div>
 
           <h3 style="font-size: 14px; color: #555; margin: 20px 0 10px 0; text-transform: uppercase;">📦 Productos</h3>
-          <table class="productos-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Producto</th>
-                <th>Dimensiones</th>
-                <th>Color Estructura</th>
-                <th>Color Melamina</th>
-                <th>Cantidad</th>
-                <th class="text-right">Precio Unit.</th>
-                <th class="text-right">Subtotal</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${datos.lineas.map((linea: any, idx: number) => `
+          <div class="productos-table-wrap">
+            <table class="productos-table">
+              <thead>
                 <tr>
-                  <td>${idx + 1}</td>
-                  <td>${linea.producto || '—'}</td>
-                  <td>${linea.dimensiones || '—'}</td>
-                  <td>${linea.colorEstructura || '—'}</td>
-                  <td>${linea.colorMelamina || '—'}</td>
-                  <td>${linea.cantidad}</td>
-                  <td class="text-right">Bs. ${Number(linea.precioVendido).toLocaleString('es-BO', { minimumFractionDigits: 2 })}</td>
-                  <td class="text-right"><strong>Bs. ${Number(linea.subtotal).toLocaleString('es-BO', { minimumFractionDigits: 2 })}</strong></td>
+                  <th>#</th>
+                  <th>Producto</th>
+                  <th>Dimensiones</th>
+                  <th>Color Estructura</th>
+                  <th>Color Melamina</th>
+                  <th>Cantidad</th>
+                  <th class="text-right">Precio Unit.</th>
+                  <th class="text-right">Subtotal</th>
                 </tr>
-              `).join('')}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                ${datos.lineas.map((linea: any, idx: number) => `
+                  <tr>
+                    <td>${idx + 1}</td>
+                    <td>${linea.producto || '—'}</td>
+                    <td>${linea.dimensiones || '—'}</td>
+                    <td>${linea.colorEstructura || '—'}</td>
+                    <td>${linea.colorMelamina || '—'}</td>
+                    <td>${linea.cantidad}</td>
+                    <td class="text-right">Bs. ${Number(linea.precioVendido).toLocaleString('es-BO', { minimumFractionDigits: 2 })}</td>
+                    <td class="text-right"><strong>Bs. ${Number(linea.subtotal).toLocaleString('es-BO', { minimumFractionDigits: 2 })}</strong></td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
 
           <div class="total-section">
             ${datos.deliveryCotizado > 0 ? `<div class="total-row"><span>Delivery Cotizado:</span><span>Bs. ${Number(datos.deliveryCotizado).toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span></div>` : ''}
@@ -788,10 +938,16 @@ export default function Ventas() {
 
               const element = document.getElementById('nota-container');
               const canvas = await html2canvas(element, { 
-                scale: 2, 
+                scale: 1.2,
                 backgroundColor: '#ffffff',
                 useCORS: true,
-                logging: false
+                logging: false,
+                width: element.scrollWidth,
+                height: element.scrollHeight,
+                windowWidth: element.scrollWidth,
+                windowHeight: element.scrollHeight,
+                scrollX: 0,
+                scrollY: 0
               });
               
               const { jsPDF } = window.jspdf;
@@ -852,7 +1008,7 @@ export default function Ventas() {
 *6. Color melamina:* ${colorMel}
 *7. Color acero:* ${colorEst}
 *7.1. Medida del acero:* ${medidas}
-*8. Detalles especificos:* 
+*8. Detalles específicos:* ${nv.detalles_especificos?.trim() || '—'}
 *8.1. Pedido para envio:* 
 *9. Fecha pedido:* ${nv.fecha_pedido}
 *9.1. Hora:* ${nv.hora_entrega || '—'}
@@ -936,6 +1092,7 @@ export default function Ventas() {
       forma_pago:        nv.forma_pago,
       cod_transaccion:   nv.cod_transaccion || null,
       ubicacion_pedido:  nv.ubicacion_pedido || null,
+      detalles_especificos: nv.detalles_especificos || null,
       estado:            1,
     })
 
@@ -1192,6 +1349,7 @@ export default function Ventas() {
                     <th style={{ ...thStyle, textAlign: 'right' }}>Total</th>
                     <th style={thStyle}>Pago</th>
                     <th style={thStyle}>Transaccion</th>
+                    <th style={thStyle}>Nota</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1218,6 +1376,15 @@ export default function Ventas() {
                         </td>
                         <td style={{ ...tdStyle, fontSize: '11px', color: esTruncado ? '#e65100' : '#555', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {esTruncado ? <span title="Dato truncado por Excel">⚠️ {v.cod_transaccion?.replace('TRUNCADO_', '')}</span> : (v.cod_transaccion || '—')}
+                        </td>
+                        <td style={tdStyle} onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); void generarNotaVentaDesdeVenta(v) }}
+                            style={{ backgroundColor: '#0d47a1', color: 'white', border: 'none', borderRadius: '8px', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold' }}
+                          >
+                            🧾 Nota
+                          </button>
                         </td>
                       </tr>
                     )
@@ -1422,6 +1589,16 @@ export default function Ventas() {
                       </select>
                       {erroresCab.ubicacion_pedido && <p style={errMsg}>{erroresCab.ubicacion_pedido}</p>}
                     </div>
+                    <div style={{ gridColumn: 'span 3' }}>
+                      <label style={labelStyle}>Detalles específicos del pedido</label>
+                      <textarea
+                        rows={3}
+                        placeholder="Ej. Puerta de color blanco, entrega en edificio con ascensor, etc."
+                        style={{ ...inputStyle, resize: 'vertical', minHeight: '90px' }}
+                        value={nv.detalles_especificos}
+                        onChange={e => setNv(p => ({ ...p, detalles_especificos: e.target.value }))}
+                      />
+                    </div>
                     <div>
                       <label style={labelStyle}>Forma de pago *</label>
                       <select style={erroresCab.forma_pago ? inputErr : inputStyle} value={nv.forma_pago}
@@ -1596,6 +1773,7 @@ export default function Ventas() {
                       ['Fecha entrega', fmtFecha(nv.fecha_entrega)],
                       ['Hora entrega', nv.hora_entrega || '—'],
                       ['Ubicación', nv.ubicacion_pedido || '—'],
+                      ['Detalles', nv.detalles_especificos || '—'],
                       ['Forma de pago', nv.forma_pago.replace('_', ' ')],
                       ['Anticipo', nv.anticipo ? `Bs. ${parseFloat(nv.anticipo).toLocaleString('es-BO', { minimumFractionDigits: 2 })}` : '—'],
                       ['Delivery cotizado', nv.delivery_cotizado ? `Bs. ${parseFloat(nv.delivery_cotizado).toLocaleString('es-BO', { minimumFractionDigits: 2 })}` : '—'],
@@ -1808,6 +1986,12 @@ export default function Ventas() {
                       {UBICACIONES_PEDIDO.map(ubicacion => <option key={ubicacion} value={ubicacion}>{ubicacion}</option>)}
                     </select>
                   </div>
+                  <div style={{ gridColumn: 'span 3' }}>
+                    <label style={labelStyle}>Detalles específicos del pedido</label>
+                    <textarea rows={3} value={formVenta.detalles_especificos || ''} style={{ ...inputStyle, resize: 'vertical', minHeight: '90px' }}
+                      placeholder="Ej. Puerta de color blanco, entrega en edificio con ascensor, etc."
+                      onChange={e => setFormVenta(f => ({ ...f, detalles_especificos: e.target.value || null }))} />
+                  </div>
                   <div>
                     <label style={labelStyle}>Delivery cotizado (Bs.)</label>
                     <input type="number" step="0.01" value={formVenta.delivery_cotizado ?? ''} style={inputStyle}
@@ -1897,6 +2081,7 @@ export default function Ventas() {
                     ['Fecha entrega', fmtFecha(ventaSel.fecha_entrega)],
                     ['Hora entrega', ventaSel.hora_entrega || '—'],
                     ['Ubicación', ventaSel.ubicacion_pedido || '—'],
+                    ['Detalles', ventaSel.detalles_especificos || '—'],
                     ['Delivery cotizado', fmt(ventaSel.delivery_cotizado)],
                     ['Delivery pagado', fmt(ventaSel.delivery_pagado)],
                     ['Anticipo', fmt(ventaSel.anticipo)],

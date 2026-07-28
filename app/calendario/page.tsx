@@ -12,6 +12,7 @@ interface Pedido {
   fecha_entrega: string | null
   estado: number | null
   ubicacion_pedido: string | null
+  detalles_especificos: string | null
   total?: number | null
   reprogramado: boolean
 }
@@ -176,6 +177,7 @@ useEffect(() => {
         fecha_entrega: v.fecha_entrega,
         estado: v.estado,
         ubicacion_pedido: v.ubicacion_pedido || null,
+        detalles_especificos: v.detalles_especificos || null,
         total: v.total_venta,
         reprogramado: progresoMap[v.cod_venta] || false
       }))
@@ -301,6 +303,7 @@ useEffect(() => {
         vendedor: vendedorNombre,
         reprogramado,
         ubicacion_pedido: ventaData.ubicacion_pedido || null,
+        detalles_especificos: ventaData.detalles_especificos || null,
         detalles: detallesConNombres
       })
 
@@ -660,6 +663,23 @@ useEffect(() => {
                               📍 {pedido.ubicacion_pedido || 'Sin ubicación'}
                             </div>
 
+                            {pedido.detalles_especificos && (
+                              <div
+                                style={{
+                                  marginTop: '5px',
+                                  fontSize: '10px',
+                                  opacity: 0.95,
+                                  lineHeight: 1.3,
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical' as any,
+                                  overflow: 'hidden'
+                                }}
+                              >
+                                {pedido.detalles_especificos}
+                              </div>
+                            )}
+
                             {pedido.reprogramado && (
                               <div
                                 style={{
@@ -811,6 +831,15 @@ useEffect(() => {
                   {pedidoSeleccionado.ubicacion_pedido || 'Sin ubicación'}
                 </div>
               </div>
+
+              {pedidoSeleccionado.detalles_especificos && (
+                <div style={{ gridColumn: '1 / -1', borderTop: '1px solid #eee', paddingTop: '12px', marginTop: '4px' }}>
+                  <strong>Detalles específicos:</strong>
+                  <div style={{ marginTop: '6px', color: '#444', whiteSpace: 'pre-wrap' }}>
+                    {pedidoSeleccionado.detalles_especificos}
+                  </div>
+                </div>
+              )}
 
               {pedidoSeleccionado.reprogramado && (
                 <div>

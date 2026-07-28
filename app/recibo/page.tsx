@@ -8,6 +8,9 @@ export default function ReciboPage() {
   const [cliente, setCliente] = useState<any>(null)
   const [detalles, setDetalles] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [productosMap, setProductosMap] = useState<Record<string, string>>({})
+  const [coloresMap, setColoresMap] = useState<Record<string, string>>({})
+  const [melaminasMap, setMelaminasMap] = useState<Record<string, string>>({})
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   useEffect(() => {
@@ -51,8 +54,29 @@ export default function ReciboPage() {
         .from('detalle_venta')
         .select('*')
         .eq('cod_venta', codVenta)
-      
-      setDetalles(dData || [])
+
+      const detallesData = dData || []
+      setDetalles(detallesData)
+
+      const codigosProductos = [...new Set(detallesData.map((d: any) => d.cod_producto).filter(Boolean))]
+      const codigosColores = [...new Set(detallesData.map((d: any) => d.color_estructura).filter(Boolean))]
+      const codigosMelaminas = [...new Set(detallesData.map((d: any) => d.color_melamina).filter(Boolean))]
+
+      const [{ data: productosData }, { data: coloresData }, { data: melaminasData }] = await Promise.all([
+        codigosProductos.length > 0
+          ? supabase.from('productos').select('codigo, nombre').in('codigo', codigosProductos)
+          : Promise.resolve({ data: [] }),
+        codigosColores.length > 0
+          ? supabase.from('colores').select('codigo_color, detalle').in('codigo_color', codigosColores)
+          : Promise.resolve({ data: [] }),
+        codigosMelaminas.length > 0
+          ? supabase.from('melaminas').select('codigo_melamina, detalle').in('codigo_melamina', codigosMelaminas)
+          : Promise.resolve({ data: [] })
+      ])
+
+      setProductosMap(Object.fromEntries((productosData || []).map((p: any) => [p.codigo, p.nombre])))
+      setColoresMap(Object.fromEntries((coloresData || []).map((c: any) => [c.codigo_color, c.detalle])))
+      setMelaminasMap(Object.fromEntries((melaminasData || []).map((m: any) => [m.codigo_melamina, m.detalle])))
 
     } catch (err: any) {
       console.error("Error detallado:", err)
@@ -99,7 +123,7 @@ export default function ReciboPage() {
         {/* LOGO Y TÍTULO */}
         <div className="flex justify-between items-start border-b-4 border-gray-800 pb-6 mb-8">
           <div>
-            <h1 className="text-3xl font-black text-gray-900">MUEBLES <span className="text-green-700">IS BETTER</span></h1>
+            <h1 className="text-3xl font-black text-gray-900">MUEBLESS <span className="text-green-700">IS BETTER</span></h1>
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Comprobante de Venta</p>
             <div className="mt-4 text-xs text-gray-600">
               <p>Bolivia</p>
@@ -141,17 +165,25 @@ export default function ReciboPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {detalles.map((item, i) => (
-                <tr key={i} className="text-sm">
-                  <td className="py-4">
-                    <p className="font-bold text-gray-800 uppercase">{item.cod_producto}</p>
-                    <p className="text-[10px] text-gray-400 italic font-medium">{item.dimensiones}</p>
-                  </td>
-                  <td className="py-4 text-center font-bold text-gray-600">{item.cantidad}</td>
-                  <td className="py-4 text-right text-gray-600">Bs. {parseFloat(item.precio_vendido).toFixed(2)}</td>
-                  <td className="py-4 text-right font-black text-gray-900">Bs. {parseFloat(item.subtotal).toFixed(2)}</td>
-                </tr>
-              ))}
+              {detalles.map((item, i) => {
+                const productoNombre = productosMap[item.cod_producto] || item.cod_producto || 'Producto'
+                const colorEstructura = coloresMap[item.color_estructura] || item.color_estructura || '—'
+                const colorMelamina = melaminasMap[item.color_melamina] || item.color_melamina || '—'
+
+                return (
+                  <tr key={i} className="text-sm align-top">
+                    <td className="py-4">
+                      <p className="font-bold text-gray-800 uppercase">{productoNombre}</p>
+                      <p className="text-[10px] text-gray-500 mt-1">{item.dimensiones || 'Sin dimensiones'}</p>
+                      <p className="text-[10px] text-gray-500 mt-1">Estructura: {colorEstructura}</p>
+                      <p className="text-[10px] text-gray-500">Melamina: {colorMelamina}</p>
+                    </td>
+                    <td className="py-4 text-center font-bold text-gray-600">{item.cantidad}</td>
+                    <td className="py-4 text-right text-gray-600">Bs. {parseFloat(item.precio_vendido || 0).toFixed(2)}</td>
+                    <td className="py-4 text-right font-black text-gray-900">Bs. {parseFloat(item.subtotal || 0).toFixed(2)}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

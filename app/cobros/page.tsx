@@ -823,6 +823,7 @@ export default function CobrosPage() {
                     <th style={{ padding: '14px 18px', borderBottom: '1px solid #eee' }}>Monto total</th>
                     <th style={{ padding: '14px 18px', borderBottom: '1px solid #eee' }}>Fecha entrega</th>
                     <th style={{ padding: '14px 18px', borderBottom: '1px solid #eee' }}>Estado</th>
+                    <th style={{ padding: '14px 18px', borderBottom: '1px solid #eee' }}>Recibo</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -846,6 +847,22 @@ export default function CobrosPage() {
                         <span style={{ display: 'inline-block', backgroundColor: '#eef3ff', color: '#1b4d89', padding: '5px 10px', borderRadius: '999px', fontWeight: 'bold', fontSize: '13px' }}>
                           {venta.estado != null ? `${venta.estado} - ${ESTADOS_VENTA[venta.estado] || 'Sin nombre'}` : '-'}
                         </span>
+                      </td>
+                      <td style={{ padding: '14px 18px', borderBottom: '1px solid #f0f0f0' }} onClick={(e) => e.stopPropagation()}>
+                        {venta.estado === 5 ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              window.open(`/recibo?id=${venta.cod_venta}`, '_blank', 'noopener,noreferrer')
+                            }}
+                            style={{ border: 'none', backgroundColor: '#0d47a1', color: 'white', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                          >
+                            🧾 Ver recibo
+                          </button>
+                        ) : (
+                          <span style={{ color: '#999', fontSize: '12px' }}>—</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -876,6 +893,18 @@ export default function CobrosPage() {
                       <span>Fecha entrega</span>
                       <FechaEntregaBadge fecha={venta.fecha_entrega} estado={venta.estado} />
                     </div>
+                    {venta.estado === 5 && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          window.open(`/recibo?id=${venta.cod_venta}`, '_blank', 'noopener,noreferrer')
+                        }}
+                        style={{ border: 'none', backgroundColor: '#0d47a1', color: 'white', padding: '8px 10px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px', width: '100%' }}
+                      >
+                        🧾 Ver recibo
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
