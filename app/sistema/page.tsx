@@ -194,6 +194,14 @@ export default function Sistema() {
           </a>
           )}
 
+{/* TARJETA INFORME VENTAS */}
+          {(esAdmin || !!usuario?.cargos?.puede_ver_entregas || !!usuario?.cargos?.puede_ver_mk) && (
+          <a href="/consulta" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>📈</div>
+            <h3 style={{ margin: 0 }}>Informe Ventas</h3>
+          </a>
+          )}
+
 {/* TARJETA BUI */}
           {(esAdmin || !!usuario?.cargos?.puede_ver_entregas || !!usuario?.cargos?.puede_ver_mk) && (
           <a href="/ventas/smart" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
