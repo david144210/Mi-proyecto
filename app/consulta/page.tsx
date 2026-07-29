@@ -341,7 +341,7 @@ export default function ReporteVentasMensual() {
                         paddingAngle={2}
                         dataKey="vendido"
                         nameKey="nombre"
-                        label={({ nombre, percent }) => percent > 0.05 ? `${nombre} (${(percent * 100).toFixed(0)}%)` : ''}
+                        label={({ nombre, percent }: any) => percent > 0.05 ? `${nombre} (${(percent * 100).toFixed(0)}%)` : ''}
                       >
                         {reporteVendedores.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
