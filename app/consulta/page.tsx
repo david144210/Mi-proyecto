@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '../../lib/supabase' // Ajusta tu ruta
+import { supabase } from '../../lib/supabase' // Ajusta tu ruta si es necesario
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell
@@ -76,7 +76,7 @@ export default function ReporteVentasMensual() {
         .select('total_venta, anticipo')
         .gte('fecha_pedido', iniAnt).lte('fecha_pedido', finAnt).gt('estado', 0)
 
-      // 3. Cobranzas del mes actual (para los KPIs y gráficas de ingresos del periodo)
+      // 3. Cobranzas del mes actual (para flujos de caja y KPIs de ingresos del periodo)
       const { data: cobrosActual } = await supabase.from('cobranzas')
         .select('cod_venta, total_cobrado, observaciones, created_at, ventas!inner(cod_vendedor)')
         .gte('created_at', `${iniActual}T00:00:00`).lte('created_at', `${finActual}T23:59:59`)
@@ -86,8 +86,6 @@ export default function ReporteVentasMensual() {
         .gte('created_at', `${iniAnt}T00:00:00`).lte('created_at', `${finAnt}T23:59:59`)
 
       // ── 4. CONSULTA HISTÓRICA PARA AUDITORÍA ──
-      // Traemos TODAS las cobranzas existentes en la base de datos para las ventas de este mes,
-      // sin restricción de fecha, para saber si posteriormente terminaron de pagar el saldo.
       const codsVentasActuales = ventasActual?.map(v => v.cod_venta) || []
       let historialCobrosVentas: any[] = []
       
@@ -118,7 +116,6 @@ export default function ReporteVentasMensual() {
         })
       }
 
-      // Estructura para auditar cada venta del mes actual de forma integral
       const controlVentas: Record<number, { 
         cod_venta: number, 
         vendedor: string, 
@@ -148,13 +145,12 @@ export default function ReporteVentasMensual() {
           totalVenta,
           anticipo,
           cobradoEnMes: 0,
-          cobradoHistoricoTotal: anticipo, // Arranca sumando el anticipo inicial
+          cobradoHistoricoTotal: anticipo,
           observacionesMes: [],
           observacionesHistoricas: []
         }
       })
 
-      // Procesar Cobranzas del mes actual (para flujos de caja del mes)
       cobrosActual?.forEach((c: any) => {
         const monto = Number(c.total_cobrado) || 0
         cobradoAct += monto
@@ -171,10 +167,8 @@ export default function ReporteVentasMensual() {
         }
       })
 
-      // Procesar Historial Completo de Cobros por venta (para evaluar saldo real pendiente)
       historialCobrosVentas.forEach((c: any) => {
         if (controlVentas[c.cod_venta]) {
-          // Evitamos duplicar el monto del anticipo si ya se consideró, sumando cada registro de cobranza histórica
           controlVentas[c.cod_venta].cobradoHistoricoTotal += Number(c.total_cobrado) || 0
           if (c.observaciones) {
             controlVentas[c.cod_venta].observacionesHistoricas.push(c.observaciones)
@@ -182,9 +176,8 @@ export default function ReporteVentasMensual() {
         }
       })
 
-      // Auditoría: Identificamos ventas donde el total histórico aún no cubre la venta
+      // Auditoría: Ventas donde el saldo histórico real sigue pendiente
       const discrepancias = Object.values(controlVentas).filter(item => {
-        // Hay saldo pendiente real si la venta total supera lo pagado históricamente (con tolerancia de redondeo de 1 Bs)
         return Math.abs(item.totalVenta - item.cobradoHistoricoTotal) > 1
       }).map(item => ({
         ...item,
@@ -327,7 +320,7 @@ export default function ReporteVentasMensual() {
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
                       <XAxis dataKey="nombre" axisLine={false} tickLine={false} tick={{fill: COLORS.textLight, fontSize: 12}} />
                       <YAxis axisLine={false} tickLine={false} tick={{fill: COLORS.textLight, fontSize: 12}} width={80} tickFormatter={(v) => `Bs ${(v/1000)}k`} />
-                      <Tooltip formatter={(value: number) => fmt(value)} cursor={{fill: '#f4f7f6'}} />
+                      <Tooltip formatter={(value: any) => fmt(Number(value) || 0)} cursor={{fill: '#f4f7f6'}} />
                       <Legend iconType="circle" wrapperStyle={{ fontSize: '13px' }}/>
                       <Bar dataKey="vendido" name="Total Vendido" fill={COLORS.primary} radius={[4, 4, 0, 0]} />
                       <Bar dataKey="cobrado" name="Total Cobrado" fill={COLORS.accent} radius={[4, 4, 0, 0]} />
@@ -354,7 +347,7 @@ export default function ReporteVentasMensual() {
                           <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(value: number) => fmt(value)} />
+                      <Tooltip formatter={(value: any) => fmt(Number(value) || 0)} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
