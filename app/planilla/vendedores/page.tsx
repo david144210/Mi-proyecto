@@ -1,373 +1,528 @@
 'use client'
 
 // app/planilla/vendedores/page.tsx
-// Planilla específica para vendedores:
-// muestra ventas del mes, nivel de escala alcanzado y cálculo de pago
+// Planilla de Comisiones de Vendedores conectada al Sistema de Ventas de Supabase
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '../../../lib/supabase'
 
-type VendedorPlanilla = {
-  personal_id: number; vendedor_id: number; nombre: string; carnet: string
-  cargo: string; sucursal: string; alias: string | null; tipo_vendedor: string
-  total_ventas: number; num_ventas: number; nivel: number | null
-  sueldo_base: number; bono: number; comision_pct: number
-  monto_comision: number; total_pago: number; descuento_seguro: number; pago_neto: number
-}
-type Escala = { nivel: number; venta_min: number; venta_max: number | null; sueldo_base: number; bono: number; comision_pct: number }
-type DetalleVenta = { cod_venta: number; fecha_pedido: string; total_venta: number; cliente: string }
-
-const fmt    = (n: number) => new Intl.NumberFormat('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
-const fmtMes = (s: string) => new Date(s + '-02').toLocaleDateString('es-BO', { month: 'long', year: 'numeric' })
-const mesStr = (d: Date)   => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-const NIVEL_COLOR = ['', '#3b82f6', '#22c55e', '#f59e0b', '#8b5cf6', '#ec4899']
-const TIPO_CFG: Record<string, { label: string; bg: string; color: string }> = {
-  planta:     { label: 'Planta',     bg: '#eff6ff', color: '#1e40af' },
-  tienda:     { label: 'Tienda',     bg: '#f0fdf4', color: '#166534' },
-  digital:    { label: 'Digital',    bg: '#fdf4ff', color: '#7e22ce' },
-  externo:    { label: 'Externo',    bg: '#fff7ed', color: '#9a3412' },
-  freelancer: { label: 'Freelancer', bg: '#f0fdf4', color: '#065f46' },
+// ── Utilidades de Fechas ──────────────────────────────────────────────────────
+const getRangoFechas = (mesStr: string) => {
+  const [anio, mes] = mesStr.split('-')
+  const inicio = `${mesStr}-01`
+  const fin = new Date(parseInt(anio), parseInt(mes), 0).toISOString().split('T')[0]
+  return { inicio, fin }
 }
 
-function FilaD({ label, val, color, bold }: { label: string; val: string; color: string; bold?: boolean }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px dashed #eee' }}>
-      <span style={{ fontSize: '12px', color: '#555' }}>{label}</span>
-      <span style={{ fontSize: bold ? '14px' : '13px', fontWeight: bold ? 'bold' : 'normal', color }}>{val}</span>
-    </div>
-  )
+const fmt = (n: number) => n.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+// ── Tipos ────────────────────────────────────────────────────────────────────
+type TipoVendedor = 'Planta' | 'Virtual' | string
+
+type Vendedor = {
+  id: number
+  nombre: string
+  ci: string
+  alias: string | null
+  tipo: TipoVendedor
+  activo: boolean
+  bono_digital: boolean
+  personal_id: number | null
+  personal?: { id: number; usuario: string; carnet: string; cargo: string }
 }
 
-const thSt:   React.CSSProperties = { padding: '13px 16px', textAlign: 'left', fontSize: '11px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em' }
-const tdSt:   React.CSSProperties = { padding: '13px 16px', fontSize: '13px' }
-const secTit: React.CSSProperties = { margin: '0 0 8px', fontSize: '10px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', letterSpacing: '0.1em' }
-const btnP:   React.CSSProperties = { flex: 2, padding: '12px', backgroundColor: '#222', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', color: 'white', fontSize: '14px' }
-const btnS:   React.CSSProperties = { flex: 1, padding: '12px', backgroundColor: '#f5f5f5', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', color: '#666', fontSize: '14px' }
+type Escala = {
+  id: number
+  nombre?: string
+  temporada?: string
+  activa: boolean
+  nivel: number
+  tipo: TipoVendedor
+  categoria: string
+  venta_min: number
+  sueldo_base: number
+  comision_pct: number
+}
+
+// Mapa de colores por nivel de escala
+const NIVEL_COLOR: Record<number, string> = {
+  1: '#64748b', // Gris
+  2: '#2563eb', // Azul
+  3: '#0891b2', // Cyan
+  4: '#059669', // Verde
+  5: '#d97706', // Naranja
+  6: '#7c3aed', // Púrpura
+}
 
 export default function PlanillaVendedores() {
-  const [loading,    setLoading]    = useState(true)
-  const [mes,        setMes]        = useState(mesStr(new Date()))
-  const [escalas,    setEscalas]    = useState<Escala[]>([])
-  const [vendedores, setVendedores] = useState<VendedorPlanilla[]>([])
-  const [calculando, setCalculando] = useState(false)
-  const [error,      setError]      = useState('')
-  const [detalle,    setDetalle]    = useState<VendedorPlanilla | null>(null)
-  const [ventas,     setVentas]     = useState<DetalleVenta[]>([])
-  const [cargandoV,  setCargandoV]  = useState(false)
-  const [config,     setConfig]     = useState<any>(null)
-  const [filtroTipo, setFiltroTipo] = useState('')
+  const [vendedores, setVendedores] = useState<Vendedor[]>([])
+  const [escalas, setEscalas] = useState<Escala[]>([])
+  const [temporadaSel, setTemporadaSel] = useState<string>('')
+  const [loading, setLoading] = useState(true)
+  const [busqueda, setBusqueda] = useState('')
+  const [filtroTipo, setFiltroTipo] = useState<string>('')
+
+  // Selección de Mes libre (AAAA-MM)
+  const [mesSeleccionado, setMesSeleccionado] = useState(() => {
+    const hoy = new Date()
+    return `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
+  })
+
+  // Ventas automáticas calculadas desde Supabase: { [cod_vendedor]: montoTotalVendido }
+  const [mapaVentas, setMapaVentas] = useState<Record<number, number>>({})
 
   useEffect(() => {
     const carnet = localStorage.getItem('carnet')
     if (!carnet) return void (window.location.replace('/'))
+
     supabase.from('personal').select('*, cargos(*)').eq('carnet', carnet).eq('estado', true).single()
       .then(({ data }) => {
         if (!data) return window.location.replace('/')
         const c = data.cargos
-        if (!c?.es_admin && !c?.puede_gestionar_rrhh) return window.location.replace('/sistema')
-        Promise.all([
-          supabase.from('escalas_vendedor').select('*').eq('activa', true).order('nivel').then(({ data: d }) => setEscalas(d || [])),
-          supabase.from('configuracion_planilla').select('*').single().then(({ data: d }) => { if (d) setConfig(d) }),
-        ]).finally(() => setLoading(false))
+        if (!c?.es_admin && !c?.puede_gestionar_rrhh && !c?.puede_ver_planillas) {
+          return window.location.replace('/sistema')
+        }
+        Promise.all([loadVendedores(), loadEscalas()]).finally(() => setLoading(false))
       })
   }, [])
 
-  const calcular = async () => {
-    if (!escalas.length) return setError('No hay escala activa. Configura una en RRHH → Escalas.')
-    setCalculando(true); setError('')
-    try {
-      const mesDate = `${mes}-01`
-
-      // Paso 1: vendedores activos con personal_id
-      const { data: vends, error: errVends } = await supabase.from('vendedores')
-        .select('id, nombre, ci, alias, tipo, personal_id')
-        .eq('activo', true)
-        .not('personal_id', 'is', null)
-
-      console.log('Vendedores encontrados:', vends?.length, 'Error:', errVends)
-      if (errVends) throw new Error('Error al cargar vendedores: ' + errVends.message)
-      if (!vends?.length) throw new Error('Sin vendedores activos con trabajador asignado')
-
-      // Paso 2: resolver datos de personal por ids únicos
-      const personalIds = [...new Set(vends.map((v: any) => v.personal_id))]
-      const { data: personalData } = await supabase.from('personal')
-        .select('id, usuario, carnet, cargo, sucursal')
-        .in('id', personalIds)
-
-      const personalMap: Record<number, any> = {}
-      ;(personalData || []).forEach((p: any) => { personalMap[p.id] = p })
-
-      // Paso 3: ventas del mes por vendedor
-      const { data: ventasMes } = await supabase.from('ventas_mes_vendedor')
-        .select('cod_vendedor, total_ventas, num_ventas').eq('mes', mesDate)
-
-      const ventasMap: Record<number, { total: number; num: number }> = {}
-      ;(ventasMes || []).forEach((v: any) => { ventasMap[v.cod_vendedor] = { total: Number(v.total_ventas), num: Number(v.num_ventas) } })
-
-      // Paso 4: calcular por vendedor
-      const resultado: VendedorPlanilla[] = (vends as any[]).map(v => {
-        const persona     = personalMap[v.personal_id]
-        const totalVentas = ventasMap[v.id]?.total || 0
-        const numVentas   = ventasMap[v.id]?.num   || 0
-        const nivelEscala = escalas.slice().reverse().find(e => totalVentas >= e.venta_min)
-        const sueldoBase  = nivelEscala?.sueldo_base  || 0
-        const bono        = nivelEscala?.bono         || 0
-        const comisionPct = nivelEscala?.comision_pct || 0
-        const mtoComision = totalVentas * (comisionPct / 100)
-        const totalPago   = sueldoBase + bono + mtoComision
-        const descSeguro  = totalPago * ((config?.aporte_empleado_pct || 3) / 100)
-        return {
-          personal_id: v.personal_id, vendedor_id: v.id,
-          nombre: persona?.usuario || v.nombre, carnet: persona?.carnet || v.ci,
-          cargo: persona?.cargo || '—', sucursal: persona?.sucursal || '—',
-          alias: v.alias, tipo_vendedor: v.tipo,
-          total_ventas: totalVentas, num_ventas: numVentas,
-          nivel: nivelEscala?.nivel || null,
-          sueldo_base: sueldoBase, bono, comision_pct: comisionPct,
-          monto_comision: mtoComision, total_pago: totalPago,
-          descuento_seguro: descSeguro, pago_neto: Math.max(0, totalPago - descSeguro),
-        }
-      }).sort((a, b) => b.total_ventas - a.total_ventas)
-
-      setVendedores(resultado)
-    } catch (e: any) { setError('Error: ' + e.message) }
-    finally { setCalculando(false) }
+  const loadVendedores = async () => {
+    const { data } = await supabase
+      .from('vendedores')
+      .select('id, nombre, ci, alias, tipo, activo, bono_digital, personal_id, personal(id, usuario, carnet, cargo)')
+      .eq('activo', true)
+      .order('nombre')
+    setVendedores((data as any) || [])
   }
 
-  const verDetalle = async (v: VendedorPlanilla) => {
-    setDetalle(v); setVentas([]); setCargandoV(true)
-    try {
-      // Mismo rango que ventas_mes_vendedor: usa creado_en con DATE_TRUNC
-      const [anio, mesNum] = mes.split('-').map(Number)
-      const inicio = new Date(anio, mesNum - 1, 1).toISOString()
-      const fin    = new Date(anio, mesNum, 0, 23, 59, 59).toISOString()
-      const { data, error: errV } = await supabase.from('ventas')
-        .select('cod_venta, fecha_pedido, total_venta, creado_en, clientes(nombre)')
-        .eq('cod_vendedor', v.vendedor_id)   // id del vendedor, no cod_venta
-        .gte('creado_en', inicio)
-        .lte('creado_en', fin)
-        .not('estado', 'in', '(0,99)')
-        .order('creado_en', { ascending: false })
-      if (errV) console.error('Error ventas:', JSON.stringify(errV))
-      setVentas((data || []).map((d: any) => ({
-        cod_venta:    d.cod_venta,
-        fecha_pedido: d.fecha_pedido || d.creado_en?.split('T')[0],
-        total_venta:  Number(d.total_venta),
-        cliente:      d.clientes?.nombre || '—',
-      })))
-    } catch (e) { console.error(e) }
-    finally { setCargandoV(false) }
+  const loadEscalas = async () => {
+    const { data } = await supabase
+      .from('escalas_vendedor')
+      .select('*')
+      .eq('activa', true)
+      .order('nivel', { ascending: true })
+    
+    const listaEscalas = (data as any) || []
+    setEscalas(listaEscalas)
+
+    const temporadas = Array.from(new Set(listaEscalas.map((e: Escala) => e.temporada).filter(Boolean)))
+    if (temporadas.length > 0) {
+      const temporada2026 = temporadas.find(t => String(t).includes('2026')) || temporadas[0]
+      setTemporadaSel(String(temporada2026))
+    }
   }
 
-  const generarPDF = (v: VendedorPlanilla, vts: DetalleVenta[]) => {
-    const nc = v.nivel ? NIVEL_COLOR[v.nivel] || '#666' : '#666'
-    const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Boleta ${v.nombre}</title>
-<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;color:#1a1a1a}.page{max-width:680px;margin:0 auto;padding:40px 48px}.header{border-bottom:3px solid #1a1a1a;padding-bottom:20px;margin-bottom:24px;display:flex;justify-content:space-between}.empresa{font-size:22px;font-weight:900;text-transform:uppercase}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 32px;margin-bottom:24px;padding:16px;background:#f9f9f9;border-radius:8px}.il{font-size:9px;font-weight:bold;color:#aaa;text-transform:uppercase;letter-spacing:.1em}.iv{font-size:13px;font-weight:bold}.fila{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #f0f0f0;font-size:13px}.pos{color:#166534;font-weight:bold}.neg{color:#991b1b;font-weight:bold}.total-box{background:#1a1a1a;color:white;border-radius:10px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;margin:20px 0}.vt{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}.vt th{background:#f9f9f9;padding:8px 12px;text-align:left;font-size:10px;text-transform:uppercase;color:#888}.vt td{padding:8px 12px;border-bottom:1px solid #f5f5f5}.footer{margin-top:40px;padding-top:16px;border-top:1px solid #eee;display:flex;justify-content:space-between}.fl{width:160px;border-top:1px solid #aaa;margin:0 auto 6px}.flab{font-size:10px;color:#888;text-align:center}@media print{body{print-color-adjust:exact}}</style></head>
-<body><div class="page">
-<div class="header"><div><div class="empresa">Muebless is Better</div><div style="font-size:12px;color:#888;letter-spacing:.15em;text-transform:uppercase;margin-top:4px">Boleta de Comisiones</div></div><div style="text-align:right"><div style="font-size:16px;font-weight:900">${fmtMes(mes).toUpperCase()}</div><div style="font-size:11px;color:#888;margin-top:2px">${new Date().toLocaleDateString('es-BO')}</div></div></div>
-<div class="info-grid"><div><div class="il">Vendedor</div><div class="iv">${v.nombre}</div></div><div><div class="il">Carnet</div><div class="iv">${v.carnet}</div></div><div><div class="il">Cargo</div><div class="iv">${v.cargo}</div></div><div><div class="il">Sucursal</div><div class="iv">${v.sucursal}</div></div><div><div class="il">Tipo</div><div class="iv">${TIPO_CFG[v.tipo_vendedor]?.label || v.tipo_vendedor}</div></div><div><div class="il">ID Vendedor</div><div class="iv">#${v.vendedor_id}</div></div></div>
-${v.nivel ? `<div style="display:inline-block;padding:4px 16px;border-radius:20px;font-size:12px;font-weight:bold;color:white;background:${nc};margin-bottom:20px">NIVEL ${v.nivel} — ${v.comision_pct}% comisión</div>` : ''}
-<div style="margin-bottom:20px"><div style="font-size:10px;font-weight:bold;color:#888;text-transform:uppercase;letter-spacing:.15em;border-bottom:1px solid #eee;padding-bottom:6px;margin-bottom:10px">Haberes</div>
-<div class="fila"><span>Sueldo base${v.nivel ? ` (Nivel ${v.nivel})` : ''}</span><span class="pos">Bs. ${fmt(v.sueldo_base)}</span></div>
-${v.bono > 0 ? `<div class="fila"><span>Bono de nivel</span><span class="pos">Bs. ${fmt(v.bono)}</span></div>` : ''}
-<div class="fila"><span>Comisiones (${v.comision_pct}% sobre Bs. ${fmt(v.total_ventas)}) — ${v.num_ventas} ventas</span><span class="pos">Bs. ${fmt(v.monto_comision)}</span></div>
-<div class="fila" style="border-top:1px solid #ddd;margin-top:4px;padding-top:8px"><strong>Total bruto</strong><span class="pos" style="font-size:15px">Bs. ${fmt(v.total_pago)}</span></div></div>
-<div style="margin-bottom:20px"><div style="font-size:10px;font-weight:bold;color:#888;text-transform:uppercase;letter-spacing:.15em;border-bottom:1px solid #eee;padding-bottom:6px;margin-bottom:10px">Descuentos</div>
-<div class="fila"><span>Seguro salud CNS (${config?.aporte_empleado_pct || 3}%)</span><span class="neg">- Bs. ${fmt(v.descuento_seguro)}</span></div></div>
-<div class="total-box"><div><div style="font-size:11px;opacity:.6;text-transform:uppercase;letter-spacing:.1em">Pago Neto</div><div style="font-size:11px;opacity:.4;margin-top:2px">${fmtMes(mes)}</div></div><div style="font-size:28px;font-weight:900">Bs. ${fmt(v.pago_neto)}</div></div>
-${vts.length > 0 ? `<div><div style="font-size:10px;font-weight:bold;color:#888;text-transform:uppercase;letter-spacing:.15em;border-bottom:1px solid #eee;padding-bottom:6px;margin-bottom:8px">Detalle de ventas</div>
-<table class="vt"><thead><tr><th>#Venta</th><th>Fecha</th><th>Cliente</th><th style="text-align:right">Monto</th></tr></thead><tbody>
-${vts.map(vt => `<tr><td style="font-family:monospace;color:#666">#${vt.cod_venta}</td><td>${new Date(vt.fecha_pedido+'T00:00:00').toLocaleDateString('es-BO',{day:'2-digit',month:'short'})}</td><td>${vt.cliente}</td><td style="text-align:right;font-weight:bold;color:#166534">Bs. ${fmt(vt.total_venta)}</td></tr>`).join('')}
-<tr style="border-top:2px solid #ddd"><td colspan="3" style="font-weight:bold;padding-top:8px">Total</td><td style="text-align:right;font-weight:bold;font-size:14px;padding-top:8px">Bs. ${fmt(v.total_ventas)}</td></tr>
-</tbody></table></div>` : ''}
-<div class="footer"><div><div class="fl"></div><div class="flab">Firma del vendedor</div></div><div><div class="fl"></div><div class="flab">RRHH / Administración</div></div></div>
-</div><script>window.onload=()=>window.print()</script></body></html>`
-    const win = window.open('', '_blank')
-    if (win) { win.document.write(html); win.document.close() }
+  // ── Cargar Ventas Automáticas desde Supabase según el Mes ──────────────────
+  const cargarVentasMes = useCallback(async (mesStr: string) => {
+    const { inicio, fin } = getRangoFechas(mesStr)
+
+    // Consulta de ventas válidas en la tabla 'ventas'
+    const { data: ventas, error } = await supabase
+      .from('ventas')
+      .select('cod_vendedor, total_venta')
+      .gte('fecha_pedido', inicio)
+      .lte('fecha_pedido', fin)
+      .gt('estado', 0) // Excluir ventas anuladas
+
+    if (error) {
+      console.error('Error cargando ventas automáticas:', error)
+      return
+    }
+
+    // Agrupar y sumar montos por vendedor
+    const mapaTotales: Record<number, number> = {}
+    ventas?.forEach((v: any) => {
+      const codVendedor = v.cod_vendedor
+      const monto = Number(v.total_venta) || 0
+      if (codVendedor) {
+        mapaTotales[codVendedor] = (mapaTotales[codVendedor] || 0) + monto
+      }
+    })
+
+    setMapaVentas(mapaTotales)
+  }, [])
+
+  useEffect(() => {
+    cargarVentasMes(mesSeleccionado)
+  }, [mesSeleccionado, cargarVentasMes])
+
+  // ── Temporadas disponibles ──────────────────────────────────────────────────
+  const temporadasDisponibles = useMemo(() => {
+    const set = new Set<string>()
+    escalas.forEach(e => {
+      if (e.temporada) set.add(e.temporada)
+    })
+    return Array.from(set)
+  }, [escalas])
+
+  // ── Escalas filtradas por temporada ─────────────────────────────────────────
+  const escalasActuales = useMemo(() => {
+    if (!temporadaSel) return escalas
+    return escalas.filter(e => e.temporada === temporadaSel)
+  }, [escalas, temporadaSel])
+
+  const escalasPlanta = useMemo(() => {
+    return escalasActuales.filter(e => (e.tipo || '').toString().trim().toLowerCase() === 'planta')
+  }, [escalasActuales])
+
+  const escalasVirtual = useMemo(() => {
+    return escalasActuales.filter(e => (e.tipo || '').toString().trim().toLowerCase() === 'virtual')
+  }, [escalasActuales])
+
+  // ── Función de cálculo individual ──────────────────────────────────────────
+  const calcularComision = (v: Vendedor, ventaMonto: number) => {
+    const tipoVendedor = (v.tipo || '').toString().trim().toLowerCase()
+
+    const escalasDelTipo = escalasActuales
+      .filter(e => (e.tipo || '').toString().trim().toLowerCase() === tipoVendedor)
+      .sort((a, b) => a.venta_min - b.venta_min)
+    
+    if (escalasDelTipo.length === 0) {
+      return { escalaAlcanzada: null, sueldoBase: 0, pctBase: 0, pctBono: 0, pctTotal: 0, montoComision: 0, totalNeto: 0 }
+    }
+
+    let escalaAlcanzada = escalasDelTipo[0]
+    for (const esc of escalasDelTipo) {
+      if (ventaMonto >= esc.venta_min) {
+        escalaAlcanzada = esc
+      } else {
+        break
+      }
+    }
+
+    const pctBase = escalaAlcanzada.comision_pct || 0
+    const pctBono = v.bono_digital ? 0.5 : 0.0
+    const pctTotal = pctBase + pctBono
+    const montoComision = ventaMonto * (pctTotal / 100)
+
+    // Planta: 0 de Sueldo Base en esta planilla.
+    // Virtual: Sueldo Base asignado en la escala.
+    const sueldoBase = tipoVendedor === 'planta' ? 0 : (escalaAlcanzada.sueldo_base || 0)
+    const totalNeto = sueldoBase + montoComision
+
+    return { escalaAlcanzada, sueldoBase, pctBase, pctBono, pctTotal, montoComision, totalNeto }
   }
 
-  const exportarCSV = () => {
-    const h = ['Vendedor','Carnet','Cargo','Sucursal','Tipo','Nro Ventas','Total Ventas','Nivel','Sueldo','Bono','Comisión %','Monto Comisión','Total Bruto','Desc. CNS','Pago Neto']
-    const r = vf.map(v => [v.nombre,v.carnet,v.cargo,v.sucursal,v.tipo_vendedor,v.num_ventas,v.total_ventas,v.nivel||'—',v.sueldo_base,v.bono,v.comision_pct,v.monto_comision,v.total_pago,v.descuento_seguro,v.pago_neto])
-    const csv = [h,...r].map(row => row.map(c=>`"${c}"`).join(',')).join('\n')
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}))
-    a.download = `planilla_vendedores_${mes}.csv`; a.click()
-  }
+  // ── Lista procesada con Ventas Automáticas ──────────────────────────────
+  const calculosPlanilla = useMemo(() => {
+    return vendedores.map(v => {
+      const vNum = mapaVentas[v.id] || 0
+      const calc = calcularComision(v, vNum)
+      return { vendedor: v, ventaMonto: vNum, ...calc }
+    })
+  }, [vendedores, escalasActuales, mapaVentas])
 
-  const vf = useMemo(() => vendedores.filter(v => !filtroTipo || v.tipo_vendedor === filtroTipo), [vendedores, filtroTipo])
-  const totales = useMemo(() => ({ ventas: vf.reduce((s,v)=>s+v.total_ventas,0), neto: vf.reduce((s,v)=>s+v.pago_neto,0), comisiones: vf.reduce((s,v)=>s+v.monto_comision,0), bruto: vf.reduce((s,v)=>s+v.total_pago,0) }), [vf])
+  const planillaFiltrada = useMemo(() => {
+    return calculosPlanilla.filter(item => {
+      const tipo = (item.vendedor.tipo || '').toString().trim().toLowerCase()
+      if (filtroTipo && tipo !== filtroTipo.toLowerCase()) return false
+      if (busqueda) {
+        const q = busqueda.toLowerCase()
+        const v = item.vendedor
+        const match = [v.nombre, v.ci, v.alias, v.personal?.usuario].some(s => s?.toLowerCase().includes(q))
+        if (!match) return false
+      }
+      return true
+    })
+  }, [calculosPlanilla, filtroTipo, busqueda])
 
-  if (loading) return <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Arial,sans-serif'}}><p style={{color:'#999'}}>Cargando...</p></div>
+  // Totales acumulados
+  const totales = useMemo(() => {
+    return calculosPlanilla.reduce((acc, curr) => ({
+      totalVentas: acc.totalVentas + curr.ventaMonto,
+      totalSueldosVirtual: acc.totalSueldosVirtual + curr.sueldoBase,
+      totalComisiones: acc.totalComisiones + curr.montoComision,
+      totalNetoPagar: acc.totalNetoPagar + curr.totalNeto,
+    }), { totalVentas: 0, totalSueldosVirtual: 0, totalComisiones: 0, totalNetoPagar: 0 })
+  }, [calculosPlanilla])
+
+  if (loading) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Arial, sans-serif' }}>
+      <p style={{ color: '#002855', fontWeight: 'bold' }}>Cargando datos de comisiones...</p>
+    </div>
+  )
 
   return (
-    <div style={{fontFamily:'Arial,sans-serif',minHeight:'100vh',backgroundColor:'#f5f5f5'}}>
-      <nav style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'15px 40px',backgroundColor:'#222',color:'white',boxSizing:'border-box' as const,flexWrap:'wrap' as const,gap:'10px'}}>
-        <a href="/planilla" style={{fontWeight:'bold',fontSize:'16px',color:'white',textDecoration:'none'}}>← Planilla</a>
-        <span style={{color:'#a3c47d',fontWeight:'bold'}}>Planilla Vendedores</span>
-        <div style={{display:'flex',gap:'10px'}}>
-          {vf.length > 0 && <button onClick={exportarCSV} style={{backgroundColor:'transparent',color:'#a3c47d',border:'1px solid #a3c47d',borderRadius:'20px',padding:'7px 14px',fontWeight:'bold',fontSize:'11px',cursor:'pointer'}}>📥 CSV</button>}
+    <div style={{ fontFamily: 'Arial, sans-serif', minHeight: '100vh', backgroundColor: '#f8fafc', paddingBottom: '60px' }}>
+      
+      {/* Navbar Superior */}
+      <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 40px', backgroundColor: '#002855', color: 'white', flexWrap: 'wrap', gap: '15px' }}>
+        <a href="/rrhh" style={{ fontWeight: 'bold', fontSize: '15px', color: 'white', textDecoration: 'none' }}>← Volver a RRHH</a>
+        
+        <span style={{ color: '#d4af37', fontWeight: 'bold', letterSpacing: '0.05em', fontSize: '16px' }}>
+          MUEBLESS IS BETTER — Planilla de Comisiones
+        </span>
+        
+        {/* Selectores de Mes Libre y Temporada */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+          
+          {/* SELECTOR DE MES CUALQUIERA (INPUT TYPE MONTH) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: 'rgba(255,255,255,0.08)', padding: '4px 10px', borderRadius: '6px' }}>
+            <span style={{ fontSize: '11px', color: '#d4af37', textTransform: 'uppercase', fontWeight: 'bold' }}>📅 Mes de Evaluación:</span>
+            <input 
+              type="month" 
+              value={mesSeleccionado}
+              onChange={(e) => setMesSeleccionado(e.target.value)}
+              style={{
+                padding: '4px 8px', borderRadius: '4px', border: '1px solid #d4af37',
+                backgroundColor: '#ffffff', color: '#002855', fontWeight: 'bold', fontSize: '12px', cursor: 'pointer', outline: 'none'
+              }}
+            />
+          </div>
+
+          {/* SELECTOR DE TEMPORADA */}
+          {temporadasDisponibles.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: 'rgba(255,255,255,0.08)', padding: '4px 10px', borderRadius: '6px' }}>
+              <span style={{ fontSize: '11px', color: '#d4af37', textTransform: 'uppercase', fontWeight: 'bold' }}>🏆 Temporada:</span>
+              <select 
+                value={temporadaSel} 
+                onChange={e => setTemporadaSel(e.target.value)}
+                style={{ padding: '5px 10px', borderRadius: '4px', border: '1px solid #d4af37', backgroundColor: '#ffffff', color: '#002855', fontWeight: 'bold', fontSize: '12px', cursor: 'pointer', outline: 'none' }}
+              >
+                {temporadasDisponibles.map(temp => (
+                  <option key={temp} value={temp}>{temp}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
         </div>
       </nav>
 
-      <div style={{padding:'28px 40px',maxWidth:'1200px',margin:'0 auto'}}>
-        {/* Controles */}
-        <div style={{display:'flex',gap:'12px',marginBottom:'24px',alignItems:'center',flexWrap:'wrap' as const}}>
-          <input type="month" value={mes} onChange={e=>setMes(e.target.value)} style={{padding:'9px 14px',border:'1px solid #e5e5e5',borderRadius:'10px',fontSize:'14px',outline:'none',backgroundColor:'white'}} />
-          <select value={filtroTipo} onChange={e=>setFiltroTipo(e.target.value)} style={{padding:'9px 14px',border:'1px solid #e5e5e5',borderRadius:'10px',fontSize:'13px',outline:'none',backgroundColor:'white'}}>
-            <option value="">Todos los tipos</option>
-            {Object.entries(TIPO_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
-          </select>
-          <button onClick={calcular} disabled={calculando} style={{backgroundColor:calculando?'#ccc':'#222',color:'white',border:'none',borderRadius:'10px',padding:'9px 24px',fontWeight:'bold',fontSize:'13px',cursor:calculando?'not-allowed':'pointer'}}>
-            {calculando ? '⚡ Calculando...' : '⚡ Calcular'}
-          </button>
-          <a href="/rrhh/escalas" style={{color:'#888',fontSize:'12px',textDecoration:'none',fontWeight:'bold'}}>⚙ Escala activa →</a>
+      <div style={{ padding: '28px 40px', maxWidth: '1280px', margin: '0 auto' }}>
+
+        {/* Banner Informativo */}
+        <div style={{ backgroundColor: '#e0f2fe', borderLeft: '4px solid #0284c7', padding: '12px 18px', borderRadius: '6px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+          <span style={{ color: '#0369a1', fontWeight: 'bold', fontSize: '14px' }}>
+            Periodo seleccionado: <u style={{ textUnderlineOffset: '3px' }}>{mesSeleccionado}</u>
+          </span>
+          <span style={{ fontSize: '12px', color: '#0284c7', fontWeight: 'bold' }}>
+            ⚡ Montos de ventas calculados automáticamente desde el Sistema de Ventas
+          </span>
         </div>
 
-        {/* Escala preview */}
-        {escalas.length > 0 && (
-          <div style={{backgroundColor:'white',borderRadius:'14px',padding:'16px 20px',marginBottom:'24px',boxShadow:'0 1px 6px rgba(0,0,0,0.06)'}}>
-            <p style={{margin:'0 0 10px',fontSize:'11px',fontWeight:'bold',color:'#888',textTransform:'uppercase' as const,letterSpacing:'0.08em'}}>Escala activa</p>
-            <div style={{display:'flex',gap:'8px',flexWrap:'wrap' as const}}>
-              {escalas.map(e=>(
-                <div key={e.nivel} style={{backgroundColor:NIVEL_COLOR[e.nivel]+'15',border:`1px solid ${NIVEL_COLOR[e.nivel]}33`,borderRadius:'10px',padding:'8px 14px',minWidth:'150px'}}>
-                  <p style={{margin:0,fontSize:'10px',fontWeight:'bold',color:NIVEL_COLOR[e.nivel],textTransform:'uppercase' as const}}>Nivel {e.nivel}</p>
-                  <p style={{margin:'2px 0',fontSize:'11px',color:'#555'}}>Bs. {fmt(e.venta_min)} — {e.venta_max?`Bs. ${fmt(e.venta_max)}`:'∞'}</p>
-                  <p style={{margin:0,fontSize:'13px',fontWeight:'bold',color:'#222'}}>Bs. {fmt(e.sueldo_base)} + {e.comision_pct}%</p>
-                </div>
-              ))}
-            </div>
+        {/* Sección de Escalas */}
+        <div style={{ marginBottom: '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h2 style={{ margin: 0, color: '#002855', fontSize: '20px' }}>
+              Escalas Salariales — B2C Planta y Virtual
+            </h2>
+            <span style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic' }}>
+              * Personal Planta cobra solo comisión en esta planilla.
+            </span>
           </div>
-        )}
 
-        {error && <p style={{color:'#ef4444',fontSize:'13px',marginBottom:'16px'}}>⚠ {error}</p>}
-
-        {/* Totales */}
-        {vf.length > 0 && (
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'12px',marginBottom:'20px'}}>
-            {[
-              {label:'Total vendido',  val:`Bs. ${fmt(totales.ventas)}`,     color:'#1e40af',bg:'#eff6ff'},
-              {label:'Comisiones',     val:`Bs. ${fmt(totales.comisiones)}`, color:'#166534',bg:'#f0fdf4'},
-              {label:'Total bruto',    val:`Bs. ${fmt(totales.bruto)}`,      color:'#92400e',bg:'#fffbeb'},
-              {label:'Total neto',     val:`Bs. ${fmt(totales.neto)}`,       color:'#1a1a1a',bg:'#f8fafc'},
-            ].map(s=>(
-              <div key={s.label} style={{backgroundColor:s.bg,borderRadius:'12px',padding:'14px 18px'}}>
-                <p style={{margin:0,fontSize:'10px',fontWeight:'bold',color:s.color,textTransform:'uppercase' as const}}>{s.label}</p>
-                <p style={{margin:'4px 0 0',fontSize:'15px',fontWeight:'bold',color:s.color}}>{s.val}</p>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Tabla */}
-        {vf.length === 0
-          ? <div style={{textAlign:'center',padding:'60px',color:'#bbb'}}><p style={{fontSize:'40px',margin:'0 0 12px'}}>💼</p><p style={{fontWeight:'bold',fontSize:'14px'}}>Selecciona el mes y presiona Calcular</p></div>
-          : <div style={{backgroundColor:'white',borderRadius:'16px',boxShadow:'0 2px 12px rgba(0,0,0,0.07)',overflow:'auto'}}>
-              <table style={{width:'100%',borderCollapse:'collapse',minWidth:'900px'}}>
-                <thead>
-                  <tr style={{backgroundColor:'#f9f9f9',borderBottom:'2px solid #eee'}}>
-                    {['Vendedor','Tipo','Ventas','Nro.','Nivel','Sueldo+Bono','Comisión','CNS','Neto',''].map(h=><th key={h} style={thSt}>{h}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {vf.map((v,i)=>{
-                    const tc = TIPO_CFG[v.tipo_vendedor]||{label:v.tipo_vendedor,bg:'#f1f5f9',color:'#475569'}
-                    const nc = v.nivel?NIVEL_COLOR[v.nivel]:'#cbd5e1'
-                    return (
-                      <tr key={v.personal_id} style={{borderBottom:'1px solid #f0f0f0',backgroundColor:i%2===0?'white':'#fafafa'}}>
-                        <td style={tdSt}><span style={{fontWeight:'bold',fontSize:'14px'}}>{v.nombre}</span><span style={{color:'#aaa',fontSize:'11px',display:'block'}}>{v.cargo} · #{v.vendedor_id}</span></td>
-                        <td style={tdSt}><span style={{backgroundColor:tc.bg,color:tc.color,borderRadius:'20px',padding:'3px 10px',fontSize:'11px',fontWeight:'bold'}}>{tc.label}</span></td>
-                        <td style={{...tdSt,fontWeight:'bold',color:'#1e40af'}}>Bs. {fmt(v.total_ventas)}</td>
-                        <td style={{...tdSt,color:'#888',textAlign:'center' as const}}>{v.num_ventas}</td>
-                        <td style={{...tdSt,textAlign:'center' as const}}>
-                          {v.nivel?<span style={{backgroundColor:nc+'20',color:nc,borderRadius:'20px',padding:'3px 12px',fontSize:'12px',fontWeight:'bold'}}>N{v.nivel}</span>:<span style={{color:'#ddd',fontSize:'12px'}}>—</span>}
-                        </td>
-                        <td style={{...tdSt,fontWeight:'bold',color:'#166534'}}>Bs. {fmt(v.sueldo_base+v.bono)}</td>
-                        <td style={tdSt}><span style={{fontWeight:'bold',color:'#166534'}}>Bs. {fmt(v.monto_comision)}</span><span style={{color:'#aaa',fontSize:'11px',display:'block'}}>{v.comision_pct}%</span></td>
-                        <td style={{...tdSt,color:'#991b1b'}}>- Bs. {fmt(v.descuento_seguro)}</td>
-                        <td style={{...tdSt,fontWeight:'bold',fontSize:'16px'}}>Bs. {fmt(v.pago_neto)}</td>
-                        <td style={tdSt}>
-                          <div style={{display:'flex',gap:'6px'}}>
-                            <button onClick={()=>verDetalle(v)} style={{backgroundColor:'#f0f0f0',border:'none',borderRadius:'8px',padding:'6px 12px',fontSize:'11px',cursor:'pointer',fontWeight:'bold'}}>Ver</button>
-                            <button onClick={async()=>{await verDetalle(v);}} style={{backgroundColor:'#eff6ff',color:'#1e40af',border:'none',borderRadius:'8px',padding:'6px 12px',fontSize:'11px',cursor:'pointer',fontWeight:'bold'}}>PDF</button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-        }
-      </div>
-
-      {/* Modal detalle */}
-      {detalle && (
-        <div style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:'20px',zIndex:50,overflowY:'auto'}}>
-          <div style={{backgroundColor:'white',borderRadius:'20px',padding:'32px',width:'100%',maxWidth:'560px',boxShadow:'0 20px 60px rgba(0,0,0,0.2)',margin:'auto'}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'20px'}}>
-              <div>
-                <h3 style={{margin:'0 0 4px',fontSize:'17px'}}>{detalle.nombre}</h3>
-                <p style={{margin:0,color:'#888',fontSize:'12px'}}>{detalle.cargo} · {detalle.sucursal} · #{detalle.vendedor_id}</p>
-              </div>
-              <button onClick={()=>setDetalle(null)} style={{backgroundColor:'transparent',border:'none',fontSize:'22px',cursor:'pointer',color:'#aaa'}}>×</button>
-            </div>
-
-            {detalle.nivel && (
-              <div style={{backgroundColor:NIVEL_COLOR[detalle.nivel]+'15',border:`1px solid ${NIVEL_COLOR[detalle.nivel]}33`,borderRadius:'12px',padding:'10px 16px',marginBottom:'16px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <span style={{fontWeight:'bold',color:NIVEL_COLOR[detalle.nivel]}}>Nivel {detalle.nivel}</span>
-                <span style={{color:'#555',fontSize:'13px'}}>Bs. {fmt(detalle.total_ventas)} · {detalle.num_ventas} ventas</span>
-              </div>
-            )}
-
-            <div style={{backgroundColor:'#f9f9f9',borderRadius:'12px',padding:'16px',marginBottom:'12px'}}>
-              <p style={secTit}>Haberes</p>
-              <FilaD label="Sueldo base" val={`Bs. ${fmt(detalle.sueldo_base)}`} color="#166534" />
-              {detalle.bono>0 && <FilaD label="Bono de nivel" val={`Bs. ${fmt(detalle.bono)}`} color="#166534" />}
-              <FilaD label={`Comisiones (${detalle.comision_pct}% sobre Bs. ${fmt(detalle.total_ventas)})`} val={`Bs. ${fmt(detalle.monto_comision)}`} color="#166534" />
-              <FilaD label="Total bruto" val={`Bs. ${fmt(detalle.total_pago)}`} color="#166534" bold />
-            </div>
-
-            <div style={{backgroundColor:'#fef2f2',borderRadius:'12px',padding:'16px',marginBottom:'12px'}}>
-              <p style={secTit}>Descuentos</p>
-              <FilaD label={`Seguro salud CNS (${config?.aporte_empleado_pct||3}%)`} val={`- Bs. ${fmt(detalle.descuento_seguro)}`} color="#991b1b" />
-            </div>
-
-            <div style={{backgroundColor:'#1a1a1a',borderRadius:'12px',padding:'14px 20px',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}>
-              <span style={{color:'#aaa',fontSize:'11px',fontWeight:'bold',textTransform:'uppercase' as const}}>Pago Neto</span>
-              <span style={{color:'white',fontSize:'22px',fontWeight:'bold'}}>Bs. {fmt(detalle.pago_neto)}</span>
-            </div>
-
-            <p style={secTit}>Ventas del mes</p>
-            {cargandoV
-              ? <p style={{color:'#aaa',fontSize:'13px',textAlign:'center' as const,padding:'20px'}}>Cargando...</p>
-              : ventas.length===0
-                ? <p style={{color:'#ccc',fontSize:'13px',textAlign:'center' as const,padding:'16px'}}>Sin ventas registradas</p>
-                : <div style={{maxHeight:'200px',overflowY:'auto' as const,border:'1px solid #f0f0f0',borderRadius:'10px',marginBottom:'8px'}}>
-                    <table style={{width:'100%',borderCollapse:'collapse'}}>
-                      <thead style={{position:'sticky' as const,top:0,backgroundColor:'#f9f9f9'}}>
-                        <tr>{['#Venta','Fecha','Cliente','Monto'].map(h=><th key={h} style={{padding:'8px 12px',fontSize:'10px',fontWeight:'bold',color:'#888',textAlign:'left' as const,textTransform:'uppercase' as const}}>{h}</th>)}</tr>
-                      </thead>
-                      <tbody>
-                        {ventas.map(vt=>(
-                          <tr key={vt.cod_venta} style={{borderTop:'1px solid #f5f5f5'}}>
-                            <td style={{padding:'8px 12px',fontFamily:'monospace',fontSize:'12px',color:'#666'}}>#{vt.cod_venta}</td>
-                            <td style={{padding:'8px 12px',fontSize:'12px',color:'#555'}}>{new Date(vt.fecha_pedido+'T00:00:00').toLocaleDateString('es-BO',{day:'2-digit',month:'short'})}</td>
-                            <td style={{padding:'8px 12px',fontSize:'12px'}}>{vt.cliente}</td>
-                            <td style={{padding:'8px 12px',fontSize:'12px',fontWeight:'bold',color:'#166534'}}>Bs. {fmt(vt.total_venta)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(480px, 1fr))', gap: '20px' }}>
+            
+            {/* Escalas Planta */}
+            <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '18px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+              <h4 style={{ margin: '0 0 12px', color: '#002855', fontSize: '14px', borderBottom: '2px solid #002855', paddingBottom: '6px' }}>
+                🏢 Personal de Planta (Sólo Comisión)
+              </h4>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' as const }}>
+                {escalasPlanta.map(e => (
+                  <div key={e.id} style={{ flex: '1 1 130px', backgroundColor: (NIVEL_COLOR[e.nivel] || '#64748b') + '10', border: `1px solid ${NIVEL_COLOR[e.nivel] || '#64748b'}`, borderRadius: '6px', padding: '10px' }}>
+                    <p style={{ margin: 0, fontSize: '10px', fontWeight: 'bold', color: NIVEL_COLOR[e.nivel], textTransform: 'uppercase' }}>
+                      Niv {e.nivel} · {e.categoria}
+                    </p>
+                    <p style={{ margin: '4px 0 2px', fontSize: '11px', color: '#475569' }}>
+                      Desde Bs. {fmt(e.venta_min)}
+                    </p>
+                    <p style={{ margin: 0, fontSize: '13px', fontWeight: 'bold', color: '#0f172a' }}>
+                      {e.comision_pct}% com.
+                    </p>
                   </div>
-            }
-
-            <div style={{display:'flex',gap:'10px',marginTop:'16px'}}>
-              <button onClick={()=>setDetalle(null)} style={btnS}>Cerrar</button>
-              <button onClick={()=>generarPDF(detalle,ventas)} style={btnP}>📄 Generar PDF</button>
+                ))}
+              </div>
             </div>
+
+            {/* Escalas Virtual */}
+            <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '18px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+              <h4 style={{ margin: '0 0 12px', color: '#8a6d0b', fontSize: '14px', borderBottom: '2px solid #d4af37', paddingBottom: '6px' }}>
+                💻 Personal Virtual / Freelance (Sueldo + Comisión)
+              </h4>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' as const }}>
+                {escalasVirtual.map(e => (
+                  <div key={e.id} style={{ flex: '1 1 130px', backgroundColor: (NIVEL_COLOR[e.nivel] || '#64748b') + '10', border: `1px solid ${NIVEL_COLOR[e.nivel] || '#64748b'}`, borderRadius: '6px', padding: '10px' }}>
+                    <p style={{ margin: 0, fontSize: '10px', fontWeight: 'bold', color: NIVEL_COLOR[e.nivel], textTransform: 'uppercase' }}>
+                      Niv {e.nivel} · {e.categoria}
+                    </p>
+                    <p style={{ margin: '4px 0 2px', fontSize: '11px', color: '#475569' }}>
+                      Desde Bs. {fmt(e.venta_min)}
+                    </p>
+                    <p style={{ margin: 0, fontSize: '12px', fontWeight: 'bold', color: '#0f172a' }}>
+                      Bs. {fmt(e.sueldo_base)} + {e.comision_pct}%
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
           </div>
         </div>
-      )}
+
+        {/* Tarjetas de Resumen */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', marginBottom: '24px' }}>
+          <div style={cardStatSt}>
+            <p style={cardLabelSt}>Total Ventas del Mes</p>
+            <p style={{ ...cardValSt, color: '#002855' }}>Bs. {fmt(totales.totalVentas)}</p>
+          </div>
+          <div style={cardStatSt}>
+            <p style={cardLabelSt}>Sueldos Base (Virtual)</p>
+            <p style={{ ...cardValSt, color: '#334155' }}>Bs. {fmt(totales.totalSueldosVirtual)}</p>
+          </div>
+          <div style={cardStatSt}>
+            <p style={cardLabelSt}>Total Comisiones</p>
+            <p style={{ ...cardValSt, color: '#15803d' }}>Bs. {fmt(totales.totalComisiones)}</p>
+          </div>
+          <div style={{ ...cardStatSt, backgroundColor: '#002855', color: 'white' }}>
+            <p style={{ ...cardLabelSt, color: '#d4af37' }}>NETO A PAGAR</p>
+            <p style={{ ...cardValSt, color: '#ffffff' }}>Bs. {fmt(totales.totalNetoPagar)}</p>
+          </div>
+        </div>
+
+        {/* Filtros */}
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' as const }}>
+          <input 
+            value={busqueda} 
+            onChange={e => setBusqueda(e.target.value)}
+            placeholder="Buscar por nombre, CI o usuario..."
+            style={{ flex: 1, minWidth: '240px', padding: '10px 14px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', outline: 'none' }} 
+          />
+          <select 
+            value={filtroTipo} 
+            onChange={e => setFiltroTipo(e.target.value)}
+            style={{ padding: '10px 14px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', outline: 'none', backgroundColor: 'white' }}
+          >
+            <option value="">Todos los tipos</option>
+            <option value="Planta">Planta</option>
+            <option value="Virtual">Virtual</option>
+          </select>
+        </div>
+
+        {/* Tabla de Planilla */}
+        <div style={{ backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #e2e8f0', overflow: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '950px' }}>
+            <thead>
+              <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }}>
+                <th style={thSt}>Vendedor</th>
+                <th style={thSt}>Tipo</th>
+                <th style={{ ...thSt, width: '170px', textAlign: 'right' }}>Venta Sistema (Bs.)</th>
+                <th style={thSt}>Nivel</th>
+                <th style={thSt}>Sueldo Base</th>
+                <th style={thSt}>% Comisión</th>
+                <th style={thSt}>Monto Comisión</th>
+                <th style={{ ...thSt, backgroundColor: '#002855', color: '#d4af37' }}>Neto a Pagar</th>
+                <th style={{ ...thSt, textAlign: 'center' }}>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {planillaFiltrada.length === 0 && (
+                <tr>
+                  <td colSpan={9} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '14px' }}>
+                    No se encontraron vendedores registrados.
+                  </td>
+                </tr>
+              )}
+              {planillaFiltrada.map((item, i) => {
+                const v = item.vendedor
+                const esc = item.escalaAlcanzada
+                const colorNivel = esc ? (NIVEL_COLOR[esc.nivel] || '#64748b') : '#94a3b8'
+                const esPlanta = (v.tipo || '').toString().trim().toLowerCase() === 'planta'
+
+                return (
+                  <tr key={v.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                    
+                    {/* Vendedor */}
+                    <td style={tdSt}>
+                      <span style={{ fontWeight: 'bold', color: '#002855', fontSize: '14px' }}>{v.nombre}</span>
+                      <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>
+                        {v.personal?.cargo || 'Vendedor'} · CI: {v.ci}
+                      </span>
+                    </td>
+
+                    {/* Tipo / Modalidad */}
+                    <td style={tdSt}>
+                      <span style={{ backgroundColor: esPlanta ? '#e6f0fa' : '#fef9e7', color: esPlanta ? '#002855' : '#8a6d0b', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 'bold' }}>
+                        {v.tipo}
+                      </span>
+                      {v.bono_digital && (
+                        <span style={{ display: 'inline-block', marginLeft: '6px', backgroundColor: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', borderRadius: '4px', padding: '2px 6px', fontSize: '10px', fontWeight: 'bold' }}>
+                          +0.5%
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Venta Total Automática */}
+                    <td style={{ ...tdSt, textAlign: 'right', fontWeight: 'bold', color: item.ventaMonto > 0 ? '#002855' : '#94a3b8', fontSize: '14px' }}>
+                      Bs. {fmt(item.ventaMonto)}
+                    </td>
+
+                    {/* Nivel */}
+                    <td style={tdSt}>
+                      {esc ? (
+                        <span style={{ backgroundColor: colorNivel + '15', color: colorNivel, border: `1px solid ${colorNivel}`, borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 'bold' }}>
+                          Niv {esc.nivel} - {esc.categoria}
+                        </span>
+                      ) : (
+                        <span style={{ color: '#94a3b8', fontSize: '12px' }}>Sin escala</span>
+                      )}
+                    </td>
+
+                    {/* Sueldo Base */}
+                    <td style={{ ...tdSt, fontSize: '12px' }}>
+                      {esPlanta ? (
+                        <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>En Planilla General</span>
+                      ) : (
+                        <span style={{ fontWeight: 'bold', color: '#334155' }}>Bs. {fmt(item.sueldoBase)}</span>
+                      )}
+                    </td>
+
+                    {/* % Comisión */}
+                    <td style={tdSt}>
+                      <span style={{ fontWeight: 'bold', color: '#0f172a' }}>{item.pctTotal.toFixed(1)}%</span>
+                      {v.bono_digital && (
+                        <span style={{ fontSize: '10px', color: '#166534', display: 'block' }}>
+                          ({item.pctBase}% + 0.5%)
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Monto Comisión */}
+                    <td style={{ ...tdSt, fontWeight: 'bold', color: '#15803d' }}>
+                      Bs. {fmt(item.montoComision)}
+                    </td>
+
+                    {/* Neto a Pagar */}
+                    <td style={{ ...tdSt, fontWeight: 'bold', fontSize: '14px', backgroundColor: '#f8fafc', color: '#002855' }}>
+                      Bs. {fmt(item.totalNeto)}
+                    </td>
+
+                    {/* Acciones */}
+                    <td style={{ ...tdSt, textAlign: 'center' }}>
+                      <button 
+                        onClick={() => alert(`Generando PDF para ${v.nombre} (${mesSeleccionado})...`)}
+                        style={{ padding: '4px 8px', fontSize: '11px', backgroundColor: '#e2e8f0', border: '1px solid #cbd5e1', borderRadius: '4px', cursor: 'pointer', color: '#334155', fontWeight: 'bold' }}
+                      >
+                        Ver PDF
+                      </button>
+                    </td>
+
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+      </div>
     </div>
   )
 }
+
+// ─── Estilos ──────────────────────────────────────────────────────────────────
+const thSt: React.CSSProperties = { padding: '12px 14px', textAlign: 'left', fontSize: '11px', fontWeight: 'bold', color: '#002855', textTransform: 'uppercase', letterSpacing: '0.05em' }
+const tdSt: React.CSSProperties = { padding: '12px 14px', fontSize: '13px' }
+const cardStatSt: React.CSSProperties = { backgroundColor: 'white', borderRadius: '8px', padding: '16px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }
+const cardLabelSt: React.CSSProperties = { margin: 0, fontSize: '10px', fontWeight: 'bold', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em' }
+const cardValSt: React.CSSProperties = { margin: '4px 0 0', fontSize: '20px', fontWeight: 'bold' }
