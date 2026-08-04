@@ -34,6 +34,12 @@ const fmt  = (s: string) => new Date(s).toLocaleTimeString('es-BO', { hour: '2-d
 const fmtF = (s: string) => new Date(s + 'T00:00:00').toLocaleDateString('es-BO', { day: '2-digit', month: 'short', year: 'numeric' })
 const mesStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 
+const getUltimoDiaMes = (anioMes: string) => {
+  const [y, m] = anioMes.split('-').map(Number)
+  const ultimo = new Date(y, m, 0).getDate()
+  return `${anioMes}-${String(ultimo).padStart(2, '0')}`
+}
+
 const thStyle:     React.CSSProperties = { padding: '13px 16px', textAlign: 'left', fontSize: '11px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em' }
 const tdStyle:     React.CSSProperties = { padding: '13px 16px', fontSize: '13px' }
 const labelStyle:  React.CSSProperties = { display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#666', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }
@@ -126,6 +132,7 @@ export default function PanelAsistencia() {
   const [fMan,       setFMan]       = useState({ personal_id: '', sucursal_id: '', fecha: new Date().toISOString().split('T')[0], hora_entrada: '', hora_salida: '', tipo: 'puntual', observacion: '' })
   const [procesando, setProcesando] = useState(false)
   const [errModal,   setErrModal]   = useState('')
+  const [errTabla,   setErrTabla]   = useState('')
 
   useEffect(() => {
     const carnet = localStorage.getItem('carnet')
@@ -145,17 +152,25 @@ export default function PanelAsistencia() {
   }, [])
 
   const loadRegistros = useCallback(async () => {
+    setErrTabla('')
     const hoy = new Date().toISOString().split('T')[0]
+    
+    // Se corrige usando explícitamente la llave foránea para evitar ambigüedad (PGRST201)
     let q = supabase.from('registros_asistencia')
       .select('id,personal_id,sucursal_id,fecha,hora_entrada,hora_salida,tipo,minutos_retraso,minutos_extra,es_sabado,observacion,validado,validado_por,created_at,personal!registros_asistencia_personal_id_fkey(id,usuario,carnet,cargo_id,cargos(nombre)),sucursales(nombre)')
       .order('fecha', { ascending: false }).order('created_at', { ascending: false })
 
+    const finMes = getUltimoDiaMes(mes)
+
     if (tab === 'hoy')           q = q.eq('fecha', hoy)
-    else if (tab === 'mensual')  q = q.gte('fecha', `${mes}-01`).lte('fecha', `${mes}-31`)
-    else                         q = q.in('tipo', ['falta', 'media_falta']).eq('validado', false).gte('fecha', `${mes}-01`)
+    else if (tab === 'mensual')  q = q.gte('fecha', `${mes}-01`).lte('fecha', finMes)
+    else                         q = q.in('tipo', ['falta', 'media_falta']).eq('validado', false).gte('fecha', `${mes}-01`).lte('fecha', finMes)
 
     const { data, error } = await q
-    if (error) console.error('Error registros:', JSON.stringify(error))
+    if (error) {
+      console.error('Error registros:', JSON.stringify(error))
+      setErrTabla(`Error al cargar datos: ${error.message}`)
+    }
     setRegistros((data as any) || [])
   }, [tab, mes])
 
@@ -242,6 +257,12 @@ export default function PanelAsistencia() {
       </nav>
 
       <div style={{ padding: '28px 40px', maxWidth: '1200px', margin: '0 auto' }}>
+        {errTabla && (
+          <div style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', padding: '12px 16px', borderRadius: '12px', marginBottom: '20px', fontSize: '13px' }}>
+            ⚠ {errTabla}
+          </div>
+        )}
+
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '4px', backgroundColor: 'white', borderRadius: '14px', padding: '4px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', width: 'fit-content', marginBottom: '24px' }}>
           {(['hoy', 'mensual', 'pendientes'] as const).map(t => (
