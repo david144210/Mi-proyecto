@@ -20,10 +20,23 @@ type Planilla = {
 type Persona  = { id: number; usuario: string; carnet: string; cargo: string; tipo_trabajador: string; haber_basico: number | null; sucursal: string }
 type Config   = { tolerancia_min: number; retrasos_descuento: number; retrasos_memorandum: number; mult_hora_extra: number; mult_hora_sabado: number; aporte_empleado_pct: number; dias_laborales_mes: number }
 type Escala   = { nivel: number; venta_min: number; venta_max: number | null; sueldo_base: number; bono: number; comision_pct: number }
+type RegistroAsist = {
+  id: number; fecha: string; hora_entrada: string | null; hora_salida: string | null
+  tipo: string; minutos_retraso: number; minutos_extra: number; es_sabado: boolean; observacion: string | null
+}
 
 const fmt    = (n: number) => new Intl.NumberFormat('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 const fmtMes = (s: string) => new Date(s + '-02').toLocaleDateString('es-BO', { month: 'long', year: 'numeric' })
 const mesStr = (d: Date)   => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+
+// Rango real [inicio, fin] de un mes "AAAA-MM", calculando el último día real (28/29/30/31)
+const getRangoMes = (m: string) => {
+  const [anio, mesNum] = m.split('-').map(Number)
+  const inicio = `${m}-01`
+  const ultimoDia = new Date(anio, mesNum, 0).getDate()
+  const fin = `${m}-${String(ultimoDia).padStart(2, '0')}`
+  return { inicio, fin }
+}
 
 const ESTADO_CFG: Record<string, { label: string; bg: string; color: string }> = {
   borrador: { label: 'Borrador', bg: '#f1f5f9', color: '#64748b' },
@@ -46,6 +59,10 @@ export default function PlanillaMensual() {
   const [config,     setConfig]     = useState<Config | null>(null)
   const [escalas,    setEscalas]    = useState<Escala[]>([])
   const [filtroEstado, setFiltroEstado] = useState('')
+  const [asistDetalle, setAsistDetalle] = useState<Planilla | null>(null)
+  const [asistRegistros, setAsistRegistros] = useState<RegistroAsist[]>([])
+  const [asistCargando, setAsistCargando] = useState(false)
+  const [asistError, setAsistError] = useState('')
 
   useEffect(() => {
     const carnet = localStorage.getItem('carnet')
@@ -119,26 +136,30 @@ export default function PlanillaMensual() {
     setCalculando(true); setError('')
     try {
       const mesDate   = `${mes}-01`
-      const mesInicio = `${mes}-01`
-      const mesFin    = `${mes}-31`
       const [anio, mesNum] = mes.split('-').map(Number)
+      const { inicio: mesInicio, fin: mesFin } = getRangoMes(mes)
 
       // 1. Personal activo con fecha de ingreso
-      const { data: personal } = await supabase.from('personal')
+      const { data: personal, error: errPersonal } = await supabase.from('personal')
         .select('id, usuario, carnet, cargo, sucursal, sucursal_id, cargo_id, tipo_trabajador, haber_basico, fecha_ingreso')
         .eq('estado', true)
 
+      if (errPersonal) throw errPersonal
       if (!personal?.length) throw new Error('Sin personal activo')
 
       // 2. Todos los turnos activos
-      const { data: todosLosTurnos } = await supabase.from('turnos')
+      const { data: todosLosTurnos, error: errTurnos } = await supabase.from('turnos')
         .select('cargo_id, sucursal_id, dias_laborales, hora_entrada, hora_salida, tolerancia_min')
         .eq('activo', true)
 
+      if (errTurnos) throw errTurnos
+
       // 3. Registros de asistencia del mes (solo con marca de entrada o tipo falta/permiso)
-      const { data: registros } = await supabase.from('registros_asistencia')
+      const { data: registros, error: errRegistros } = await supabase.from('registros_asistencia')
         .select('personal_id, tipo, minutos_retraso, minutos_extra, es_sabado, hora_entrada, fecha')
         .gte('fecha', mesInicio).lte('fecha', mesFin)
+
+      if (errRegistros) throw errRegistros
 
       // 4. Fechas registradas por persona (Set para búsqueda rápida)
       const fechasRegistradas: Record<number, Set<string>> = {}
@@ -148,8 +169,10 @@ export default function PlanillaMensual() {
       })
 
       // 5. Ventas del mes por vendedor
-      const { data: ventasMes } = await supabase.from('ventas_mes_vendedor')
+      const { data: ventasMes, error: errVentas } = await supabase.from('ventas_mes_vendedor')
         .select('cod_vendedor, total_ventas').eq('mes', mesDate)
+
+      if (errVentas) throw errVentas
 
       const ventasMap: Record<number, number> = {}
       ;(ventasMes || []).forEach((v: any) => { ventasMap[v.cod_vendedor] = Number(v.total_ventas) })
@@ -292,6 +315,28 @@ export default function PlanillaMensual() {
       await loadPlanillas(mes)
     } catch (e: any) { setError('Error: ' + e.message) }
     finally { setProcesando(null) }
+  }
+
+  // ── Ver asistencia detallada (retrasos / faltas) de una persona ──────────────
+  const abrirAsistencia = async (p: Planilla) => {
+    setAsistDetalle(p)
+    setAsistRegistros([])
+    setAsistError('')
+    setAsistCargando(true)
+    try {
+      const { inicio, fin } = getRangoMes(mes)
+      const { data, error: err } = await supabase.from('registros_asistencia')
+        .select('id, fecha, hora_entrada, hora_salida, tipo, minutos_retraso, minutos_extra, es_sabado, observacion')
+        .eq('personal_id', p.personal_id)
+        .gte('fecha', inicio).lte('fecha', fin)
+        .order('fecha', { ascending: true })
+      if (err) throw err
+      setAsistRegistros((data as any) || [])
+    } catch (e: any) {
+      setAsistError('Error al cargar asistencia: ' + e.message)
+    } finally {
+      setAsistCargando(false)
+    }
   }
 
   // ── Cerrar mes completo ────────────────────────────────────────────────────
@@ -520,6 +565,7 @@ export default function PlanillaMensual() {
                         <div style={{ display: 'flex', gap: '6px', flexWrap: 'nowrap' as const }}>
                           <button onClick={() => { setDetalle(p); setObs(p.observacion || '') }} style={{ backgroundColor: '#f0f0f0', border: 'none', borderRadius: '8px', padding: '6px 12px', fontSize: '11px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' as const }}>Ver</button>
                           <button onClick={() => generarPDF(p)} style={{ backgroundColor: '#eff6ff', color: '#1e40af', border: 'none', borderRadius: '8px', padding: '6px 12px', fontSize: '11px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' as const }}>PDF</button>
+                          <button onClick={() => abrirAsistencia(p)} style={{ backgroundColor: '#fff7ed', color: '#c2410c', border: 'none', borderRadius: '8px', padding: '6px 12px', fontSize: '11px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' as const }}>📅 Asistencia</button>
                         </div>
                       </td>
                     </tr>
@@ -600,6 +646,92 @@ export default function PlanillaMensual() {
                   </button>
                 )}
               </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Modal asistencia detallada */}
+      {asistDetalle && (() => {
+        const persona = asistDetalle.personal
+        const totalRetraso = asistRegistros.reduce((s, r) => s + (Number(r.minutos_retraso) || 0), 0)
+        const totalExtra   = asistRegistros.reduce((s, r) => s + (Number(r.minutos_extra) || 0), 0)
+        const diasRetraso  = asistRegistros.filter(r => (Number(r.minutos_retraso) || 0) > 0).length
+        const diasFalta    = asistRegistros.filter(r => (r.tipo || '').toLowerCase().includes('falta')).length
+        const porTipo: Record<string, number> = {}
+        asistRegistros.forEach(r => { const t = r.tipo || 'sin dato'; porTipo[t] = (porTipo[t] || 0) + 1 })
+
+        return (
+          <div onClick={() => setAsistDetalle(null)} style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', zIndex: 50, overflowY: 'auto' }}>
+            <div onClick={e => e.stopPropagation()} style={{ backgroundColor: 'white', borderRadius: '20px', padding: '32px', width: '100%', maxWidth: '620px', maxHeight: '85vh', overflowY: 'auto' as const, boxShadow: '0 20px 60px rgba(0,0,0,0.2)', margin: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+                <div>
+                  <h3 style={{ margin: '0 0 4px', fontSize: '17px' }}>📅 Asistencia — {persona?.usuario}</h3>
+                  <p style={{ margin: 0, color: '#888', fontSize: '13px' }}>{persona?.cargo} · {fmtMes(mes)}</p>
+                </div>
+                <button onClick={() => setAsistDetalle(null)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#888', lineHeight: 1 }}>×</button>
+              </div>
+
+              {asistCargando ? (
+                <p style={{ color: '#888', fontSize: '13px' }}>Cargando registros...</p>
+              ) : asistError ? (
+                <p style={{ color: '#991b1b', fontSize: '13px', fontWeight: 'bold' }}>⚠ {asistError}</p>
+              ) : asistRegistros.length === 0 ? (
+                <p style={{ color: '#bbb', fontSize: '13px', fontStyle: 'italic' }}>Sin registros de asistencia para este mes.</p>
+              ) : (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px', marginBottom: '16px' }}>
+                    <div style={{ backgroundColor: '#fff7ed', borderRadius: '10px', padding: '10px 14px' }}>
+                      <p style={{ margin: 0, fontSize: '9px', fontWeight: 'bold', color: '#c2410c', textTransform: 'uppercase' as const }}>Días con retraso</p>
+                      <p style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: 'bold', color: '#c2410c' }}>{diasRetraso}</p>
+                    </div>
+                    <div style={{ backgroundColor: '#fff7ed', borderRadius: '10px', padding: '10px 14px' }}>
+                      <p style={{ margin: 0, fontSize: '9px', fontWeight: 'bold', color: '#c2410c', textTransform: 'uppercase' as const }}>Min. retraso total</p>
+                      <p style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: 'bold', color: '#c2410c' }}>{totalRetraso} min</p>
+                    </div>
+                    <div style={{ backgroundColor: '#fef2f2', borderRadius: '10px', padding: '10px 14px' }}>
+                      <p style={{ margin: 0, fontSize: '9px', fontWeight: 'bold', color: '#991b1b', textTransform: 'uppercase' as const }}>Faltas</p>
+                      <p style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: 'bold', color: '#991b1b' }}>{diasFalta}</p>
+                    </div>
+                    <div style={{ backgroundColor: '#f0fdf4', borderRadius: '10px', padding: '10px 14px' }}>
+                      <p style={{ margin: 0, fontSize: '9px', fontWeight: 'bold', color: '#166534', textTransform: 'uppercase' as const }}>Min. extra total</p>
+                      <p style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: 'bold', color: '#166534' }}>{totalExtra} min</p>
+                    </div>
+                  </div>
+
+                  <p style={{ fontSize: '10px', color: '#aaa', marginTop: '-8px', marginBottom: '14px' }}>
+                    * "Faltas" cuenta registros cuyo tipo contiene la palabra "falta". Tipos encontrados: {Object.entries(porTipo).map(([t, n]) => `${t} (${n})`).join(' · ')}
+                  </p>
+
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f9f9f9' }}>
+                        {['Fecha','Entrada','Salida','Tipo','Retraso','Obs.'].map(h => (
+                          <th key={h} style={{ padding: '7px 8px', textAlign: 'left' as const, fontSize: '10px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase' as const }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {asistRegistros.map(r => (
+                        <tr key={r.id} style={{ borderTop: '1px solid #f0f0f0' }}>
+                          <td style={{ padding: '6px 8px' }}>{r.fecha}{r.es_sabado ? ' (Sáb)' : ''}</td>
+                          <td style={{ padding: '6px 8px' }}>{r.hora_entrada || '-'}</td>
+                          <td style={{ padding: '6px 8px' }}>{r.hora_salida || '-'}</td>
+                          <td style={{ padding: '6px 8px' }}>
+                            <span style={{
+                              backgroundColor: (r.tipo || '').toLowerCase().includes('falta') ? '#fee2e2' : (Number(r.minutos_retraso) > 0 ? '#fff7ed' : '#f0fdf4'),
+                              color: (r.tipo || '').toLowerCase().includes('falta') ? '#991b1b' : (Number(r.minutos_retraso) > 0 ? '#c2410c' : '#166534'),
+                              borderRadius: '6px', padding: '2px 7px', fontSize: '11px', fontWeight: 'bold'
+                            }}>{r.tipo || '-'}</span>
+                          </td>
+                          <td style={{ padding: '6px 8px', fontWeight: Number(r.minutos_retraso) > 0 ? 'bold' : 'normal', color: Number(r.minutos_retraso) > 0 ? '#c2410c' : '#bbb' }}>{r.minutos_retraso || 0}m</td>
+                          <td style={{ padding: '6px 8px', color: '#888' }}>{r.observacion || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
             </div>
           </div>
         )
