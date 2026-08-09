@@ -298,7 +298,7 @@ export default function Home() {
           <h1 className="hero-title">Muebles is Better</h1>
           <p style={{ color: '#ccc', lineHeight: '1.6', fontSize: '1.1rem' }}>Más que muebles, Ingeniería de interiores</p>
           <div style={{ display: 'flex', gap: '15px', marginTop: '10px' }}>
-            <button className="btn-gold" onClick={() => document.getElementById('productos')?.scrollIntroView?.({ behavior: 'smooth' })}>Ver Productos</button>
+            <button className="btn-gold" onClick={() => document.getElementById('productos')?.scrollIntoView?.({ behavior: 'smooth' })}>Ver Productos</button>
             <a href="/cotizador" className="btn-outline">Cotizar</a>
           </div>
           <div className="stats-grid">
