@@ -20,6 +20,7 @@ export default function Home() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [usuario, setUsuario] = useState<any>(null)
+  const [tipoUsuario, setTipoUsuario] = useState<'personal' | 'cliente' | null>(null)
   const [showLogin, setShowLogin] = useState(false)
   const [menuAbierto, setMenuAbierto] = useState(false)
   const [cargando, setCargando] = useState(false)
@@ -29,9 +30,26 @@ export default function Home() {
 
   useEffect(() => {
     const carnetGuardado = localStorage.getItem('carnet')
+    const tipoGuardado = localStorage.getItem('tipoUsuario')
+    
     if (carnetGuardado && !usuario) {
-      supabase.from('personal').select('*, cargos(*)').eq('carnet', carnetGuardado).eq('estado', true).single()
-        .then(({ data }) => { if (data) setUsuario(data) })
+      if (tipoGuardado === 'cliente') {
+        supabase.from('clientes').select('*').eq('carnet', carnetGuardado).eq('activo', true).single()
+          .then(({ data }) => { 
+            if (data) { 
+              setUsuario(data)
+              setTipoUsuario('cliente') 
+            } 
+          })
+      } else {
+        supabase.from('personal').select('*, cargos(*)').eq('carnet', carnetGuardado).eq('estado', true).single()
+          .then(({ data }) => { 
+            if (data) { 
+              setUsuario(data)
+              setTipoUsuario('personal') 
+            } 
+          })
+      }
     }
 
     const fetchPortada = async () => {
@@ -58,16 +76,45 @@ export default function Home() {
   }, [usuario])
 
   const handleLogin = async () => {
-    if (!carnet || !password) { setError('Ingrese su CI y contrasena'); return }
+    if (!carnet || !password) { setError('Ingrese su CI y contraseña'); return }
     setCargando(true)
     setError('')
-    const { data: persona, error: errPersona } = await supabase.from('personal').select('*, cargos(*)').eq('carnet', carnet).eq('estado', true).single()
-    if (errPersona || !persona) { setError('CI no encontrado o usuario inactivo'); setCargando(false); return }
-    const { data: valido, error: errPass } = await supabase.rpc('verificar_password', { password_input: password, hash_guardado: persona.password_hash })
-    if (errPass || !valido) { setError('Contrasena incorrecta'); setCargando(false); return }
     
-    localStorage.setItem('carnet', carnet)
-    setUsuario(persona)
+    // 1. Intentar buscar en PERSONAL primero
+    const { data: persona } = await supabase.from('personal').select('*, cargos(*)').eq('carnet', carnet).eq('estado', true).single()
+    
+    if (persona) {
+      const { data: valido } = await supabase.rpc('verificar_password', { password_input: password, hash_guardado: persona.password_hash })
+      if (valido) {
+        localStorage.setItem('carnet', carnet)
+        localStorage.setItem('tipoUsuario', 'personal')
+        setUsuario(persona)
+        setTipoUsuario('personal')
+        finalizarLogin()
+        return
+      }
+    }
+
+    // 2. Si no es personal, buscar en CLIENTES
+    const { data: cliente } = await supabase.from('clientes').select('*').eq('carnet', carnet).eq('activo', true).single()
+    
+    if (cliente) {
+      const { data: validoCliente } = await supabase.rpc('verificar_password', { password_input: password, hash_guardado: cliente.password_hash })
+      if (validoCliente) {
+        localStorage.setItem('carnet', carnet)
+        localStorage.setItem('tipoUsuario', 'cliente')
+        setUsuario(cliente)
+        setTipoUsuario('cliente')
+        finalizarLogin()
+        return
+      }
+    }
+
+    setError('Credenciales incorrectas o usuario inactivo')
+    setCargando(false)
+  }
+
+  const finalizarLogin = () => {
     setShowLogin(false)
     setMenuAbierto(false)
     setCarnet('')
@@ -78,7 +125,9 @@ export default function Home() {
 
   const handleCerrarSesion = () => {
     localStorage.removeItem('carnet')
+    localStorage.removeItem('tipoUsuario')
     setUsuario(null)
+    setTipoUsuario(null)
     setCarnet('')
     setPassword('')
     setShowLogin(false)
@@ -110,7 +159,6 @@ export default function Home() {
       <style>{`
         @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-12px); } }
         .mascota-float { animation: float 4s ease-in-out infinite; }
-        @keyframes shimmer { 0% { background-position: -200% center; } 100% { background-position: 200% center; } }
         
         .app-shell { min-height: 100vh; font-family: "Inter", sans-serif; background: #0f1117; color: white; }
         
@@ -179,11 +227,6 @@ export default function Home() {
 
         .section-padding { padding: 80px 20px; max-width: 1200px; margin: 0 auto; }
         .divider { height: 1px; background: rgba(255,255,255,0.1); margin: 0 40px; }
-        
-        @media (max-width: 768px) {
-          .hero-section { flex-direction: column; text-align: center; padding-top: 100px; }
-          .mascota-img { width: 280px !important; }
-        }
       `}</style>
 
       {/* NAVBAR */}
@@ -199,13 +242,22 @@ export default function Home() {
           <a href="#ubicacion" className="nav-link" onClick={() => setMenuAbierto(false)}>Contacto</a>
           <a href="/cotizador" className="nav-link">Cotizador</a>
           <a href="/productos" className="nav-link">Catalogo</a>
-          <a href="/sistema" className="nav-link">Sistema </a>
+          
+          {tipoUsuario !== 'cliente' && <a href="/sistema" className="nav-link">Sistema</a>}
+          {tipoUsuario === 'cliente' && <a href="/mi-cuenta" className="nav-link" style={{ color: '#FFD700' }}>Mis Pedidos</a>}
         </div>
 
         <div className="nav-login-desktop">
           {usuario ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <span className="nav-link" style={{ fontSize: '13px', color: '#FFD700' }}>{usuario.usuario}</span>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ display: 'block', fontSize: '11px', color: '#FFD700', marginBottom: '-2px' }}>
+                  {tipoUsuario === 'personal' ? (usuario.cargos?.nombre || 'Personal') : `Cliente: ${usuario.codigo || ''}`}
+                </span>
+                <span className="nav-link" style={{ fontSize: '13px', margin: 0, padding: 0 }}>
+                  {tipoUsuario === 'personal' ? usuario.usuario : (usuario.nombre || 'Usuario')}
+                </span>
+              </div>
               <button onClick={handleCerrarSesion} style={{ background: 'none', border: '1px solid #ff6b6b', color: '#ff6b6b', padding: '5px 12px', borderRadius: '20px', cursor: 'pointer', fontSize: '12px' }}>Salir</button>
             </div>
           ) : (
@@ -214,12 +266,22 @@ export default function Home() {
 
           {showLogin && (
             <div ref={loginRef} className="login-modal-responsive" style={{ position: 'absolute', right: '40px', top: '55px', background: '#161726', padding: '20px', borderRadius: '12px', width: '260px', border: '1px solid #FFD700', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
-              <input type="text" placeholder="Carnet" value={carnet} onChange={e => setCarnet(e.target.value)} style={inputStyle} />
+              <p style={{ fontSize: '12px', color: '#aaa', margin: '0 0 10px 0', textAlign: 'center' }}>Acceso Personal / Clientes</p>
+              <input type="text" placeholder="Carnet / CI" value={carnet} onChange={e => setCarnet(e.target.value)} style={inputStyle} />
               <input type="password" placeholder="Contraseña" value={password} onChange={e => setPassword(e.target.value)} style={inputStyle} />
               {error && <p style={{color: '#ff6b6b', fontSize: '12px', margin: '0 0 8px 0'}}>{error}</p>}
+              
               <button onClick={handleLogin} disabled={cargando} style={{ width: '100%', padding: '10px', background: '#FFD700', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', color: '#000' }}>
-                {cargando ? '...' : 'Entrar'}
+                {cargando ? 'Verificando...' : 'Entrar'}
               </button>
+
+              {/* ENLACE DE REGISTRO INTEGRADO */}
+              <div style={{ textAlign: 'center', marginTop: '15px', borderTop: '1px solid rgba(255,215,0,0.2)', paddingTop: '10px' }}>
+                <span style={{ fontSize: '11px', color: '#aaa' }}>¿Eres nuevo cliente? </span>
+                <a href="/registro" style={{ color: '#FFD700', fontSize: '12px', textDecoration: 'none', fontWeight: 'bold' }}>
+                  Regístrate aquí
+                </a>
+              </div>
             </div>
           )}
         </div>
@@ -229,14 +291,14 @@ export default function Home() {
         </button>
       </nav>
 
-      {/* HERO - Mascota Fija */}
+      {/* HERO */}
       <div className="hero-section">
         <div className="hero-text">
           <span style={{ color: '#FFD700', fontSize: '14px', letterSpacing: '2px' }}>INGENIERÍA DE INTERIORES</span>
           <h1 className="hero-title">Muebles is Better</h1>
-          <p style={{ color: '#ccc', lineHeight: '1.6', fontSize: '1.1rem' }}>Más que muebles, Ingenieriía de interiores</p>
+          <p style={{ color: '#ccc', lineHeight: '1.6', fontSize: '1.1rem' }}>Más que muebles, Ingeniería de interiores</p>
           <div style={{ display: 'flex', gap: '15px', marginTop: '10px' }}>
-            <button className="btn-gold" onClick={() => document.getElementById('productos')?.scrollIntoView({ behavior: 'smooth' })}>Ver Productos</button>
+            <button className="btn-gold" onClick={() => document.getElementById('productos')?.scrollIntroView?.({ behavior: 'smooth' })}>Ver Productos</button>
             <a href="/cotizador" className="btn-outline">Cotizar</a>
           </div>
           <div className="stats-grid">
@@ -254,25 +316,13 @@ export default function Home() {
         </div>
       </div>
 
-      {/* SECCIÓN DE PROMOCIONES - Condicional y debajo del Hero */}
+      {/* PROMOCIONES */}
       {configPortada && configPortada.activa && (
         <section id="promociones" className="promo-banner-section">
           <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
             <h2 style={{ fontSize: '1.8rem', color: '#FFD700', marginBottom: '30px' }}>Promociones Activas</h2>
             <a href={configPortada.link_destino}>
-              <img 
-                src={configPortada.imagen_url} 
-                alt="Banner Promocional" 
-                style={{ 
-                  width: '100%', 
-                  maxWidth: '900px', 
-                  borderRadius: '20px', 
-                  boxShadow: '0 15px 40px rgba(0,0,0,0.4)',
-                  transition: 'transform 0.3s ease'
-                }}
-                onMouseOver={e => e.currentTarget.style.transform = 'scale(1.01)'}
-                onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}
-              />
+              <img src={configPortada.imagen_url} alt="Banner Promocional" style={{ width: '100%', maxWidth: '900px', borderRadius: '20px', boxShadow: '0 15px 40px rgba(0,0,0,0.4)' }} />
             </a>
           </div>
         </section>

@@ -331,7 +331,7 @@ export default function DisenoCajones() {
     // Cuerpo / carcasa (comunes a todo el mueble, sin importar columnas)
     piezas.push({ pieza: 'Lateral', cantidad: 2, largo: altoCm, ancho: profundoCm, espesor: espesorCm, seccion: 'Cuerpo' })
     piezas.push({ pieza: 'Piso / Techo', cantidad: 2, largo: anchoInterior, ancho: profundoCm, espesor: espesorCm, seccion: 'Cuerpo' })
-    piezas.push({ pieza: 'Fondo (posterior)', cantidad: 1, largo: anchoInterior, ancho: alturaInterior > 0 ? alturaInterior : altoCm, espesor: espesorFondoCm, seccion: 'Cuerpo' })
+    piezas.push({ pieza: 'Panel posterior', cantidad: 1, largo: anchoInterior, ancho: alturaInterior > 0 ? alturaInterior : altoCm, espesor: espesorFondoCm, seccion: 'Cuerpo' })
 
     // Divisores verticales entre columnas
     if (columnas.length > 1) {
@@ -345,8 +345,8 @@ export default function DisenoCajones() {
         if (sec.tipo === 'cajon') {
           piezas.push({ pieza: 'Frente de cajón', cantidad: 1, largo: col.anchoCm - holguraFrenteCajon, ancho: sec.alturaCm - holguraFrenteCajon, espesor: espesorCm, seccion: nombreSeccion })
           piezas.push({ pieza: 'Costado de caja', cantidad: 2, largo: profundoCm - holguraRielFondo, ancho: sec.alturaCm - holguraRielAlto, espesor: espesorCm, seccion: nombreSeccion })
-          piezas.push({ pieza: 'Fondo trasero de caja', cantidad: 1, largo: col.anchoCm - 2 * espesorCm - holguraRielLateral, ancho: sec.alturaCm - holguraRielAlto - espesorBaseCajonCm, espesor: espesorCm, seccion: nombreSeccion })
-          piezas.push({ pieza: 'Base de cajón', cantidad: 1, largo: col.anchoCm - 2 * espesorCm - holguraRielLateral, ancho: profundoCm - holguraRielFondo, espesor: espesorBaseCajonCm, seccion: nombreSeccion })
+          piezas.push({ pieza: 'Respaldo de cajón', cantidad: 1, largo: col.anchoCm - 2 * espesorCm - holguraRielLateral, ancho: sec.alturaCm - holguraRielAlto - espesorBaseCajonCm, espesor: espesorCm, seccion: nombreSeccion })
+          piezas.push({ pieza: 'Fondo de cajón', cantidad: 1, largo: col.anchoCm - 2 * espesorCm - holguraRielLateral, ancho: profundoCm - holguraRielFondo, espesor: espesorBaseCajonCm, seccion: nombreSeccion })
         } else if (sec.tipo === 'puerta') {
           piezas.push({
             pieza: 'Puerta',
@@ -390,6 +390,21 @@ export default function DisenoCajones() {
       `Área total aprox.: ${areaTotalM2.toFixed(2)} m²`,
     ].join('\n')
     navigator.clipboard?.writeText(texto)
+  }
+
+  const enviarAlCotizador = () => {
+    const payload = {
+      piezas: listaPiezasAgrupada.map(p => ({
+        pieza: p.pieza,
+        cantidad: p.cantidad,
+        largo: p.largo,
+        ancho: p.ancho,
+        espesor: p.espesor,
+      })),
+      mueble: { anchoCm, altoCm, profundoCm, colorId },
+    }
+    localStorage.setItem('cot_piezas_pendientes', JSON.stringify(payload))
+    window.location.href = '/cotizador'
   }
 
   // ---------- Helpers de columnas ----------
@@ -456,6 +471,9 @@ export default function DisenoCajones() {
   const totalCajones = todasLasSecciones.filter(s => s.tipo === 'cajon').length
   const totalPuertas = todasLasSecciones.filter(s => s.tipo === 'puerta').reduce((a, s) => a + s.cantidadPuertas, 0)
 
+  // Medida mínima permitida para cualquier ancho/alto/profundidad de pieza: 7 cm (70 mm)
+  const MIN_MM = 70
+
   // Ajusta un valor a un rango [min, max] — se usa en onBlur, nunca en onChange,
   // para no interrumpir al usuario mientras está escribiendo un número.
   const clamp = (val: number, min: number, max?: number) => {
@@ -509,22 +527,22 @@ export default function DisenoCajones() {
               <h2 style={{ margin: '0 0 14px 0', fontSize: '16px' }}>📐 Dimensiones del mueble</h2>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '12px' }}>
                 <div>
-                  <label style={labelStyle}>Ancho (cm)</label>
-                  <input type="number" style={inputStyle} value={Number.isNaN(anchoCm) ? '' : anchoCm} min={20} max={300}
-                    onChange={e => setAnchoCm(e.target.value === '' ? NaN : Number(e.target.value))}
-                    onBlur={e => setAnchoCm(clamp(Number(e.target.value), 20, 300))} />
+                  <label style={labelStyle}>Ancho (mm)</label>
+                  <input type="number" style={inputStyle} value={Number.isNaN(anchoCm) ? '' : Math.round(anchoCm * 10)} min={MIN_MM} max={3000} step={1}
+                    onChange={e => setAnchoCm(e.target.value === '' ? NaN : Number(e.target.value) / 10)}
+                    onBlur={e => setAnchoCm(clamp(Math.round(Number(e.target.value)), MIN_MM, 3000) / 10)} />
                 </div>
                 <div>
-                  <label style={labelStyle}>Alto (cm)</label>
-                  <input type="number" style={inputStyle} value={Number.isNaN(altoCm) ? '' : altoCm} min={20} max={300}
-                    onChange={e => setAltoCm(e.target.value === '' ? NaN : Number(e.target.value))}
-                    onBlur={e => setAltoCm(clamp(Number(e.target.value), 20, 300))} />
+                  <label style={labelStyle}>Alto (mm)</label>
+                  <input type="number" style={inputStyle} value={Number.isNaN(altoCm) ? '' : Math.round(altoCm * 10)} min={MIN_MM} max={3000} step={1}
+                    onChange={e => setAltoCm(e.target.value === '' ? NaN : Number(e.target.value) / 10)}
+                    onBlur={e => setAltoCm(clamp(Math.round(Number(e.target.value)), MIN_MM, 3000) / 10)} />
                 </div>
                 <div>
-                  <label style={labelStyle}>Fondo (cm)</label>
-                  <input type="number" style={inputStyle} value={Number.isNaN(profundoCm) ? '' : profundoCm} min={20} max={100}
-                    onChange={e => setProfundoCm(e.target.value === '' ? NaN : Number(e.target.value))}
-                    onBlur={e => setProfundoCm(clamp(Number(e.target.value), 20, 100))} />
+                  <label style={labelStyle}>Profundidad (mm)</label>
+                  <input type="number" style={inputStyle} value={Number.isNaN(profundoCm) ? '' : Math.round(profundoCm * 10)} min={MIN_MM} max={1000} step={1}
+                    onChange={e => setProfundoCm(e.target.value === '' ? NaN : Number(e.target.value) / 10)}
+                    onBlur={e => setProfundoCm(clamp(Math.round(Number(e.target.value)), MIN_MM, 1000) / 10)} />
                 </div>
               </div>
               <label style={labelStyle}>Color / melamina</label>
@@ -557,7 +575,7 @@ export default function DisenoCajones() {
               </div>
 
               {/* Fondo (tablero posterior): 3 / 6 / 9 mm */}
-              <label style={labelStyle}>Fondo posterior (mm)</label>
+              <label style={labelStyle}>Panel posterior (mm)</label>
               <div style={{ display: 'grid', gridTemplateColumns: espesorSelFondo === 'custom' ? '1fr 1fr 1fr' : '1fr 1fr', gap: '8px', marginBottom: '14px' }}>
                 <select style={inputStyle} value={espesorSelFondo} onChange={e => handleEspesorFondo(e.target.value as '3' | '6' | '9' | 'custom')}>
                   <option value="3">3 mm</option>
@@ -635,10 +653,10 @@ export default function DisenoCajones() {
                         )}
                       </div>
 
-                      <label style={labelStyle}>Ancho de columna (cm)</label>
-                      <input type="number" style={{ ...inputStyle, marginBottom: '10px' }} value={Number.isNaN(col.anchoCm) ? '' : col.anchoCm} min={10} max={200} step={0.1}
-                        onChange={e => actualizarAnchoColumna(col.id, e.target.value === '' ? NaN : Number(e.target.value))}
-                        onBlur={e => actualizarAnchoColumna(col.id, clamp(Number(e.target.value), 10, 200))} />
+                      <label style={labelStyle}>Ancho de columna (mm)</label>
+                      <input type="number" style={{ ...inputStyle, marginBottom: '10px' }} value={Number.isNaN(col.anchoCm) ? '' : Math.round(col.anchoCm * 10)} min={MIN_MM} max={2000} step={1}
+                        onChange={e => actualizarAnchoColumna(col.id, e.target.value === '' ? NaN : Number(e.target.value) / 10)}
+                        onBlur={e => actualizarAnchoColumna(col.id, clamp(Math.round(Number(e.target.value)), MIN_MM, 2000) / 10)} />
 
                       {/* Altura usada dentro de esta columna */}
                       <div style={{
@@ -673,10 +691,10 @@ export default function DisenoCajones() {
 
                             <div style={{ display: 'grid', gridTemplateColumns: sec.tipo === 'espacio' ? '1fr' : '1fr 1fr', gap: '8px' }}>
                               <div>
-                                <label style={labelStyle}>Altura (cm)</label>
-                                <input type="number" style={inputStyle} value={Number.isNaN(sec.alturaCm) ? '' : sec.alturaCm} min={5} max={100}
-                                  onChange={e => actualizarSeccion(col.id, sec.id, { alturaCm: e.target.value === '' ? NaN : Number(e.target.value) })}
-                                  onBlur={e => actualizarSeccion(col.id, sec.id, { alturaCm: clamp(Number(e.target.value), 5, 100) })} />
+                                <label style={labelStyle}>Altura (mm)</label>
+                                <input type="number" style={inputStyle} value={Number.isNaN(sec.alturaCm) ? '' : Math.round(sec.alturaCm * 10)} min={MIN_MM} max={1000} step={1}
+                                  onChange={e => actualizarSeccion(col.id, sec.id, { alturaCm: e.target.value === '' ? NaN : Number(e.target.value) / 10 })}
+                                  onBlur={e => actualizarSeccion(col.id, sec.id, { alturaCm: clamp(Math.round(Number(e.target.value)), MIN_MM, 1000) / 10 })} />
                               </div>
 
                               {sec.tipo === 'cajon' && (
@@ -731,7 +749,7 @@ export default function DisenoCajones() {
               <p style={{ margin: '2px 0' }}>Columnas: <strong>{columnas.length}</strong></p>
               <p style={{ margin: '2px 0' }}>Cajones: <strong>{totalCajones}</strong></p>
               <p style={{ margin: '2px 0' }}>Puertas: <strong>{totalPuertas}</strong></p>
-              <p style={{ margin: '2px 0' }}>Dimensiones: <strong>{anchoCm} × {altoCm} × {profundoCm} cm</strong> (an. × alt. × fondo)</p>
+              <p style={{ margin: '2px 0' }}>Dimensiones: <strong>{anchoCm} × {altoCm} × {profundoCm} cm</strong> (an. × alt. × prof.)</p>
               <p style={{ margin: '8px 0 0 0', color: '#888', fontSize: '11px' }}>
                 Este diseño no se guarda ni se envía al cotizador — es solo para visualizar el mueble en 3D.
               </p>
@@ -753,7 +771,7 @@ export default function DisenoCajones() {
                   <p style={{ margin: '4px 0 0 0', fontWeight: 'bold', fontSize: '15px' }}>{alturaInterior.toFixed(1)} cm</p>
                 </div>
                 <div style={{ backgroundColor: '#f9f9f9', borderRadius: '8px', padding: '10px', textAlign: 'center' }}>
-                  <p style={{ margin: 0, color: '#888', fontSize: '11px' }}>Fondo int.</p>
+                  <p style={{ margin: 0, color: '#888', fontSize: '11px' }}>Prof. int.</p>
                   <p style={{ margin: '4px 0 0 0', fontWeight: 'bold', fontSize: '15px' }}>{profundoInterior.toFixed(1)} cm</p>
                 </div>
               </div>
@@ -763,7 +781,22 @@ export default function DisenoCajones() {
             <div style={{ backgroundColor: 'white', borderRadius: '14px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                 <h2 style={{ margin: 0, fontSize: '16px' }}>✂️ Lista de piezas para corte</h2>
-                <button onClick={copiarListaPiezas} style={{ ...btnMini, padding: '6px 12px' }}>📋 Copiar</button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={copiarListaPiezas} style={{ ...btnMini, padding: '6px 12px' }}>📋 Copiar</button>
+                  <button
+                    onClick={enviarAlCotizador}
+                    disabled={listaPiezasAgrupada.length === 0}
+                    style={{
+                      ...btnMini, padding: '6px 12px',
+                      backgroundColor: listaPiezasAgrupada.length === 0 ? '#eee' : '#087e0b',
+                      color: listaPiezasAgrupada.length === 0 ? '#aaa' : 'white',
+                      border: 'none', fontWeight: 'bold',
+                      cursor: listaPiezasAgrupada.length === 0 ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    ➡️ Enviar al Cotizador
+                  </button>
+                </div>
               </div>
               <p style={{ color: '#888', fontSize: '11px', margin: '0 0 14px 0' }}>
                 Holguras estándar aplicadas: {holguraFrenteCajon} cm en frentes, {holguraPuerta} cm en puertas, {holguraRielAlto} cm de despeje de riel. Ajusta según tus rieles/bisagras reales.

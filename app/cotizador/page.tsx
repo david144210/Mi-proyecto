@@ -38,6 +38,24 @@ interface PiezaUnion {
   subtotal: number
 }
 
+interface CotizacionGuardada {
+  id: number
+  cliente: string | null
+  piezas: any
+  totales: any
+  created_at: string
+  updated_at: string
+}
+
+interface ProductoCatalogo {
+  codigo: string
+  categoria: string
+  nombre: string
+  medidas: string
+  precio_minimo: number
+  precio_tienda: number
+}
+
 export default function Cotizador() {
   const [usuario, setUsuario] = useState<any>(null)
   const [aceros, setAceros] = useState<any[]>([])
@@ -76,6 +94,43 @@ export default function Cotizador() {
 
   // Colores
   const [colorSelId, setColorSelId] = useState('')
+
+  // ── Guardar / buscar / editar cotizaciones ──────────────────────────────────
+  const [panelGuardar, setPanelGuardar] = useState(false)
+  const [panelMisCotizaciones, setPanelMisCotizaciones] = useState(false)
+  const [clienteNombre, setClienteNombre] = useState('')
+  const [cotizacionId, setCotizacionId] = useState<number | null>(null)
+  const [misCotizaciones, setMisCotizaciones] = useState<CotizacionGuardada[]>([])
+  const [cargandoCotizaciones, setCargandoCotizaciones] = useState(false)
+  const [busquedaCot, setBusquedaCot] = useState('')
+  const [guardandoCot, setGuardandoCot] = useState(false)
+
+  // ── Puente desde el Diseñador 3D de Cajones ─────────────────────────────────
+  const [piezasPendientesDiseno, setPiezasPendientesDiseno] = useState<any>(null)
+  const [panelImportarDiseno, setPanelImportarDiseno] = useState(false)
+  const [melaminaImportSelId, setMelaminaImportSelId] = useState('')
+
+  // ── Plantillas de producto (admin / jerarquia) ──────────────────────────────
+  const [modoPlantilla, setModoPlantilla] = useState(false)
+  const [panelPlantillas, setPanelPlantillas] = useState(false)
+  const [busquedaProducto, setBusquedaProducto] = useState('')
+  const [resultadosProducto, setResultadosProducto] = useState<ProductoCatalogo[]>([])
+  const [buscandoProducto, setBuscandoProducto] = useState(false)
+  const [productoActivo, setProductoActivo] = useState<ProductoCatalogo | null>(null)
+  const [guardandoPlantilla, setGuardandoPlantilla] = useState(false)
+  const [panelActualizarPrecio, setPanelActualizarPrecio] = useState(false)
+  const [nuevoPrecioMinimo, setNuevoPrecioMinimo] = useState('')
+  const [nuevoPrecioTienda, setNuevoPrecioTienda] = useState('')
+  const [actualizandoPrecio, setActualizandoPrecio] = useState(false)
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('cot_piezas_pendientes')
+      if (raw) setPiezasPendientesDiseno(JSON.parse(raw))
+    } catch (e) {
+      console.error('Error leyendo piezas pendientes del diseñador:', e)
+    }
+  }, [])
 
   useEffect(() => {
     const carnetGuardado = localStorage.getItem('carnet')
@@ -273,6 +328,232 @@ export default function Cotizador() {
     setCantUnion('')
   }
 
+  // ── Serializar / restaurar estado (usado por guardar cotización y plantillas) ─
+  const serializarEstado = () => ({
+    piezas: {
+      acero: piezasAcero,
+      melamina: piezasMelamina,
+      accesorios: piezasAccesorio,
+      uniones: piezasUnion,
+      colorSelId,
+    },
+    totales: {
+      totalAcero, totalMelamina, totalAccesorio, totalUnion, totalUnionRectaAuto, totalColor,
+      costosAdministrativos: COSTOS_ADMINISTRATIVOS,
+      totalGeneral, precioMarginal, precioNeto, precioFacturado,
+    },
+  })
+
+  const restaurarEstado = (piezas: any) => {
+    const acero = piezas?.acero || []
+    const melamina = piezas?.melamina || []
+    const accesorios = piezas?.accesorios || []
+    const uniones = piezas?.uniones || []
+    setPiezasAcero(acero)
+    setPiezasMelamina(melamina)
+    setPiezasAccesorio(accesorios)
+    setPiezasUnion(uniones)
+    setColorSelId(piezas?.colorSelId || '')
+    setNextIdAcero((acero.length ? Math.max(...acero.map((p: any) => p.id)) : 0) + 1)
+    setNextIdMelamina((melamina.length ? Math.max(...melamina.map((p: any) => p.id)) : 0) + 1)
+    setNextIdAccesorio((accesorios.length ? Math.max(...accesorios.map((p: any) => p.id)) : 0) + 1)
+    setNextIdUnion((uniones.length ? Math.max(...uniones.map((p: any) => p.id)) : 0) + 1)
+  }
+
+  const hayPiezas = piezasAcero.length + piezasMelamina.length + piezasAccesorio.length + piezasUnion.length > 0
+
+  // ── Guardar / cargar cotizaciones del vendedor ──────────────────────────────
+  const guardarCotizacion = async () => {
+    if (!hayPiezas) return alert('Agrega al menos una pieza antes de guardar')
+    setGuardandoCot(true)
+    try {
+      const payload = serializarEstado()
+      if (cotizacionId) {
+        const { error } = await supabase.from('cotizaciones').update({
+          cliente: clienteNombre.trim() || null,
+          piezas: payload.piezas,
+          totales: payload.totales,
+          updated_at: new Date().toISOString(),
+        }).eq('id', cotizacionId)
+        if (error) throw error
+      } else {
+        const { data, error } = await supabase.from('cotizaciones').insert({
+          usuario_id: usuario.id,
+          cliente: clienteNombre.trim() || null,
+          piezas: payload.piezas,
+          totales: payload.totales,
+        }).select().single()
+        if (error) throw error
+        setCotizacionId(data.id)
+      }
+      setPanelGuardar(false)
+    } catch (e: any) {
+      alert('Error al guardar: ' + e.message)
+    } finally {
+      setGuardandoCot(false)
+    }
+  }
+
+  const cargarMisCotizaciones = async () => {
+    setCargandoCotizaciones(true)
+    try {
+      const { data, error } = await supabase.from('cotizaciones').select('*')
+        .eq('usuario_id', usuario.id)
+        .order('updated_at', { ascending: false })
+      if (error) throw error
+      setMisCotizaciones(data || [])
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setCargandoCotizaciones(false)
+    }
+  }
+
+  const abrirPanelMisCotizaciones = () => {
+    setPanelMisCotizaciones(true)
+    cargarMisCotizaciones()
+  }
+
+  const cotizacionesFiltradas = misCotizaciones.filter(c =>
+    !busquedaCot.trim() || (c.cliente || '').toLowerCase().includes(busquedaCot.trim().toLowerCase())
+  )
+
+  const abrirCotizacion = (c: CotizacionGuardada) => {
+    restaurarEstado(c.piezas)
+    setClienteNombre(c.cliente || '')
+    setCotizacionId(c.id)
+    setModoPlantilla(false)
+    setProductoActivo(null)
+    setPanelMisCotizaciones(false)
+  }
+
+  const nuevaCotizacion = () => {
+    handleLimpiarTodo()
+    setClienteNombre('')
+    setCotizacionId(null)
+    setModoPlantilla(false)
+    setProductoActivo(null)
+  }
+
+  // ── Puente: importar piezas del Diseñador 3D de Cajones ─────────────────────
+  const importarPiezasDiseno = () => {
+    if (!piezasPendientesDiseno || !melaminaImportSelId) return
+    const mat = melaminas.find(m => String(m.id) === melaminaImportSelId)
+    if (!mat) return
+    let nid = nextIdMelamina
+    const nuevas = piezasPendientesDiseno.piezas.map((p: any) => {
+      const subtotal = calcSubtotalMelamina(p.largo, p.ancho, p.cantidad, mat.precio_cotizador)
+      const pieza = {
+        id: nid,
+        material: `${mat.detalle} — ${p.pieza}`,
+        largo: p.largo,
+        ancho: p.ancho,
+        cantidad: p.cantidad,
+        precio_unitario: mat.precio_cotizador,
+        subtotal,
+      }
+      nid++
+      return pieza
+    })
+    setPiezasMelamina([...piezasMelamina, ...nuevas])
+    setNextIdMelamina(nid)
+    localStorage.removeItem('cot_piezas_pendientes')
+    setPiezasPendientesDiseno(null)
+    setPanelImportarDiseno(false)
+    setMelaminaImportSelId('')
+  }
+
+  const descartarPiezasDiseno = () => {
+    localStorage.removeItem('cot_piezas_pendientes')
+    setPiezasPendientesDiseno(null)
+  }
+
+  // ── Plantillas de producto (solo admin / jerarquia) ─────────────────────────
+  const buscarProductos = async () => {
+    if (!busquedaProducto.trim()) { setResultadosProducto([]); return }
+    setBuscandoProducto(true)
+    try {
+      const { data, error } = await supabase.from('productos')
+        .select('codigo, categoria, nombre, medidas, precio_minimo, precio_tienda')
+        .or(`codigo.ilike.%${busquedaProducto}%,nombre.ilike.%${busquedaProducto}%`)
+        .limit(15)
+      if (error) throw error
+      setResultadosProducto(data || [])
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setBuscandoProducto(false)
+    }
+  }
+
+  const abrirPlantilla = async (p: ProductoCatalogo) => {
+    handleLimpiarTodo()
+    setCotizacionId(null)
+    setClienteNombre('')
+    setProductoActivo(p)
+    setModoPlantilla(true)
+    setPanelPlantillas(false)
+    try {
+      const { data } = await supabase.from('producto_plantillas').select('*').eq('producto_codigo', p.codigo).maybeSingle()
+      if (data) restaurarEstado(data.piezas)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  const guardarPlantilla = async () => {
+    if (!productoActivo) return
+    if (!hayPiezas) return alert('Agrega al menos una pieza antes de guardar la plantilla')
+    setGuardandoPlantilla(true)
+    try {
+      const payload = serializarEstado()
+      const { error } = await supabase.from('producto_plantillas').upsert({
+        producto_codigo: productoActivo.codigo,
+        piezas: payload.piezas,
+        actualizado_por: usuario.id,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'producto_codigo' })
+      if (error) throw error
+      alert('Plantilla guardada para ' + productoActivo.codigo)
+    } catch (e: any) {
+      alert('Error al guardar plantilla: ' + e.message)
+    } finally {
+      setGuardandoPlantilla(false)
+    }
+  }
+
+  const abrirActualizarPrecio = () => {
+    setNuevoPrecioMinimo(precioNeto.toFixed(2))
+    setNuevoPrecioTienda(precioFacturado.toFixed(2))
+    setPanelActualizarPrecio(true)
+  }
+
+  const confirmarActualizarPrecio = async () => {
+    if (!productoActivo) return
+    setActualizandoPrecio(true)
+    try {
+      const { error } = await supabase.from('productos').update({
+        precio_minimo: Number(nuevoPrecioMinimo),
+        precio_tienda: Number(nuevoPrecioTienda),
+        updated_at: new Date().toISOString(),
+      }).eq('codigo', productoActivo.codigo)
+      if (error) throw error
+      setProductoActivo({ ...productoActivo, precio_minimo: Number(nuevoPrecioMinimo), precio_tienda: Number(nuevoPrecioTienda) })
+      setPanelActualizarPrecio(false)
+      alert('Precio actualizado en el catálogo')
+    } catch (e: any) {
+      alert('Error al actualizar precio: ' + e.message)
+    } finally {
+      setActualizandoPrecio(false)
+    }
+  }
+
+  const salirModoPlantilla = () => {
+    setModoPlantilla(false)
+    setProductoActivo(null)
+    handleLimpiarTodo()
+  }
+
   if (!usuario && !loading) return null
 
   return (
@@ -304,18 +585,32 @@ export default function Cotizador() {
           Muebles is Better
         </a>
         <span style={{ color: '#a3c47d', fontSize: '16px', fontWeight: 'bold' }}>Cotizador</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' as const }}>
           <a
             href="/diseno-cajones"
             style={{
               display: 'flex', alignItems: 'center', gap: '6px',
-              padding: '8px 16px', backgroundColor: '#a3c47d', color: '#1a1a2e',
-              borderRadius: '8px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold',
+              padding: '8px 14px', backgroundColor: '#a3c47d', color: '#1a1a2e',
+              borderRadius: '8px', textDecoration: 'none', fontSize: '12px', fontWeight: 'bold',
             }}
           >
-            🗄️ Diseñador 3D de Cajones
+            🗄️ Diseñador 3D
           </a>
-          {usuario && <span style={{ color: '#a3c47d', fontSize: '14px' }}>{usuario.nombre} 👤</span>}
+          <button
+            onClick={abrirPanelMisCotizaciones}
+            style={{ padding: '8px 14px', backgroundColor: '#333', color: 'white', border: '1px solid #555', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
+          >
+            💾 Mis Cotizaciones
+          </button>
+          {esJerarquia && (
+            <button
+              onClick={() => setPanelPlantillas(true)}
+              style={{ padding: '8px 14px', backgroundColor: '#333', color: '#f5c842', border: '1px solid #555', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
+            >
+              📦 Plantillas de Producto
+            </button>
+          )}
+          {usuario && <span style={{ color: '#a3c47d', fontSize: '13px' }}>{usuario.nombre} 👤</span>}
         </div>
       </nav>
 
@@ -324,6 +619,30 @@ export default function Cotizador() {
           <p style={{ textAlign: 'center', color: '#666' }}>Cargando materiales...</p>
         ) : (
           <>
+
+            {/* ===== AVISO: piezas pendientes del Diseñador 3D ===== */}
+            {piezasPendientesDiseno && (
+              <div style={{ backgroundColor: '#eef7ff', border: '1px solid #90c2f0', borderRadius: '12px', padding: '14px 20px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' as const, gap: '10px' }}>
+                <span style={{ fontSize: '13px', color: '#1a4d7a' }}>
+                  📥 Tienes <strong>{piezasPendientesDiseno.piezas?.length || 0} piezas</strong> del Diseñador 3D listas para importar como melamina
+                  {piezasPendientesDiseno.mueble ? ` (mueble ${piezasPendientesDiseno.mueble.anchoCm}×${piezasPendientesDiseno.mueble.altoCm}×${piezasPendientesDiseno.mueble.profundoCm} cm)` : ''}.
+                </span>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => setPanelImportarDiseno(true)} style={{ padding: '8px 16px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}>Importar</button>
+                  <button onClick={descartarPiezasDiseno} style={{ padding: '8px 16px', backgroundColor: 'transparent', color: '#888', border: '1px solid #ccc', borderRadius: '8px', fontSize: '12px', cursor: 'pointer' }}>Descartar</button>
+                </div>
+              </div>
+            )}
+
+            {/* ===== INDICADOR: modo plantilla de producto ===== */}
+            {modoPlantilla && productoActivo && (
+              <div style={{ backgroundColor: '#2a2a1a', border: '1px solid #f5c842', borderRadius: '12px', padding: '14px 20px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' as const, gap: '10px' }}>
+                <span style={{ fontSize: '13px', color: '#f5c842' }}>
+                  📦 Editando plantilla de <strong>{productoActivo.codigo} — {productoActivo.nombre}</strong> ({productoActivo.medidas}) · Precio catálogo actual: Bs. {Number(productoActivo.precio_minimo).toFixed(2)} min / Bs. {Number(productoActivo.precio_tienda).toFixed(2)} tienda
+                </span>
+                <button onClick={salirModoPlantilla} style={{ padding: '8px 16px', backgroundColor: 'transparent', color: '#f5c842', border: '1px solid #f5c842', borderRadius: '8px', fontSize: '12px', cursor: 'pointer' }}>Salir de plantilla</button>
+              </div>
+            )}
 
             {/* ===== SECCION ACERO ===== */}
             <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', marginBottom: '24px' }}>
@@ -774,12 +1093,28 @@ export default function Cotizador() {
                         <p style={{ margin: '2px 0 0 0', color: 'white', fontSize: '20px', fontWeight: 'bold' }}>Bs. {totalGeneral.toFixed(2)}</p>
                       </div>
                     </div>
-                    <button
-                      onClick={handleLimpiarTodo}
-                      style={{ padding: '10px 20px', backgroundColor: 'transparent', color: '#ff6b6b', border: '1px solid #ff6b6b', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', flexShrink: 0 }}
-                    >
-                      Limpiar todo
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px', flexShrink: 0, flexWrap: 'wrap' as const }}>
+                      {modoPlantilla ? (
+                        <>
+                          <button onClick={guardarPlantilla} disabled={guardandoPlantilla} style={{ padding: '10px 20px', backgroundColor: '#f5c842', color: '#1a1a2e', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>
+                            {guardandoPlantilla ? 'Guardando...' : '💾 Guardar Plantilla'}
+                          </button>
+                          <button onClick={abrirActualizarPrecio} style={{ padding: '10px 20px', backgroundColor: 'transparent', color: '#a3c47d', border: '1px solid #a3c47d', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                            🔄 Actualizar precio catálogo
+                          </button>
+                        </>
+                      ) : (
+                        <button onClick={() => setPanelGuardar(true)} style={{ padding: '10px 20px', backgroundColor: '#a3c47d', color: '#1a1a2e', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>
+                          💾 {cotizacionId ? 'Actualizar Cotización' : 'Guardar Cotización'}
+                        </button>
+                      )}
+                      <button
+                        onClick={modoPlantilla ? salirModoPlantilla : nuevaCotizacion}
+                        style={{ padding: '10px 20px', backgroundColor: 'transparent', color: '#ff6b6b', border: '1px solid #ff6b6b', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}
+                      >
+                        Limpiar todo
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -788,12 +1123,20 @@ export default function Cotizador() {
                   <div style={{ backgroundColor: '#1a1a2e', padding: '14px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span style={{ color: '#a3c47d', fontSize: '13px', fontWeight: 'bold', letterSpacing: '0.5px' }}>💰 PRECIOS DE VENTA</span>
                     {!esJerarquia && (
-                      <button
-                        onClick={handleLimpiarTodo}
-                        style={{ padding: '8px 16px', backgroundColor: 'transparent', color: '#ff6b6b', border: '1px solid #ff6b6b', borderRadius: '8px', cursor: 'pointer', fontSize: '12px' }}
-                      >
-                        Limpiar todo
-                      </button>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          onClick={() => setPanelGuardar(true)}
+                          style={{ padding: '8px 16px', backgroundColor: '#a3c47d', color: '#1a1a2e', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                        >
+                          💾 {cotizacionId ? 'Actualizar' : 'Guardar'}
+                        </button>
+                        <button
+                          onClick={nuevaCotizacion}
+                          style={{ padding: '8px 16px', backgroundColor: 'transparent', color: '#ff6b6b', border: '1px solid #ff6b6b', borderRadius: '8px', cursor: 'pointer', fontSize: '12px' }}
+                        >
+                          Limpiar todo
+                        </button>
+                      </div>
                     )}
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
@@ -833,6 +1176,199 @@ export default function Cotizador() {
           </>
         )}
       </div>
+
+      {/* ═══ MODAL: Guardar cotización ═══ */}
+      {panelGuardar && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '16px' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '100%', maxWidth: '420px' }}>
+            <h2 style={{ margin: '0 0 4px 0', fontSize: '18px' }}>💾 {cotizacionId ? 'Actualizar Cotización' : 'Guardar Cotización'}</h2>
+            <p style={{ color: '#888', fontSize: '13px', margin: '0 0 18px 0' }}>Bs. {totalGeneral.toFixed(2)} en costos · Bs. {precioFacturado.toFixed(2)} facturado</p>
+            <label style={labelStyle}>Nombre del cliente (opcional)</label>
+            <input
+              type="text"
+              placeholder="Ej: Juan Pérez"
+              value={clienteNombre}
+              onChange={(e) => setClienteNombre(e.target.value)}
+              style={inputStyle}
+            />
+            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+              <button onClick={() => setPanelGuardar(false)} style={{ flex: 1, padding: '12px', backgroundColor: '#f0f0f0', color: '#555', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>Cancelar</button>
+              <button onClick={guardarCotizacion} disabled={guardandoCot} style={{ flex: 1, padding: '12px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>
+                {guardandoCot ? 'Guardando...' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ MODAL: Mis Cotizaciones (buscar / abrir) ═══ */}
+      {panelMisCotizaciones && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '16px' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '100%', maxWidth: '520px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' as const }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h2 style={{ margin: 0, fontSize: '18px' }}>💾 Mis Cotizaciones</h2>
+              <button onClick={() => setPanelMisCotizaciones(false)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#999' }}>✕</button>
+            </div>
+            <input
+              type="text"
+              placeholder="Buscar por cliente..."
+              value={busquedaCot}
+              onChange={(e) => setBusquedaCot(e.target.value)}
+              style={{ ...inputStyle, marginBottom: '14px' }}
+            />
+            <div style={{ overflowY: 'auto' as const, flex: 1 }}>
+              {cargandoCotizaciones ? (
+                <p style={{ textAlign: 'center', color: '#888', fontSize: '13px' }}>Cargando...</p>
+              ) : cotizacionesFiltradas.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '24px', color: '#bbb', border: '2px dashed #eee', borderRadius: '10px' }}>
+                  <p style={{ margin: 0, fontSize: '14px' }}>No hay cotizaciones guardadas</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '8px' }}>
+                  {cotizacionesFiltradas.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => abrirCotizacion(c)}
+                      style={{ textAlign: 'left', padding: '14px 16px', backgroundColor: '#f9f9f9', border: '1px solid #eee', borderRadius: '10px', cursor: 'pointer' }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <strong style={{ fontSize: '14px', color: '#222' }}>{c.cliente || 'Sin nombre de cliente'}</strong>
+                        <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#087e0b' }}>Bs. {Number(c.totales?.precioFacturado || 0).toFixed(2)}</span>
+                      </div>
+                      <span style={{ fontSize: '11px', color: '#999' }}>{new Date(c.updated_at).toLocaleDateString('es-BO', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button onClick={nuevaCotizacion} style={{ marginTop: '14px', padding: '10px', backgroundColor: 'transparent', color: '#087e0b', border: '1px solid #087e0b', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>
+              + Nueva cotización en blanco
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ MODAL: Importar piezas del Diseñador 3D ═══ */}
+      {panelImportarDiseno && piezasPendientesDiseno && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '16px' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '100%', maxWidth: '520px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' as const }}>
+            <h2 style={{ margin: '0 0 4px 0', fontSize: '18px' }}>📥 Importar piezas del Diseñador 3D</h2>
+            <p style={{ color: '#888', fontSize: '13px', margin: '0 0 16px 0' }}>
+              Elige a qué melamina de tu catálogo corresponden estas {piezasPendientesDiseno.piezas?.length || 0} piezas. Se agregarán todas con esa misma melamina.
+            </p>
+            <select value={melaminaImportSelId} onChange={(e) => setMelaminaImportSelId(e.target.value)} style={inputStyle}>
+              <option value="">-- Selecciona una melamina --</option>
+              {melaminas.map((m) => (
+                <option key={m.id} value={String(m.id)}>{m.detalle} — Bs. {Number(m.precio_cotizador).toFixed(2)}/m²</option>
+              ))}
+            </select>
+            <div style={{ overflowY: 'auto' as const, marginTop: '14px', maxHeight: '220px', border: '1px solid #eee', borderRadius: '10px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f9f9f9' }}>
+                    <th style={{ padding: '8px 10px', textAlign: 'left' }}>Pieza</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'center' }}>Cant.</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'center' }}>Largo</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'center' }}>Ancho</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {piezasPendientesDiseno.piezas.map((p: any, i: number) => (
+                    <tr key={i}>
+                      <td style={{ padding: '6px 10px', borderTop: '1px solid #f0f0f0' }}>{p.pieza}</td>
+                      <td style={{ padding: '6px 10px', borderTop: '1px solid #f0f0f0', textAlign: 'center' }}>{p.cantidad}</td>
+                      <td style={{ padding: '6px 10px', borderTop: '1px solid #f0f0f0', textAlign: 'center' }}>{p.largo.toFixed(1)}</td>
+                      <td style={{ padding: '6px 10px', borderTop: '1px solid #f0f0f0', textAlign: 'center' }}>{p.ancho.toFixed(1)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+              <button onClick={() => setPanelImportarDiseno(false)} style={{ flex: 1, padding: '12px', backgroundColor: '#f0f0f0', color: '#555', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>Cancelar</button>
+              <button onClick={importarPiezasDiseno} disabled={!melaminaImportSelId} style={{ flex: 1, padding: '12px', backgroundColor: !melaminaImportSelId ? '#ccc' : '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: !melaminaImportSelId ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 'bold' }}>
+                Importar todas
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ MODAL: Plantillas de Producto (buscar / abrir) ═══ */}
+      {panelPlantillas && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '16px' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '100%', maxWidth: '520px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' as const }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h2 style={{ margin: 0, fontSize: '18px' }}>📦 Plantillas de Producto</h2>
+              <button onClick={() => setPanelPlantillas(false)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#999' }}>✕</button>
+            </div>
+            <p style={{ color: '#888', fontSize: '12px', margin: '0 0 12px 0' }}>Busca un producto por código o nombre para cargar (o crear) su despiece.</p>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="text"
+                placeholder="Ej: MLB-S01 o Estante Minimalista"
+                value={busquedaProducto}
+                onChange={(e) => setBusquedaProducto(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && buscarProductos()}
+                style={inputStyle}
+              />
+              <button onClick={buscarProductos} style={{ padding: '10px 18px', backgroundColor: '#222', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', whiteSpace: 'nowrap' as const }}>Buscar</button>
+            </div>
+            <div style={{ overflowY: 'auto' as const, flex: 1, marginTop: '14px' }}>
+              {buscandoProducto ? (
+                <p style={{ textAlign: 'center', color: '#888', fontSize: '13px' }}>Buscando...</p>
+              ) : resultadosProducto.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '24px', color: '#bbb', border: '2px dashed #eee', borderRadius: '10px' }}>
+                  <p style={{ margin: 0, fontSize: '14px' }}>Escribe y busca un producto del catálogo</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '8px' }}>
+                  {resultadosProducto.map((p) => (
+                    <button
+                      key={p.codigo}
+                      onClick={() => abrirPlantilla(p)}
+                      style={{ textAlign: 'left', padding: '14px 16px', backgroundColor: '#f9f9f9', border: '1px solid #eee', borderRadius: '10px', cursor: 'pointer' }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <strong style={{ fontSize: '14px', color: '#222' }}>{p.codigo} — {p.nombre}</strong>
+                        <span style={{ fontSize: '11px', color: '#999' }}>{p.categoria}</span>
+                      </div>
+                      <span style={{ fontSize: '12px', color: '#666' }}>{p.medidas} · Bs. {Number(p.precio_minimo).toFixed(2)} min / Bs. {Number(p.precio_tienda).toFixed(2)} tienda</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ MODAL: Actualizar precio en catálogo ═══ */}
+      {panelActualizarPrecio && productoActivo && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '16px' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '100%', maxWidth: '420px' }}>
+            <h2 style={{ margin: '0 0 4px 0', fontSize: '18px' }}>🔄 Actualizar precio en catálogo</h2>
+            <p style={{ color: '#888', fontSize: '13px', margin: '0 0 18px 0' }}>{productoActivo.codigo} — {productoActivo.nombre}</p>
+
+            <div style={{ backgroundColor: '#f9f9f9', borderRadius: '10px', padding: '12px 16px', marginBottom: '16px', fontSize: '12px', color: '#666' }}>
+              Precio actual en catálogo: <strong>Bs. {Number(productoActivo.precio_minimo).toFixed(2)}</strong> mínimo / <strong>Bs. {Number(productoActivo.precio_tienda).toFixed(2)}</strong> tienda
+            </div>
+
+            <label style={labelStyle}>Nuevo precio mínimo (sugerido: Precio Neto)</label>
+            <input type="number" value={nuevoPrecioMinimo} onChange={(e) => setNuevoPrecioMinimo(e.target.value)} style={{ ...inputStyle, marginBottom: '12px' }} />
+
+            <label style={labelStyle}>Nuevo precio de tienda (sugerido: Precio Facturado)</label>
+            <input type="number" value={nuevoPrecioTienda} onChange={(e) => setNuevoPrecioTienda(e.target.value)} style={inputStyle} />
+
+            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+              <button onClick={() => setPanelActualizarPrecio(false)} style={{ flex: 1, padding: '12px', backgroundColor: '#f0f0f0', color: '#555', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>Cancelar</button>
+              <button onClick={confirmarActualizarPrecio} disabled={actualizandoPrecio} style={{ flex: 1, padding: '12px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>
+                {actualizandoPrecio ? 'Actualizando...' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

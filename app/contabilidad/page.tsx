@@ -4,62 +4,73 @@ import { supabase } from '../../lib/supabase'
 
 export default function Contabilidad() {
   const [loading, setLoading] = useState(true)
-  const [pestana, setPestana] = useState<'diario' | 'reportes'>('diario')
+  const [pestana, setPestana] = useState<'diario' | 'reportes' | 'caja'>('diario')
   const [asientos, setAsientos] = useState<any[]>([])
   const [balances, setBalances] = useState<any[]>([])
-
-  // Función auxiliar para formatear fechas a DD/MM/YYYY
-  const formatearFecha = (fechaStr: string): string => {
-    if (!fechaStr) return ''
-    try {
-      // Extraer solo la parte de la fecha (YYYY-MM-DD)
-      const partes = fechaStr.split('T')[0].split('-')
-      if (partes.length !== 3) return fechaStr
-      const [anio, mes, dia] = partes
-      console.log('Fecha BD:', fechaStr, '-> Formateada:', `${dia}/${mes}/${anio}`)
-      return `${dia}/${mes}/${anio}`
-    } catch (e) {
-      console.error('Error formateo fecha:', fechaStr, e)
-      return fechaStr
-    }
-  }
-
-  // Estados para los Filtros y Buscador
+  
+  // Estados para Filtros (Diario)
   const [busqueda, setBusqueda] = useState('')
   const [fechaDesde, setFechaDesde] = useState('')
   const [fechaHasta, setFechaHasta] = useState('')
+  
+  // Estado para Control de Caja
+  const [mesCaja, setMesCaja] = useState(new Date().toISOString().slice(0, 7))
+
+  // Funciones Utilitarias
+  const formatearFecha = (fechaStr: string): string => {
+    if (!fechaStr) return ''
+    try {
+      const partes = fechaStr.split('T')[0].split('-')
+      if (partes.length !== 3) return fechaStr
+      const [anio, mes, dia] = partes
+      return `${dia}/${mes}/${anio}`
+    } catch (e) { return fechaStr }
+  }
+
+  const cambiarMes = (delta: number) => {
+    const [y, m] = mesCaja.split('-').map(Number);
+    const date = new Date(y, m - 1, 1);
+    date.setMonth(date.getMonth() + delta);
+    setMesCaja(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
+  };
+
+  const exportarCSV = () => {
+    const csvContent = "data:text/csv;charset=utf-8," + 
+      "Fecha,Glosa,Monto\n" +
+      asientosCaja.map(a => `${formatearFecha(a.fecha)},${a.glosa},${a.contabilidad_lineas.reduce((s:any, l:any) => s + Number(l.debe || l.haber), 0)}`).join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `reporte_caja_${mesCaja}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  // Cargar Datos
+  async function cargarDatos() {
+    const { data: dataAsientos } = await supabase
+      .from('contabilidad_asientos')
+      .select(`id, fecha, glosa, contabilidad_lineas(debe, haber, contabilidad_cuentas(nombre, codigo, tipo))`)
+      .order('fecha', { ascending: false })
+
+    const { data: dataLineas } = await supabase
+      .from('contabilidad_lineas')
+      .select(`debe, haber, contabilidad_cuentas(nombre, codigo, tipo)`)
+
+    if (dataAsientos) setAsientos(dataAsientos)
+    if (dataLineas) calcularBalances(dataLineas)
+    setLoading(false)
+  }
 
   useEffect(() => {
-    // Verificación de sesión rápida (Igual a tu sistema original)
     const carnetGuardado = localStorage.getItem('carnet')
     if (!carnetGuardado) { window.location.replace('/'); return }
-
-    async function cargarDatosContables() {
-      // 1. Obtener asientos con sus líneas y nombres de cuenta
-      const { data: dataAsientos } = await supabase
-        .from('contabilidad_asientos')
-        .select(`
-          id, fecha, glosa,
-          contabilidad_lineas(debe, haber, contabilidad_cuentas(nombre, codigo))
-        `)
-        .order('fecha', { ascending: false })
-
-      // 2. Obtener sumas por cuenta para reportes rápidos
-      const { data: dataLineas } = await supabase
-        .from('contabilidad_lineas')
-        .select(`debe, haber, contabilidad_cuentas(nombre, codigo, tipo)`)
-
-      if (dataAsientos) setAsientos(dataAsientos)
-      if (dataLineas) calcularBalances(dataLineas)
-      setLoading(false)
-    }
-
-    cargarDatosContables()
+    cargarDatos()
   }, [])
 
   const calcularBalances = (lineas: any[]) => {
     const mapa: { [key: string]: { nombre: string; tipo: string; saldo: number } } = {}
-    
     lineas.forEach(l => {
       const cuenta = l.contabilidad_cuentas
       if (!mapa[cuenta.codigo]) {
@@ -71,194 +82,135 @@ export default function Contabilidad() {
         mapa[cuenta.codigo].saldo += (Number(l.haber) - Number(l.debe))
       }
     })
-
     setBalances(Object.entries(mapa).map(([codigo, datos]) => ({ codigo, ...datos })))
   }
 
-  // Lógica de Filtrado en tiempo real (Client-side para máxima fluidez)
+  // Lógica Filtrado Diario
   const asientosFiltrados = asientos.filter(asiento => {
-    // Filtro de buscador (Glosa)
     const coincideBusqueda = asiento.glosa.toLowerCase().includes(busqueda.toLowerCase())
-    
-    // Filtro de Fechas
     const fechaAsiento = asiento.fecha.split('T')[0]
     const coincideDesde = fechaDesde ? fechaAsiento >= fechaDesde : true
     const coincideHasta = fechaHasta ? fechaAsiento <= fechaHasta : true
-
     return coincideBusqueda && coincideDesde && coincideHasta
   })
 
-  if (loading) return <p style={{ textAlign: 'center', marginTop: '100px', fontFamily: 'Arial' }}>Cargando datos financieros...</p>
+  // Lógica Control Caja
+  const asientosCaja = asientos.filter(a => a.fecha.startsWith(mesCaja))
+  const esCompra = (glosa: string) => glosa.toLowerCase().includes('compra')
+  const esCobro = (glosa: string) => glosa.toLowerCase().includes('cobro')
+  const esAnticipo = (glosa: string) => glosa.toLowerCase().includes('anticipo')
+  
+  const totalIngresos = asientosCaja.reduce((acc, a) => acc + (esCobro(a.glosa) ? a.contabilidad_lineas.reduce((sum: number, l: any) => sum + Number(l.haber), 0) : 0), 0)
+  const totalCompras = asientosCaja.reduce((acc, a) => acc + (esCompra(a.glosa) ? a.contabilidad_lineas.reduce((sum: number, l: any) => sum + Number(l.debe), 0) : 0), 0)
+  const totalAnticipos = asientosCaja.reduce((acc, a) => acc + (esAnticipo(a.glosa) ? a.contabilidad_lineas.reduce((sum: number, l: any) => sum + Number(l.debe), 0) : 0), 0)
 
-  // Cálculos rápidos de KPI basados en los datos ya filtrados para que las tarjetas reaccionen a la búsqueda
+  // KPIs Generales
   const ingresosTotales = balances.filter(b => b.tipo === 'ingreso').reduce((acc, b) => acc + b.saldo, 0)
   const gastosTotales = balances.filter(b => b.tipo === 'gasto').reduce((acc, b) => acc + b.saldo, 0)
   const utilidadNeta = ingresosTotales - gastosTotales
 
+  if (loading) return <p style={{ textAlign: 'center', marginTop: '100px' }}>Cargando...</p>
+
   return (
     <div style={{ fontFamily: 'Arial, sans-serif', minHeight: '100vh', backgroundColor: '#f5f5f5' }}>
-      {/* Navbar idéntica a tu diseño */}
-      <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 20px', backgroundColor: '#222', color: 'white', boxSizing: 'border-box' }}>
-        <a href="/sistema" style={{ fontWeight: 'bold', fontSize: '20px', color: 'white', textDecoration: 'none' }}>Muebles is Better</a>
-        <span style={{ color: '#a3c47d', fontWeight: 'bold', fontSize: '14px' }}>Módulo Contable</span>
-        <a href="/sistema" style={{ backgroundColor: 'transparent', color: '#ccc', border: '1px solid #ccc', padding: '5px 12px', borderRadius: '20px', fontSize: '12px', textDecoration: 'none' }}>Volver</a>
+      <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 20px', backgroundColor: '#222', color: 'white' }}>
+        <h2 style={{margin:0, fontSize:'20px'}}>Muebles is Better</h2>
+        <button onClick={() => window.print()} style={{cursor:'pointer', padding:'5px 10px'}}>🖨️ Imprimir</button>
       </nav>
 
-      <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto', boxSizing: 'border-box' }}>
-        <h1 style={{ fontSize: '24px', marginBottom: '20px' }}>Dashboard Contable 📊</h1>
+      <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
+        <h1 style={{ fontSize: '24px', marginBottom: '20px' }}>Dashboard Financiero 📊</h1>
 
-        {/* Tarjetas de KPI */}
+        {/* Tarjetas KPI */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '30px' }}>
-          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
-            <span style={{ color: '#666', fontSize: '14px' }}>Ingresos Totales</span>
-            <h2 style={{ margin: '5px 0 0 0', color: '#2e7d32' }}>${ingresosTotales.toFixed(2)}</h2>
+          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)' }}>
+            <span style={{ fontSize: '14px', color: '#666' }}>Ingresos Totales</span>
+            <h2 style={{ margin: '5px 0 0', color: '#2e7d32' }}>${ingresosTotales.toFixed(2)}</h2>
           </div>
-          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
-            <span style={{ color: '#666', fontSize: '14px' }}>Gastos Totales</span>
-            <h2 style={{ margin: '5px 0 0 0', color: '#c62828' }}>${gastosTotales.toFixed(2)}</h2>
+          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)' }}>
+            <span style={{ fontSize: '14px', color: '#666' }}>Gastos Totales</span>
+            <h2 style={{ margin: '5px 0 0', color: '#c62828' }}>${gastosTotales.toFixed(2)}</h2>
           </div>
-          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.05)', borderLeft: `4px solid ${utilidadNeta >= 0 ? '#4caf50' : '#f44336'}` }}>
-            <span style={{ color: '#666', fontSize: '14px' }}>Utilidad del Ejercicio</span>
-            <h2 style={{ margin: '5px 0 0 0', color: '#222' }}>${utilidadNeta.toFixed(2)}</h2>
+          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)' }}>
+            <span style={{ fontSize: '14px', color: '#666' }}>Utilidad</span>
+            <h2 style={{ margin: '5px 0 0', color: '#222' }}>${utilidadNeta.toFixed(2)}</h2>
           </div>
         </div>
 
-        {/* Selector de Pestañas */}
+        {/* Pestañas */}
         <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-          <button onClick={() => setPestana('diario')} style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', backgroundColor: pestana === 'diario' ? '#222' : 'white', color: pestana === 'diario' ? 'white' : '#222', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,0,0,0.05)' }}>
-            📖 Libro Diario
-          </button>
-          <button onClick={() => setPestana('reportes')} style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', backgroundColor: pestana === 'reportes' ? '#222' : 'white', color: pestana === 'reportes' ? 'white' : '#222', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,0,0,0.05)' }}>
-            📋 Estados Financieros
-          </button>
+          <button onClick={() => setPestana('diario')} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: '10px', backgroundColor: pestana === 'diario' ? '#222' : 'white', color: pestana === 'diario' ? 'white' : '#222', fontWeight: 'bold', cursor: 'pointer' }}>📖 Diario</button>
+          <button onClick={() => setPestana('reportes')} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: '10px', backgroundColor: pestana === 'reportes' ? '#222' : 'white', color: pestana === 'reportes' ? 'white' : '#222', fontWeight: 'bold', cursor: 'pointer' }}>📋 Balances</button>
+          <button onClick={() => setPestana('caja')} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: '10px', backgroundColor: pestana === 'caja' ? '#222' : 'white', color: pestana === 'caja' ? 'white' : '#222', fontWeight: 'bold', cursor: 'pointer' }}>💰 Control Caja</button>
         </div>
 
-
-        {/* CONTROLES DE BÚSQUEDA Y FILTRADO (Solo visibles en Libro Diario) */}
         {pestana === 'diario' && (
-          <div style={{ backgroundColor: 'white', borderRadius: '14px', padding: '15px', marginBottom: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: '12px' }}>
-              
-              {/* Buscador de Texto */}
-              <div style={{ flex: '1 1 300px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#666' }}>Buscar por descripción:</label>
-                <input 
-                  type="text" 
-                  placeholder="Ej: Melamina, Caja Chica, Venta..." 
-                  value={busqueda}
-                  onChange={(e) => setBusqueda(e.target.value)}
-                  style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', boxSizing: 'border-box' }}
-                />
-              </div>
-
-              {/* Filtro Fecha Desde */}
-              <div style={{ flex: '1 1 180px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#666' }}>Desde:</label>
-                <input 
-                  type="date" 
-                  value={fechaDesde}
-                  onChange={(e) => setFechaDesde(e.target.value)}
-                  style={{ width: '100%', padding: '9px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', boxSizing: 'border-box' }}
-                />
-              </div>
-
-              {/* Filtro Fecha Hasta */}
-              <div style={{ flex: '1 1 180px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#666' }}>Hasta:</label>
-                <input 
-                  type="date" 
-                  value={fechaHasta}
-                  onChange={(e) => setFechaHasta(e.target.value)}
-                  style={{ width: '100%', padding: '9px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', boxSizing: 'border-box' }}
-                />
-              </div>
-
-              {/* Botón para Limpiar Filtros */}
-              {(busqueda || fechaDesde || fechaHasta) && (
-                <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                  <button 
-                    onClick={() => { setBusqueda(''); setFechaDesde(''); setFechaHasta('') }}
-                    style={{ padding: '10px 15px', backgroundColor: '#f44336', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', width: '100%' }}
-                  >
-                    Limpiar
-                  </button>
-                </div>
-              )}
-
+          <div>
+            <div style={{ backgroundColor: 'white', padding: '15px', borderRadius: '14px', marginBottom: '20px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <input type="text" placeholder="Buscar glosa..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }} />
+              <input type="date" value={fechaDesde} onChange={(e) => setFechaDesde(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }} />
+              <input type="date" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }} />
             </div>
-            <div style={{ fontSize: '12px', color: '#888', textAlign: 'right' }}>
-              Resultados encontrados: {asientosFiltrados.length}
-            </div>
+            {asientosFiltrados.map((asiento) => (
+              <div key={asiento.id} style={{ backgroundColor: 'white', borderRadius: '14px', padding: '15px', marginBottom: '10px' }}>
+                <strong>Asiento #{asiento.id} - {asiento.glosa}</strong> <br/>
+                <small>{formatearFecha(asiento.fecha)}</small>
+              </div>
+            ))}
           </div>
         )}
 
-        {/* VISTA 1: LIBRO DIARIO */}
-        {pestana === 'diario' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-            {asientosFiltrados.length === 0 ? (
-              <p style={{ textAlign: 'center', color: '#888', padding: '40px', backgroundColor: 'white', borderRadius: '14px' }}>
-                No se encontraron asientos contables con los filtros aplicados.
-              </p>
-            ) : (
-              asientosFiltrados.map((asiento) => (
-                <div key={asiento.id} style={{ backgroundColor: 'white', borderRadius: '14px', padding: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '5px', marginBottom: '10px', borderBottom: '1px solid #eee', paddingBottom: '8px' }}>
-                    <span style={{ fontWeight: 'bold', color: '#555', fontSize: '14px' }}>Asiento #{asiento.id}</span>
-                    <span style={{ color: '#888', fontSize: '13px' }}>{formatearFecha(asiento.fecha)}</span>
-                  </div>
-                  <p style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: 500, color: '#333' }}>{asiento.glosa}</p>
-                  
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', minWidth: '400px', borderCollapse: 'collapse', fontSize: '13px' }}>
-                      <thead>
-                        <tr style={{ backgroundColor: '#fafafa', color: '#666' }}>
-                          <th style={{ textAlign: 'left', padding: '6px' }}>Cuenta</th>
-                          <th style={{ textAlign: 'right', padding: '6px', width: '80px' }}>Debe</th>
-                          <th style={{ textAlign: 'right', padding: '6px', width: '80px' }}>Haber</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {asiento.contabilidad_lineas?.map((linea: any, idx: number) => (
-                          <tr key={idx} style={{ borderBottom: '1px solid #f9f9f9' }}>
-                            <td style={{ padding: '6px', paddingLeft: linea.haber > 0 ? '20px' : '6px', color: linea.haber > 0 ? '#666' : '#000' }}>
-                              {linea.haber > 0 ? '→ ' : ''}{linea.contabilidad_cuentas?.nombre}
-                            </td>
-                            <td style={{ padding: '6px', textAlign: 'right', color: '#2e7d32' }}>{linea.debe > 0 ? `$${linea.debe}` : '-'}</td>
-                            <td style={{ padding: '6px', textAlign: 'right', color: '#b71c1c' }}>{linea.haber > 0 ? `$${linea.haber}` : '-'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-
-        {/* VISTA 2: REPORTES */}
         {pestana === 'reportes' && (
-          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
-            <h3 style={{ marginTop: 0, borderBottom: '2px solid #222', paddingBottom: '6px' }}>Balance de Saldos</h3>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', minWidth: '500px', borderCollapse: 'collapse', fontSize: '14px' }}>
-                <thead>
-                  <tr style={{ backgroundColor: '#222', color: 'white' }}>
-                    <th style={{ textAlign: 'left', padding: '10px' }}>Código</th>
-                    <th style={{ textAlign: 'left', padding: '10px' }}>Cuenta</th>
-                    <th style={{ textAlign: 'left', padding: '10px' }}>Tipo</th>
-                    <th style={{ textAlign: 'right', padding: '10px' }}>Saldo Actual</th>
+          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '16px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead><tr style={{textAlign:'left'}}><th>Cuenta</th><th>Tipo</th><th>Saldo</th></tr></thead>
+              <tbody>
+                {balances.map((b, idx) => (
+                  <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                    <td style={{padding:'8px'}}>{b.nombre}</td>
+                    <td style={{padding:'8px'}}>{b.tipo}</td>
+                    <td style={{padding:'8px'}}>${b.saldo.toFixed(2)}</td>
                   </tr>
-                </thead>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {pestana === 'caja' && (
+          <div>
+            <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '15px', justifyContent: 'center' }}>
+              <button onClick={() => cambiarMes(-1)} style={{ padding: '8px 15px', cursor: 'pointer' }}>◀ Anterior</button>
+              <input type="month" value={mesCaja} onChange={(e) => setMesCaja(e.target.value)} style={{ padding: '8px' }} />
+              <button onClick={() => cambiarMes(1)} style={{ padding: '8px 15px', cursor: 'pointer' }}>Siguiente ▶</button>
+              <button onClick={exportarCSV} style={{ padding: '8px 15px', background: '#4caf50', color: 'white', border:'none', borderRadius:'5px', cursor: 'pointer' }}>Excel</button>
+            </div>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '20px' }}>
+              <div style={{ padding: '20px', background: '#e8f5e9', borderRadius: '10px', textAlign: 'center' }}>
+                <p style={{margin:0, fontSize:'12px'}}>Ingresos</p>
+                <h3>${totalIngresos.toFixed(2)}</h3>
+              </div>
+              <div style={{ padding: '20px', background: '#ffebee', borderRadius: '10px', textAlign: 'center' }}>
+                <p style={{margin:0, fontSize:'12px'}}>Compras</p>
+                <h3>${totalCompras.toFixed(2)}</h3>
+              </div>
+              <div style={{ padding: '20px', background: '#fff3e0', borderRadius: '10px', textAlign: 'center' }}>
+                <p style={{margin:0, fontSize:'12px'}}>Anticipos</p>
+                <h3>${totalAnticipos.toFixed(2)}</h3>
+              </div>
+            </div>
+
+            <div style={{ background: 'white', borderRadius: '12px', padding: '15px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr style={{textAlign:'left'}}><th style={{padding:10}}>Fecha</th><th style={{padding:10}}>Glosa</th><th style={{padding:10}}>Tipo</th><th style={{padding:10}}>Monto</th></tr></thead>
                 <tbody>
-                  {balances.map((b, idx) => (
-                    <tr key={idx} style={{ borderBottom: '1px solid #eee', backgroundColor: idx % 2 === 0 ? '#fff' : '#fcfcfc' }}>
-                      <td style={{ padding: '10px', fontFamily: 'monospace', color: '#555' }}>{b.codigo}</td>
-                      <td style={{ padding: '10px', fontWeight: 'bold' }}>{b.nombre}</td>
-                      <td style={{ padding: '10px', textTransform: 'capitalize', color: '#777', fontSize: '12px' }}>{b.tipo}</td>
-                      <td style={{ padding: '10px', textAlign: 'right', fontWeight: 'bold', color: b.saldo >= 0 ? '#222' : '#c62828' }}>
-                        ${Math.abs(b.saldo).toFixed(2)}
-                      </td>
+                  {asientosCaja.map((a: any) => (
+                    <tr key={a.id} style={{ borderBottom: '1px solid #eee' }}>
+                      <td style={{padding:'10px'}}>{formatearFecha(a.fecha)}</td>
+                      <td style={{padding:'10px'}}>{a.glosa}</td>
+                      <td style={{padding:'10px'}}>{esCobro(a.glosa) ? 'Cobro' : esCompra(a.glosa) ? 'Compra' : esAnticipo(a.glosa) ? 'Anticipo' : 'Otro'}</td>
+                      <td style={{padding:'10px'}}>${a.contabilidad_lineas.reduce((sum: number, l: any) => sum + Number(l.debe || l.haber), 0).toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>
