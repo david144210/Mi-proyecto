@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase'
 export default function Sistema() {
   const [usuario, setUsuario] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
 
   useEffect(() => {
     const carnetGuardado = localStorage.getItem('carnet')
@@ -22,6 +23,19 @@ export default function Sistema() {
       })
   }, [])
 
+  // Estilo reutilizable para todas las tarjetas
+  const cardStyle: React.CSSProperties = { 
+    backgroundColor: 'white', 
+    borderRadius: '16px', 
+    padding: '28px', 
+    boxShadow: '0 4px 12px rgba(0,0,0,0.08)', 
+    textDecoration: 'none', 
+    color: '#222', 
+    textAlign: 'center',
+    transition: 'transform 0.2s, box-shadow 0.2s',
+    display: 'block'
+  }
+
   if (loading) return <p style={{ textAlign: 'center', marginTop: '100px' }}>Cargando...</p>
 
   const nombreMostrar = usuario?.usuario || usuario?.nombre || usuario?.carnet || 'Usuario'
@@ -29,244 +43,102 @@ export default function Sistema() {
 
   return (
     <div style={{ fontFamily: 'Arial, sans-serif', minHeight: '100vh', backgroundColor: '#f5f5f5' }}>
-      <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 40px', backgroundColor: '#222', color: 'white', boxSizing: 'border-box' as const }}>
-        <a href="/" style={{ fontWeight: 'bold', fontSize: '20px', color: 'white', textDecoration: 'none' }}>Muebles is Better</a>
-        <span style={{ color: '#a3c47d', fontWeight: 'bold' }}>Sistema Interno</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ color: 'white', fontSize: '14px' }}>{nombreMostrar} 👤</span>
-          <a href="/" style={{ backgroundColor: 'transparent', color: '#ff6b6b', border: '1px solid #ff6b6b', padding: '5px 12px', borderRadius: '20px', fontSize: '12px', textDecoration: 'none' }}>
-            Salir
-          </a>
+      
+      {/* NAVBAR */}
+      <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 30px', backgroundColor: '#001f3f', color: 'white', position: 'sticky', top: 0, zIndex: 1000 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+          <button onClick={() => setIsMenuOpen(!isMenuOpen)} style={{ background: 'none', border: 'none', color: '#D4AF37', fontSize: '24px', cursor: 'pointer' }}>☰</button>
+          <img src="/mascota.png" alt="Logo" style={{ height: '40px', width: '40px', objectFit: 'contain' }} />
+          <a href="/" style={{ fontWeight: 'bold', fontSize: '20px', color: 'white', textDecoration: 'none' }}>Muebles is Better</a>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+          <span style={{ color: '#D4AF37', fontSize: '14px' }}>{nombreMostrar} 👤</span>
+          <a href="/" style={{ backgroundColor: '#D4AF37', color: '#001f3f', padding: '6px 15px', borderRadius: '20px', fontSize: '12px', textDecoration: 'none', fontWeight: 'bold' }}>Salir</a>
         </div>
       </nav>
 
+      {/* MENÚ HAMBURGUESA LATERAL */}
+      <div style={{ position: 'fixed', top: 0, left: isMenuOpen ? 0 : '-250px', height: '100%', width: '250px', backgroundColor: '#001f3f', transition: '0.3s', padding: '80px 20px', zIndex: 900, boxShadow: '2px 0 10px rgba(0,0,0,0.3)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <a href="/cotizador" style={{ color: '#D4AF37', textDecoration: 'none', fontSize: '18px', borderBottom: '1px solid #D4AF37', paddingBottom: '10px' }}>⚡ Cotizador</a>
+          <a href="/productos" style={{ color: '#D4AF37', textDecoration: 'none', fontSize: '18px', borderBottom: '1px solid #D4AF37', paddingBottom: '10px' }}>📦 Productos</a>
+        </div>
+      </div>
+
       <div style={{ padding: '40px', maxWidth: '1200px', margin: '0 auto' }}>
-        <h1 style={{ marginBottom: '8px' }}>Bienvenido de vuelta, {nombreMostrar.split(' ')[0]} 👋</h1>
+        <h1 style={{ marginBottom: '8px', color: '#001f3f' }}>Bienvenido de vuelta, {nombreMostrar.split(' ')[0]} 👋</h1>
         <p style={{ color: '#666', marginBottom: '40px' }}>{usuario?.cargos?.nombre}</p>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
+          
+          <a href="/perfil" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>👤</div><h3 style={{ margin: 0 }}>Mi Perfil</h3></a>
+          <a href="/clientes" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>👥</div><h3 style={{ margin: 0 }}>Clientes</h3></a>
+          <a href="/stock" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>🏪</div><h3 style={{ margin: 0 }}>Tiendas</h3></a>
 
-          <a href="/perfil" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>👤</div>
-            <h3 style={{ margin: 0 }}>Mi Perfil</h3>
-          </a>
-
-          <a href="/clientes" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>👥</div>
-            <h3 style={{ margin: 0 }}>Clientes</h3>
-          </a>
-
-          <a href="/stock" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🏪</div>
-            <h3 style={{ margin: 0 }}>Tiendas</h3>
-          </a>
-
-            {(esAdmin || !!usuario?.cargos?.puede_ver_cotizador) && (
-              <a href="/ventas" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-                <div style={{ fontSize: '40px', marginBottom: '12px' }}>💰</div>
-                <h3 style={{ margin: 0 }}>Ventas</h3>
-              </a>
-            )}
-
-            {(esAdmin || !!usuario?.cargos?.puede_ver_caja_chica) && (
-              <a href="/cajas" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-                <div style={{ fontSize: '40px', marginBottom: '12px' }}>🧾</div>
-                <h3 style={{ margin: 0 }}>Caja Chica</h3>
-              </a>
-            )}
-
+          {(esAdmin || !!usuario?.cargos?.puede_ver_cotizador) && (
+            <a href="/ventas" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>💰</div><h3 style={{ margin: 0 }}>Ventas</h3></a>
+          )}
+          {(esAdmin || !!usuario?.cargos?.puede_ver_caja_chica) && (
+            <a href="/cajas" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>🧾</div><h3 style={{ margin: 0 }}>Caja Chica</h3></a>
+          )}
           {esAdmin && (
-            <a href="/personal" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-              <div style={{ fontSize: '40px', marginBottom: '12px' }}>🏢</div>
-              <h3 style={{ margin: 0 }}>Personal</h3>
-            </a>
+            <a href="/personal" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>🏢</div><h3 style={{ margin: 0 }}>Personal</h3></a>
           )}
-
           {esAdmin && (
-            <a href="/ventas/anular" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-              <div style={{ fontSize: '40px', marginBottom: '12px' }}>🏢</div>
-              <h3 style={{ margin: 0 }}>Anular Ventas</h3>
-            </a>
+            <a href="/ventas/anular" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>🏢</div><h3 style={{ margin: 0 }}>Anular Ventas</h3></a>
           )}
-
-          {/* TARJETA MELAMINAS */}
           {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
-          <a href="/melaminas" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🧱</div>
-            <h3 style={{ margin: 0 }}>Registro de Melaminas</h3>
-          </a>
+            <>
+              <a href="/melaminas" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>🧱</div><h3 style={{ margin: 0 }}>Registro de Melaminas</h3></a>
+              <a href="/compra-melaminas" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>🛒</div><h3 style={{ margin: 0 }}>Compra de Melaminas</h3></a>
+              <a href="/aceros" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>⛓</div><h3 style={{ margin: 0 }}>Registro Acero</h3></a>
+              <a href="/compras-acero" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>💰⛓</div><h3 style={{ margin: 0 }}>Compra Acero</h3></a>
+              <a href="/accesorios" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>⚙️</div><h3 style={{ margin: 0 }}>Registro Accesorios</h3></a>
+              <a href="/compras-accesorios" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>💰⚙️</div><h3 style={{ margin: 0 }}>Compra Accesorios</h3></a>
+              <a href="/insumos" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>🧪</div><h3 style={{ margin: 0 }}>Registro Insumos</h3></a>
+              <a href="/compras-insumos" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>💰🧪</div><h3 style={{ margin: 0 }}>Compra Insumos</h3></a>
+            </>
           )}
-
-          {/* TARJETA compra-MELAMINAS */}
-          {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
-          <a href="/compra-melaminas" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🛒</div>
-            <h3 style={{ margin: 0 }}>Compra de Melaminas</h3>
-          </a>
-          )}
-
-          {/* TARJETA compra tubos */}
-          {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
-          <a href="/aceros" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>⛓</div>
-            <h3 style={{ margin: 0 }}>Registro Acero</h3>
-          </a>
-          )}
-
-          {/* TARJETA compra tubos */}
-          {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
-          <a href="/compras-acero" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>💰⛓</div>
-            <h3 style={{ margin: 0 }}>Compra Acero</h3>
-          </a>
-          )}
-
-          {/* TARJETA ACCESORIOS */}
-          {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
-          <a href="/accesorios" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>⚙️</div>
-            <h3 style={{ margin: 0 }}>Registro Accesorios</h3>
-          </a>
-          )}
-        {/* TARJETA compra de ACCESORIOS */}
-          {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
-          <a href="/compras-accesorios" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>💰⚙️</div>
-            <h3 style={{ margin: 0 }}>Compra Accesorios</h3>
-          </a>
-          )}
-
-          {/* TARJETA INSUMOS */}
-          {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
-          <a href="/insumos" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🧪</div>
-            <h3 style={{ margin: 0 }}>Registro Insumos</h3>
-          </a>
-          )}
-
-          {/* TARJETA compra de INSUMOS */}
-          {(esAdmin || !!usuario?.cargos?.puede_ver_compras) && (
-          <a href="/compras-insumos" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>💰🧪</div>
-            <h3 style={{ margin: 0 }}>Compra Insumos</h3>
-          </a>
-          )}
-
-          {/* TARJETA PRODUCCIÓN */}
           {(esAdmin || !!usuario?.cargos?.puede_ver_produccion) && (
-          <a href="/produccion" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🏭</div>
-            <h3 style={{ margin: 0 }}>Producción</h3>
-          </a>
-          
+            <>
+              <a href="/produccion" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>🏭</div><h3 style={{ margin: 0 }}>Producción</h3></a>
+              <a href="/presupuestos_prod" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>🧮</div><h3 style={{ margin: 0 }}>Presupuestos de Producción</h3></a>
+              <a href="/construccion" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>🚧</div><h3 style={{ margin: 0 }}>Construcción</h3></a>
+            </>
           )}
-
-          {/* TARJETA presupuestos PRODUCCIÓN */}
-          {(esAdmin || !!usuario?.cargos?.puede_ver_produccion) && (
-          <a href="/presupuestos_prod" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🧮</div>
-            <h3 style={{ margin: 0 }}>Presupuestos de Producción</h3>
-          </a>
-          
-          )}
-
-          {/* TARJETA construccion */}
-          {(esAdmin || !!usuario?.cargos?.puede_ver_produccion) && (
-          <a href="/construccion" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🚧</div>
-            <h3 style={{ margin: 0 }}>Construcción</h3>
-          </a>
-          
-          )}
-
-{/* TARJETA CALENDARIO */}
           {(esAdmin || !!usuario) && (
-          <a href="/calendario" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>📅</div>
-            <h3 style={{ margin: 0 }}>Calendario </h3>
-          </a>
+             <a href="/calendario" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>📅</div><h3 style={{ margin: 0 }}>Calendario</h3></a>
           )}
-
-{/* TARJETA DESPACHOS */}
           {(esAdmin || !!usuario?.cargos?.puede_ver_entregas) && (
-          <a href="/entregas" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>📦</div>
-            <h3 style={{ margin: 0 }}>Despachos </h3>
-          </a>
+            <>
+              <a href="/entregas" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>📦</div><h3 style={{ margin: 0 }}>Despachos</h3></a>
+              <a href="/cobros" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>💲</div><h3 style={{ margin: 0 }}>Cobros</h3></a>
+            </>
           )}
-
-{/* TARJETA COBROS */}
-          {(esAdmin || !!usuario?.cargos?.puede_ver_entregas) && (
-          <a href="/cobros" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>💲</div>
-            <h3 style={{ margin: 0 }}>Cobros</h3>
-          </a>
-          )}
-
-{/* TARJETA INFORME VENTAS */}
           {(esAdmin || !!usuario?.cargos?.puede_ver_entregas || !!usuario?.cargos?.puede_ver_mk) && (
-          <a href="/consulta" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>📈</div>
-            <h3 style={{ margin: 0 }}>Informe Ventas</h3>
-          </a>
+            <>
+              <a href="/consulta" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>📈</div><h3 style={{ margin: 0 }}>Informe Ventas</h3></a>
+              <a href="/ventas/smart" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>🤯</div><h3 style={{ margin: 0 }}>Business Intelligence</h3></a>
+            </>
           )}
-
-{/* TARJETA BUI */}
-          {(esAdmin || !!usuario?.cargos?.puede_ver_entregas || !!usuario?.cargos?.puede_ver_mk) && (
-          <a href="/ventas/smart" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🤯</div>
-            <h3 style={{ margin: 0 }}>Businees Inteligence</h3>
-          </a>
+          {esAdmin && (
+            <a href="/contabilidad" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>📊</div><h3 style={{ margin: 0 }}>Contabilidad</h3></a>
           )}
-
-{/* TARJETA CONTABILIDAD - Solo visible para Administradores */}
-{esAdmin && (
-  <a href="/contabilidad" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
-    <div style={{ fontSize: '40px', marginBottom: '12px' }}>📊</div>
-    <h3 style={{ margin: 0 }}>Contabilidad</h3>
-  </a>
-)}
-
-{/* TARJETA Marketing */}
           {(esAdmin || !!usuario?.cargos?.puede_ver_mk) && (
-          <a href="/marketing" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🎁</div>
-            <h3 style={{ margin: 0 }}>Editar Portada</h3>
-          </a>
+            <>
+              <a href="/marketing" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>🎁</div><h3 style={{ margin: 0 }}>Editar Portada</h3></a>
+              <a href="/admin-promociones" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>🎁</div><h3 style={{ margin: 0 }}>Editar Promociones</h3></a>
+            </>
           )}
-
-{/* TARJETA promociones */}
-          {(esAdmin || !!usuario?.cargos?.puede_ver_mk) && (
-          <a href="/admin-promociones" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🎁</div>
-            <h3 style={{ margin: 0 }}>Editar Promociones</h3>
-          </a>
-          )}
-
-          {/* TARJETA ASISTENCIA */}
           {(esAdmin || !!usuario?.cargos?.puede_ver_rrhh || !!usuario?.cargos?.puede_gestionar_rrhh) && (
-          <a href="/entrada" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🕐</div>
-            <h3 style={{ margin: 0 }}>Mi Asistencia</h3>
-          </a>
+            <>
+              <a href="/entrada" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>🕐</div><h3 style={{ margin: 0 }}>Mi Asistencia</h3></a>
+              <a href="/rrhh" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>👩‍🎓</div><h3 style={{ margin: 0 }}>Recursos Humanos</h3></a>
+            </>
           )}
-
-          {/* TARJETA RRHH - solo admin y gestores RRHH */}
           {(esAdmin || !!usuario) && (
-          <a href="/kiosco" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>👥</div>
-            <h3 style={{ margin: 0 }}>Codigo de personal</h3>
-          </a>
+            <a href="/kiosco" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>👥</div><h3 style={{ margin: 0 }}>Codigo de personal</h3></a>
           )}
-          {/* TARJETA ASISTENCIA */}
-          {(esAdmin || !!usuario?.cargos?.puede_ver_rrhh || !!usuario?.cargos?.puede_gestionar_rrhh) && (
-          <a href="/rrhh" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', textDecoration: 'none', color: '#222', textAlign: 'center' as const, display: 'block' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>👩‍🎓</div>
-            <h3 style={{ margin: 0 }}>Recursos Humanos</h3>
-          </a>
-          )}
-          {/* Aqui agregaras mas aplicaciones */}
-
         </div>
       </div>
     </div>
