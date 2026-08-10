@@ -43,12 +43,12 @@ export default function GestorPresupuestosWorkflow() {
   const [fecha, setFecha] = useState(() => new Date().toISOString().split('T')[0])
   const [nombreLote, setNombreLote] = useState('Lote Mañana')
   const [loading, setLoading] = useState(true)
+  const [sincronizando, setSincronizando] = useState(false)
 
   const [estadoWorkflow, setEstadoWorkflow] = useState<EstadoWorkflow>('creado')
 
   const [pedidosPendientes, setPedidosPendientes] = useState<Pedido[]>([])
   const [pedidosSeleccionados, setPedidosSeleccionados] = useState<Pedido[]>([])
-
   const [materialesLote, setMaterialesLote] = useState<MaterialPresupuesto[]>([])
 
   // Estados para adición manual desde tablas base
@@ -81,11 +81,12 @@ export default function GestorPresupuestosWorkflow() {
       })
   }, [])
 
+  // Cada vez que cambie la fecha o el nombre del lote, cargamos o sincronizamos desde Supabase
   useEffect(() => {
     if (usuario) {
-      cargarPedidosPorFecha()
+      cargarDatosLoteYPedidos()
     }
-  }, [fecha, usuario])
+  }, [fecha, nombreLote, usuario])
 
   // Cargar elementos de la tabla base seleccionada al cambiar de categoría
   useEffect(() => {
@@ -114,7 +115,6 @@ export default function GestorPresupuestosWorkflow() {
     cargarCatalogo()
   }, [manualTipo])
 
-  // Obtener precios base de las tablas
   const obtenerPrecioBase = async (codigo: string): Promise<number> => {
     try {
       const [acero, melamina, accesorio, insumo, union] = await Promise.all([
@@ -137,9 +137,33 @@ export default function GestorPresupuestosWorkflow() {
     }
   }
 
-  const cargarPedidosPorFecha = async () => {
+  // Cargar pedidos y sincronizar con el lote guardado en la base de datos (Multi-usuario)
+  const cargarDatosLoteYPedidos = async () => {
     setLoading(true)
     try {
+      // 1. Cargar el lote existente en Supabase para esta fecha y nombre
+      const { data: loteData, error: loteError } = await supabase
+        .from('lotes_produccion')
+        .select('*')
+        .eq('fecha', fecha)
+        .eq('nombre_lote', nombreLote)
+        .maybeSingle()
+
+      let estadoActual: EstadoWorkflow = 'creado'
+      let seleccionados: Pedido[] = []
+      let materialesGuardados: MaterialPresupuesto[] = []
+
+      if (loteData) {
+        estadoActual = loteData.estado_workflow as EstadoWorkflow
+        seleccionados = loteData.pedidos_seleccionados || []
+        materialesGuardados = loteData.materiales || []
+      }
+
+      setEstadoWorkflow(estadoActual)
+      setPedidosSeleccionados(seleccionados)
+      setMaterialesLote(materialesGuardados)
+
+      // 2. Cargar ventas/pedidos de la fecha
       const { data: ventasData, error } = await supabase
         .from('ventas')
         .select('id, cod_venta, cod_cliente, fecha_entrega, estado')
@@ -184,13 +208,37 @@ export default function GestorPresupuestosWorkflow() {
         }
       })
 
-      const seleccionadosIds = pedidosSeleccionados.map(s => s.cod_venta)
+      const seleccionadosIds = seleccionados.map(s => s.cod_venta)
       setPedidosPendientes(pedidosProcesados.filter(p => !seleccionadosIds.includes(p.cod_venta)))
     } catch (error) {
       console.error(error)
-      alert('Error cargando pedidos del día')
+      alert('Error cargando el lote multi-usuario')
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Función clave para guardar y sincronizar automáticamente en Supabase para todos los usuarios
+  const persistirLoteEnBD = async (nuevoEstado: EstadoWorkflow, nuevosPedidos: Pedido[], nuevosMateriales: MaterialPresupuesto[]) => {
+    setSincronizando(true)
+    try {
+      const { error } = await supabase
+        .from('lotes_produccion')
+        .upsert({
+          fecha,
+          nombre_lote: nombreLote,
+          estado_workflow: nuevoEstado,
+          pedidos_seleccionados: nuevosPedidos,
+          materiales: nuevosMateriales,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'fecha,nombre_lote' })
+
+      if (error) throw error
+    } catch (err) {
+      console.error(err)
+      alert('Error al sincronizar los cambios con la base de datos.')
+    } finally {
+      setSincronizando(false)
     }
   }
 
@@ -300,29 +348,28 @@ export default function GestorPresupuestosWorkflow() {
     return materiales.length > 0 ? materiales : null
   }
 
-  const agregarOConsolidarMateriales = (nuevosMateriales: MaterialPresupuesto[]) => {
-    setMaterialesLote(prev => {
-      const copia = [...prev]
-      for (const nuevo of nuevosMateriales) {
-        const index = copia.findIndex(m => m.codigo === nuevo.codigo && m.detalle === nuevo.detalle)
-        if (index >= 0) {
-          const nuevaReq = Number((copia[index].cantidadReq + nuevo.cantidadReq).toFixed(2))
-          const stockActual = copia[index].stockActual
-          const nuevaAComprar = Math.max(0, Number((nuevaReq - stockActual).toFixed(2)))
-          const nuevoGasto = Number((nuevaAComprar * copia[index].precioUnitario).toFixed(2))
-          
-          copia[index] = {
-            ...copia[index],
-            cantidadReq: nuevaReq,
-            cantidadComprar: nuevaAComprar,
-            gastoReal: nuevoGasto
-          }
-        } else {
-          copia.push(nuevo)
+  const agregarOConsolidarMateriales = async (nuevosMateriales: MaterialPresupuesto[]) => {
+    const actualizada = [...materialesLote]
+    for (const nuevo of nuevosMateriales) {
+      const index = actualizada.findIndex(m => m.codigo === nuevo.codigo && m.detalle === nuevo.detalle)
+      if (index >= 0) {
+        const nuevaReq = Number((actualizada[index].cantidadReq + nuevo.cantidadReq).toFixed(2))
+        const stockActual = actualizada[index].stockActual
+        const nuevaAComprar = Math.max(0, Number((nuevaReq - stockActual).toFixed(2)))
+        const nuevoGasto = Number((nuevaAComprar * actualizada[index].precioUnitario).toFixed(2))
+        
+        actualizada[index] = {
+          ...actualizada[index],
+          cantidadReq: nuevaReq,
+          cantidadComprar: nuevaAComprar,
+          gastoReal: nuevoGasto
         }
+      } else {
+        actualizada.push(nuevo)
       }
-      return copia
-    })
+    }
+    setMaterialesLote(actualizada)
+    await persistirLoteEnBD(estadoWorkflow, pedidosSeleccionados, actualizada)
   }
 
   const moverAPresupuesto = async (pedido: Pedido) => {
@@ -343,17 +390,19 @@ export default function GestorPresupuestosWorkflow() {
       }
     }
 
-    setPedidosSeleccionados([...pedidosSeleccionados, pedido])
+    const nuevosSeleccionados = [...pedidosSeleccionados, pedido]
+    setPedidosSeleccionados(nuevosSeleccionados)
     setPedidosPendientes(pedidosPendientes.filter(p => p.cod_venta !== pedido.cod_venta))
-    agregarOConsolidarMateriales(materialesAgregados)
+    
+    await agregarOConsolidarMateriales(materialesAgregados)
 
     if (productosSinVariante.length > 0) {
-      alert(`Aviso: Los productos [${productosSinVariante.join(', ')}] no tienen variante estándar y deben registrarse manualmente abajo.`)
+      alert(`Aviso: Los productos [${productosSinVariante.join(', ')}] no tienen variante estándar y deben registrarse manualmente.`)
     }
     setLoading(false)
   }
 
-  const devolverAPendientes = (pedido: Pedido) => {
+  const devolverAPendientes = async (pedido: Pedido) => {
     if (estadoWorkflow !== 'creado') {
       alert('Solo se pueden modificar los pedidos del lote en fase de Creación.')
       return
@@ -361,7 +410,7 @@ export default function GestorPresupuestosWorkflow() {
     const nuevosSeleccionados = pedidosSeleccionados.filter(p => p.cod_venta !== pedido.cod_venta)
     setPedidosPendientes([...pedidosPendientes, pedido])
     setPedidosSeleccionados(nuevosSeleccionados)
-    reconstruirLoteDesdePedidos(nuevosSeleccionados)
+    await reconstruirLoteDesdePedidos(nuevosSeleccionados)
   }
 
   const reconstruirLoteDesdePedidos = async (pedidosRestantes: Pedido[]) => {
@@ -386,6 +435,7 @@ export default function GestorPresupuestosWorkflow() {
       }
     }
     setMaterialesLote(loteConsolidado)
+    await persistirLoteEnBD(estadoWorkflow, pedidosRestantes, loteConsolidado)
     setLoading(false)
   }
 
@@ -413,7 +463,7 @@ export default function GestorPresupuestosWorkflow() {
     const precioUnit = parseFloat(manualPrecio) || 0
     const subtotalEst = Number((cant * precioUnit).toFixed(2))
 
-    agregarOConsolidarMateriales([{
+    await agregarOConsolidarMateriales([{
       id_fila: Math.random().toString(36).substr(2, 9),
       cod_venta: 0,
       codigo: manualCodigoSeleccionado,
@@ -432,9 +482,9 @@ export default function GestorPresupuestosWorkflow() {
     setManualPrecio('')
   }
 
-  const actualizarFilaMaterial = (id_fila: string, campo: keyof MaterialPresupuesto, valor: any) => {
+  const actualizarFilaMaterial = async (id_fila: string, campo: keyof MaterialPresupuesto, valor: any) => {
     if (estadoWorkflow === 'aprobado' && campo !== 'gastoReal') {
-      alert('El lote está aprobado. Solo se permite actualizar el Gasto Real si hubiera un ajuste de última hora.')
+      alert('El lote está aprobado. Solo se permite actualizar el Gasto Real.')
       return
     }
     if (estadoWorkflow === 'revision_taller' && campo !== 'stockActual') {
@@ -446,7 +496,7 @@ export default function GestorPresupuestosWorkflow() {
       return
     }
 
-    setMaterialesLote(prev => prev.map(m => {
+    const nuevosMateriales = materialesLote.map(m => {
       if (m.id_fila === id_fila) {
         const actualizado = { ...m, [campo]: valor }
         if (campo === 'cantidadReq' || campo === 'stockActual') {
@@ -462,15 +512,25 @@ export default function GestorPresupuestosWorkflow() {
         return actualizado
       }
       return m
-    }))
+    })
+
+    setMaterialesLote(nuevosMateriales)
+    await persistirLoteEnBD(estadoWorkflow, pedidosSeleccionados, nuevosMateriales)
   }
 
-  const eliminarFilaMaterial = (id_fila: string) => {
+  const eliminarFilaMaterial = async (id_fila: string) => {
     if (estadoWorkflow !== 'creado') {
       alert('Solo se pueden eliminar filas en fase de Creación.')
       return
     }
-    setMaterialesLote(prev => prev.filter(m => m.id_fila !== id_fila))
+    const nuevos = materialesLote.filter(m => m.id_fila !== id_fila)
+    setMaterialesLote(nuevos)
+    await persistirLoteEnBD(estadoWorkflow, pedidosSeleccionados, nuevos)
+  }
+
+  const cambiarEstadoWorkflow = async (nuevoEstado: EstadoWorkflow) => {
+    setEstadoWorkflow(nuevoEstado)
+    await persistirLoteEnBD(nuevoEstado, pedidosSeleccionados, materialesLote)
   }
 
   const exportarAPDF = () => {
@@ -563,7 +623,10 @@ export default function GestorPresupuestosWorkflow() {
       {/* NAVBAR */}
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 40px', backgroundColor: '#222', color: 'white' }}>
         <a href="/sistema" style={{ color: 'white', textDecoration: 'none', fontWeight: 'bold' }}>← Sistema</a>
-        <span style={{ color: '#C5A059', fontWeight: 'bold' }}>Gestión Consolidada de Materiales por Lotes</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+          <span style={{ color: '#C5A059', fontWeight: 'bold' }}>Gestión Consolidada Multi-usuario</span>
+          {sincronizando && <span style={{ fontSize: '11px', color: '#10b981' }}>Sincronizando con nube... 🔄</span>}
+        </div>
         <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
           <button onClick={exportarAPDF} style={{ backgroundColor: '#dc2626', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}>
             📄 Exportar a PDF
@@ -578,11 +641,11 @@ export default function GestorPresupuestosWorkflow() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#0B1E36', padding: '20px', borderRadius: '12px', color: 'white', marginBottom: '25px', flexWrap: 'wrap', gap: '15px' }}>
           <div>
             <label style={{ display: 'block', fontSize: '12px', color: '#C5A059' }}>Fecha de Producción</label>
-            <input type="date" value={fecha} disabled={estadoWorkflow !== 'creado'} onChange={(e) => setFecha(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: 'none' }} />
+            <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: 'none' }} />
           </div>
           <div>
             <label style={{ display: 'block', fontSize: '12px', color: '#C5A059' }}>Identificador del Lote</label>
-            <input type="text" value={nombreLote} disabled={estadoWorkflow !== 'creado'} onChange={(e) => setNombreLote(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: 'none', width: '220px' }} />
+            <input type="text" value={nombreLote} onChange={(e) => setNombreLote(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: 'none', width: '220px' }} />
           </div>
 
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '12px' }}>
@@ -598,7 +661,7 @@ export default function GestorPresupuestosWorkflow() {
           {/* IZQUIERDA: Pedidos Pendientes */}
           <div style={{ flex: '1', backgroundColor: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
             <h2 style={{ fontSize: '18px', color: '#0B1E36', borderBottom: '2px solid #C5A059', paddingBottom: '10px' }}>Pedidos para el {fecha}</h2>
-            {loading && <p>Cargando pedidos...</p>}
+            {loading && <p>Cargando datos compartidos...</p>}
             {!loading && pedidosPendientes.length === 0 && <p style={{ fontSize: '14px', color: '#666' }}>No hay pedidos pendientes.</p>}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
@@ -670,10 +733,10 @@ export default function GestorPresupuestosWorkflow() {
 
                   <input 
                     type="number" 
-                    placeholder="Cant. (Metros/Unid)" 
+                    placeholder="Cant." 
                     value={manualCantidad} 
                     onChange={(e) => setManualCantidad(e.target.value)} 
-                    style={{ width: '110px', padding: '8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '13px' }} 
+                    style={{ width: '90px', padding: '8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '13px' }} 
                   />
                   
                   <input 
@@ -681,7 +744,7 @@ export default function GestorPresupuestosWorkflow() {
                     placeholder="Precio Unit." 
                     value={manualPrecio} 
                     onChange={(e) => setManualPrecio(e.target.value)} 
-                    style={{ width: '95px', padding: '8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '13px' }} 
+                    style={{ width: '90px', padding: '8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '13px' }} 
                   />
 
                   <button 
@@ -700,9 +763,9 @@ export default function GestorPresupuestosWorkflow() {
                 <h2 style={{ fontSize: '18px', color: '#0B1E36', margin: 0 }}>Lista Centralizada de Materiales</h2>
                 <span style={{ fontSize: '12px', backgroundColor: '#f1f5f9', padding: '4px 8px', borderRadius: '4px', color: '#333' }}>
                   {estadoWorkflow === 'creado' && 'Modo: Creación (Abierto a cambios)'}
-                  {estadoWorkflow === 'revision_taller' && 'Modo: Taller (Editando Stock)'}
-                  {estadoWorkflow === 'en_compras' && 'Modo: Compras (Editando Precios)'}
-                  {estadoWorkflow === 'aprobado' && 'Modo: Aprobado (Registrando Gasto Real)'}
+                  {estadoWorkflow === 'revision_taller' && 'Modo: Taller (PC Talleres editando Stock)'}
+                  {estadoWorkflow === 'en_compras' && 'Modo: Compras (PC Compras cotizando)'}
+                  {estadoWorkflow === 'aprobado' && 'Modo: Aprobado (Gasto Real Activo)'}
                 </span>
               </div>
 
@@ -724,7 +787,7 @@ export default function GestorPresupuestosWorkflow() {
                   </thead>
                   <tbody>
                     {materialesLote.length === 0 && (
-                      <tr><td colSpan={estadoWorkflow === 'aprobado' ? 8 : 7} style={{ padding: '20px', textAlign: 'center', color: '#999' }}>Carga pedidos para generar la lista centralizada consolidada.</td></tr>
+                      <tr><td colSpan={estadoWorkflow === 'aprobado' ? 8 : 7} style={{ padding: '20px', textAlign: 'center', color: '#999' }}>Selecciona pedidos para generar la lista centralizada compartida.</td></tr>
                     )}
                     {materialesLote.map((item) => (
                       <tr key={item.id_fila} style={{ borderBottom: '1px solid #eee' }}>
@@ -814,21 +877,21 @@ export default function GestorPresupuestosWorkflow() {
                 </table>
               </div>
 
-              {/* CONTROLES DE FLUJO BIDIRECCIONALES (AVANZAR Y RETROCEDER) */}
+              {/* CONTROLES DE FLUJO BIDIRECCIONALES */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', flexWrap: 'wrap', gap: '10px' }}>
                 <div>
                   {estadoWorkflow === 'revision_taller' && (
-                    <button onClick={() => setEstadoWorkflow('creado')} style={{ backgroundColor: '#4b5563', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                    <button onClick={() => cambiarEstadoWorkflow('creado')} style={{ backgroundColor: '#4b5563', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
                       ← Volver a Creación
                     </button>
                   )}
                   {estadoWorkflow === 'en_compras' && (
-                    <button onClick={() => setEstadoWorkflow('revision_taller')} style={{ backgroundColor: '#4b5563', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                    <button onClick={() => cambiarEstadoWorkflow('revision_taller')} style={{ backgroundColor: '#4b5563', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
                       ← Regresar a Talleres
                     </button>
                   )}
                   {estadoWorkflow === 'aprobado' && (
-                    <button onClick={() => setEstadoWorkflow('en_compras')} style={{ backgroundColor: '#4b5563', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                    <button onClick={() => cambiarEstadoWorkflow('en_compras')} style={{ backgroundColor: '#4b5563', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
                       ← Desaprobar y Regresar a Compras
                     </button>
                   )}
@@ -836,23 +899,23 @@ export default function GestorPresupuestosWorkflow() {
 
                 <div style={{ display: 'flex', gap: '10px' }}>
                   {estadoWorkflow === 'creado' && (
-                    <button onClick={() => setEstadoWorkflow('revision_taller')} style={{ backgroundColor: '#2563eb', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                    <button onClick={() => cambiarEstadoWorkflow('revision_taller')} style={{ backgroundColor: '#2563eb', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
                       ✓ Pasar a Talleres: Revisar Stock y Restar
                     </button>
                   )}
                   {estadoWorkflow === 'revision_taller' && (
-                    <button onClick={() => setEstadoWorkflow('en_compras')} style={{ backgroundColor: '#d97706', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                    <button onClick={() => cambiarEstadoWorkflow('en_compras')} style={{ backgroundColor: '#d97706', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer'  }}>
                       ➔ Enviar a Compras: Cotizar Precios
                     </button>
                   )}
                   {estadoWorkflow === 'en_compras' && (
-                    <button onClick={() => setEstadoWorkflow('aprobado')} style={{ backgroundColor: '#16a34a', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                    <button onClick={() => cambiarEstadoWorkflow('aprobado')} style={{ backgroundColor: '#16a34a', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
                       💰 Administrador: Aprobar y Desembolsar
                     </button>
                   )}
                   {estadoWorkflow === 'aprobado' && (
                     <div style={{ padding: '10px 15px', backgroundColor: '#dcfce7', color: '#166534', borderRadius: '6px', fontWeight: 'bold' }}>
-                      ✔ Lote Aprobado y Cerrado con Éxito
+                      ✔ Lote Aprobado y Sincronizado
                     </div>
                   )}
                 </div>
