@@ -81,14 +81,12 @@ export default function GestorPresupuestosWorkflow() {
       })
   }, [])
 
-  // Cada vez que cambie la fecha o el nombre del lote, cargamos o sincronizamos desde Supabase
   useEffect(() => {
     if (usuario) {
       cargarDatosLoteYPedidos()
     }
   }, [fecha, nombreLote, usuario])
 
-  // Cargar elementos de la tabla base seleccionada al cambiar de categoría
   useEffect(() => {
     const cargarCatalogo = async () => {
       let tabla = ''
@@ -103,7 +101,8 @@ export default function GestorPresupuestosWorkflow() {
         setCatalogoItems(data.map(item => ({
           codigo: item[colCodigo],
           detalle: item.detalle || item.descripcion || item.tipo || item[colCodigo],
-          precio_compra: item.precio_compra || item.precio || 0
+          precio_compra: item.precio_compra || item.precio || 0,
+          precio_cotizador: item.precio_cotizador || 0
         })))
       } else {
         setCatalogoItems([])
@@ -137,12 +136,10 @@ export default function GestorPresupuestosWorkflow() {
     }
   }
 
-  // Cargar pedidos y sincronizar con el lote guardado en la base de datos (Multi-usuario)
   const cargarDatosLoteYPedidos = async () => {
     setLoading(true)
     try {
-      // 1. Cargar el lote existente en Supabase para esta fecha y nombre
-      const { data: loteData, error: loteError } = await supabase
+      const { data: loteData } = await supabase
         .from('lotes_produccion')
         .select('*')
         .eq('fecha', fecha)
@@ -163,7 +160,6 @@ export default function GestorPresupuestosWorkflow() {
       setPedidosSeleccionados(seleccionados)
       setMaterialesLote(materialesGuardados)
 
-      // 2. Cargar ventas/pedidos de la fecha
       const { data: ventasData, error } = await supabase
         .from('ventas')
         .select('id, cod_venta, cod_cliente, fecha_entrega, estado')
@@ -218,7 +214,6 @@ export default function GestorPresupuestosWorkflow() {
     }
   }
 
-  // Función clave para guardar y sincronizar automáticamente en Supabase para todos los usuarios
   const persistirLoteEnBD = async (nuevoEstado: EstadoWorkflow, nuevosPedidos: Pedido[], nuevosMateriales: MaterialPresupuesto[]) => {
     setSincronizando(true)
     try {
@@ -258,7 +253,7 @@ export default function GestorPresupuestosWorkflow() {
 
     const [resAceros, resMelaminas, resAccesorios, resInsumos, resUniones] = await Promise.all([
       supabase.from('variante_acero').select('*, aceros(detalle)').eq('variante_id', varianteId),
-      supabase.from('variante_melamina').select('*, melaminas(detalle)').eq('variante_id', varianteId),
+      supabase.from('variante_melamina').select('*, melaminas(detalle, precio_cotizador)').eq('variante_id', varianteId),
       supabase.from('variante_accesorios').select('*, accesorios(detalle)').eq('variante_id', varianteId),
       supabase.from('variante_insumos').select('*, insumos(detalle)').eq('variante_id', varianteId),
       supabase.from('variante_uniones').select('*, uniones(tipo)').eq('variante_id', varianteId),
@@ -292,15 +287,19 @@ export default function GestorPresupuestosWorkflow() {
       }
     }
 
+    // ── APLICACIÓN DE LA FÓRMULA PARTICULAR PARA MELAMINA ───────────
     if (resMelaminas.data) {
       for (const item of resMelaminas.data) {
         const codigo = item.codigo_melamina
         const cantidadPiezas = Number(item.cantidad) || 0
         const reqTotal = cantidadPiezas * multPedido
-        const largo = item.largo_cm || 0
-        const ancho = item.ancho_cm || 0
-        const precioUnitario = await obtenerPrecioBase(codigo)
-        const subtotalEst = Number((reqTotal * precioUnitario).toFixed(2))
+        const largo = Number(item.largo_cm || 0)
+        const ancho = Number(item.ancho_cm || 0)
+        const precioCotizador = Number(item.melaminas?.precio_cotizador || 0)
+
+        // Fórmula: (lar / 100) * (anc / 100) * cant * mel.precio_cotizador
+        const precioUnitarioMelamina = Number(((largo / 100) * (ancho / 100) * precioCotizador).toFixed(2))
+        const subtotalEst = Number((reqTotal * precioUnitarioMelamina).toFixed(2))
 
         materiales.push({
           id_fila: Math.random().toString(36).substr(2, 9),
@@ -310,7 +309,7 @@ export default function GestorPresupuestosWorkflow() {
           cantidadReq: reqTotal,
           stockActual: 0,
           cantidadComprar: reqTotal,
-          precioUnitario,
+          precioUnitario: precioUnitarioMelamina,
           gastoReal: subtotalEst,
           tipo: 'variante'
         })
