@@ -65,7 +65,7 @@ export default function GestorPresupuestosWorkflow() {
   const [manualCantidad, setManualCantidad] = useState('')
   const [manualPrecio, setManualPrecio] = useState('')
 
-  const talleresDisponibles = ['Taller La Paz', 'Taller El Alto', 'Taller Cochabamba']
+  const talleresDisponibles = ['Taller El Alto', 'Taller Santa Cruz', 'Taller Cochabamba']
 
   useEffect(() => {
     const carnetGuardado = localStorage.getItem('carnet')
