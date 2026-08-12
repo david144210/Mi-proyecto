@@ -56,7 +56,7 @@ export default function DisenoCajones() {
   const [espesorSelCuerpo, setEspesorSelCuerpo] = useState<'15' | '18' | 'custom'>('15')
   const [espesorMM, setEspesorMM] = useState(18) // grosor del cuerpo, cajones, puertas y divisores
 
-  const [espesorSelFondo, setEspesorSelFondo] = useState<'15' | '3' | '6' | 'custom'>('15')
+  const [espesorSelFondo, setEspesorSelFondo] = useState<'3' | '6' | '9' | 'custom'>('6')
   const [espesorFondoMM, setEspesorFondoMM] = useState(6) // grosor del tablero posterior
 
   const [espesorSelBase, setEspesorSelBase] = useState<'3' | '6' | '9' | 'custom'>('6')
