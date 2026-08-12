@@ -53,10 +53,10 @@ export default function DisenoCajones() {
   const [colorId, setColorId] = useState('blanco')
 
   // ---- Espesores de tablero (editables, en mm) ----
-  const [espesorSelCuerpo, setEspesorSelCuerpo] = useState<'15' | '18' | 'custom'>('18')
+  const [espesorSelCuerpo, setEspesorSelCuerpo] = useState<'15' | '18' | 'custom'>('15')
   const [espesorMM, setEspesorMM] = useState(18) // grosor del cuerpo, cajones, puertas y divisores
 
-  const [espesorSelFondo, setEspesorSelFondo] = useState<'3' | '6' | '9' | 'custom'>('6')
+  const [espesorSelFondo, setEspesorSelFondo] = useState<'15' | '3' | '6' | 'custom'>('15')
   const [espesorFondoMM, setEspesorFondoMM] = useState(6) // grosor del tablero posterior
 
   const [espesorSelBase, setEspesorSelBase] = useState<'3' | '6' | '9' | 'custom'>('6')
@@ -85,7 +85,7 @@ export default function DisenoCajones() {
   const [holguraFrenteCajon, setHolguraFrenteCajon] = useState(0.15)
   const [holguraRielAlto, setHolguraRielAlto] = useState(2.5)
   const [holguraRielFondo, setHolguraRielFondo] = useState(2)
-  const [holguraRielLateral, setHolguraRielLateral] = useState(1.2)
+  const [holguraRielLateral, setHolguraRielLateral] = useState(2.6)
   const [mostrarAjustes, setMostrarAjustes] = useState(false)
 
   // ---- Columnas (division horizontal), cada una con sus propias secciones (division vertical) ----
@@ -345,8 +345,8 @@ export default function DisenoCajones() {
         if (sec.tipo === 'cajon') {
           piezas.push({ pieza: 'Frente de cajón', cantidad: 1, largo: col.anchoCm - holguraFrenteCajon, ancho: sec.alturaCm - holguraFrenteCajon, espesor: espesorCm, seccion: nombreSeccion })
           piezas.push({ pieza: 'Costado de caja', cantidad: 2, largo: profundoCm - holguraRielFondo, ancho: sec.alturaCm - holguraRielAlto, espesor: espesorCm, seccion: nombreSeccion })
-          piezas.push({ pieza: 'Respaldo de cajón', cantidad: 1, largo: col.anchoCm - 2 * espesorCm - holguraRielLateral, ancho: sec.alturaCm - holguraRielAlto - espesorBaseCajonCm, espesor: espesorCm, seccion: nombreSeccion })
-          piezas.push({ pieza: 'Fondo de cajón', cantidad: 1, largo: col.anchoCm - 2 * espesorCm - holguraRielLateral, ancho: profundoCm - holguraRielFondo, espesor: espesorBaseCajonCm, seccion: nombreSeccion })
+          piezas.push({ pieza: 'Respaldo de cajón', cantidad: 2, largo: col.anchoCm - 2 * espesorCm - holguraRielLateral, ancho: sec.alturaCm - holguraRielAlto, espesor: espesorCm, seccion: nombreSeccion })
+          piezas.push({ pieza: 'Fondo de cajón', cantidad: 1, largo: col.anchoCm - holguraRielLateral, ancho: profundoCm - holguraRielFondo, espesor: espesorBaseCajonCm, seccion: nombreSeccion })
         } else if (sec.tipo === 'puerta') {
           piezas.push({
             pieza: 'Puerta',
@@ -615,6 +615,43 @@ export default function DisenoCajones() {
               </div>
             </div>
 
+            {/* Holguras editables (para verificar que el diseño no tenga errores de ajuste) */}
+            <div style={{ border: '1px solid #ddd', borderRadius: '10px', padding: '12px 16px', marginBottom: '16px' }}>
+              <p style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: 'bold', color: '#555' }}>⚙️ Holguras (cm)</p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px' }}>
+                <div>
+                  <label style={labelStyle}>Puerta</label>
+                  <input type="number" inputMode="decimal" style={inputStyle} value={Number.isNaN(holguraPuerta) ? '' : holguraPuerta} min={0} max={2} step={0.01}
+                    onChange={e => setHolguraPuerta(e.target.value === '' ? NaN : Number(e.target.value))}
+                    onBlur={e => setHolguraPuerta(clamp(Number(e.target.value), 0, 2))} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Frente de cajón</label>
+                  <input type="number" inputMode="decimal" style={inputStyle} value={Number.isNaN(holguraFrenteCajon) ? '' : holguraFrenteCajon} min={0} max={2} step={0.01}
+                    onChange={e => setHolguraFrenteCajon(e.target.value === '' ? NaN : Number(e.target.value))}
+                    onBlur={e => setHolguraFrenteCajon(clamp(Number(e.target.value), 0, 2))} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Riel — alto</label>
+                  <input type="number" inputMode="decimal" style={inputStyle} value={Number.isNaN(holguraRielAlto) ? '' : holguraRielAlto} min={0} max={5} step={0.01}
+                    onChange={e => setHolguraRielAlto(e.target.value === '' ? NaN : Number(e.target.value))}
+                    onBlur={e => setHolguraRielAlto(clamp(Number(e.target.value), 0, 5))} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Riel — fondo</label>
+                  <input type="number" inputMode="decimal" style={inputStyle} value={Number.isNaN(holguraRielFondo) ? '' : holguraRielFondo} min={0} max={5} step={0.01}
+                    onChange={e => setHolguraRielFondo(e.target.value === '' ? NaN : Number(e.target.value))}
+                    onBlur={e => setHolguraRielFondo(clamp(Number(e.target.value), 0, 5))} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Riel — lateral</label>
+                  <input type="number" inputMode="decimal" style={inputStyle} value={Number.isNaN(holguraRielLateral) ? '' : holguraRielLateral} min={0} max={5} step={0.01}
+                    onChange={e => setHolguraRielLateral(e.target.value === '' ? NaN : Number(e.target.value))}
+                    onBlur={e => setHolguraRielLateral(clamp(Number(e.target.value), 0, 5))} />
+                </div>
+              </div>
+            </div>
+
             {/* Ancho disponible (entre columnas y divisores) */}
             <div style={{
               backgroundColor: anchoRestante < -0.05 ? '#fff0f0' : '#f0fff0',
@@ -799,7 +836,7 @@ export default function DisenoCajones() {
                 </div>
               </div>
               <p style={{ color: '#888', fontSize: '11px', margin: '0 0 14px 0' }}>
-                Holguras estándar aplicadas: {holguraFrenteCajon} cm en frentes, {holguraPuerta} cm en puertas, {holguraRielAlto} cm de despeje de riel. Ajusta según tus rieles/bisagras reales.
+                Holguras aplicadas: {holguraFrenteCajon} cm en frentes, {holguraPuerta} cm en puertas, {holguraRielAlto} cm riel-alto, {holguraRielFondo} cm riel-fondo, {holguraRielLateral} cm riel-lateral. Edítalas arriba en "⚙️ Holguras".
               </p>
 
               {listaPiezasAgrupada.length > 0 ? (
