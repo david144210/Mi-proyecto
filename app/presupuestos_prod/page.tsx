@@ -19,6 +19,7 @@ interface Pedido {
   cliente: string
   fecha_entrega: string
   estado: number
+  taller_destino?: string // ➔ Nuevo: Taller o ciudad asignada
   detalles: DetalleVenta[]
 }
 
@@ -33,6 +34,7 @@ interface MaterialPresupuesto {
   precioUnitario: number
   gastoReal: number
   tipo: 'variante' | 'manual'
+  taller_destino?: string // ➔ Nuevo: Asociado al taller correspondiente
 }
 
 type EstadoWorkflow = 'creado' | 'revision_taller' | 'en_compras' | 'aprobado'
@@ -51,13 +53,19 @@ export default function GestorPresupuestosWorkflow() {
   const [pedidosSeleccionados, setPedidosSeleccionados] = useState<Pedido[]>([])
   const [materialesLote, setMaterialesLote] = useState<MaterialPresupuesto[]>([])
 
-  // Estados para adición manual desde tablas base
+  // ➔ Nuevo: Estado para filtrar la vista por taller/ciudad ('TODOS' o el nombre del taller)
+  const [tallerFiltroActivo, setTallerFiltroActivo] = useState<string>('TODOS')
+  const [tallerAsignacionTemp, setTallerAsignacionTemp] = useState<string>('Taller La Paz')
+
+  // Catálogo y adición manual
   const [manualTipo, setManualTipo] = useState<'acero' | 'melamina' | 'accesorio' | 'insumo'>('acero')
   const [catalogoItems, setCatalogoItems] = useState<any[]>([])
   const [manualCodigoSeleccionado, setManualCodigoSeleccionado] = useState('')
   const [manualDetalle, setManualDetalle] = useState('')
   const [manualCantidad, setManualCantidad] = useState('')
   const [manualPrecio, setManualPrecio] = useState('')
+
+  const talleresDisponibles = ['Taller La Paz', 'Taller El Alto', 'Taller Cochabamba']
 
   useEffect(() => {
     const carnetGuardado = localStorage.getItem('carnet')
@@ -200,6 +208,7 @@ export default function GestorPresupuestosWorkflow() {
           cliente: clientesMap[v.cod_cliente] || 'Sin cliente',
           fecha_entrega: v.fecha_entrega,
           estado: v.estado,
+          taller_destino: talleresDisponibles[0],
           detalles
         }
       })
@@ -237,7 +246,7 @@ export default function GestorPresupuestosWorkflow() {
     }
   }
 
-  const buscarVariantesAutomaticas = async (det: DetalleVenta, cod_venta: number) => {
+  const buscarVariantesAutomaticas = async (det: DetalleVenta, cod_venta: number, tallerDestino: string) => {
     const { data: variantesData } = await supabase
       .from('producto_variantes')
       .select('id')
@@ -282,12 +291,12 @@ export default function GestorPresupuestosWorkflow() {
           cantidadComprar: Number(longitudTotalMetros.toFixed(2)),
           precioUnitario: precioMetroLineal,
           gastoReal: subtotalEst,
-          tipo: 'variante'
+          tipo: 'variante',
+          taller_destino: tallerDestino
         })
       }
     }
 
-    // ── APLICACIÓN DE LA FÓRMULA PARTICULAR PARA MELAMINA ───────────
     if (resMelaminas.data) {
       for (const item of resMelaminas.data) {
         const codigo = item.codigo_melamina
@@ -297,7 +306,6 @@ export default function GestorPresupuestosWorkflow() {
         const ancho = Number(item.ancho_cm || 0)
         const precioCotizador = Number(item.melaminas?.precio_cotizador || 0)
 
-        // Fórmula: (lar / 100) * (anc / 100) * cant * mel.precio_cotizador
         const precioUnitarioMelamina = Number(((largo / 100) * (ancho / 100) * precioCotizador).toFixed(2))
         const subtotalEst = Number((reqTotal * precioUnitarioMelamina).toFixed(2))
 
@@ -311,7 +319,8 @@ export default function GestorPresupuestosWorkflow() {
           cantidadComprar: reqTotal,
           precioUnitario: precioUnitarioMelamina,
           gastoReal: subtotalEst,
-          tipo: 'variante'
+          tipo: 'variante',
+          taller_destino: tallerDestino
         })
       }
     }
@@ -333,7 +342,8 @@ export default function GestorPresupuestosWorkflow() {
           cantidadComprar: req,
           precioUnitario,
           gastoReal: subtotalEst,
-          tipo: 'variante'
+          tipo: 'variante',
+          taller_destino: tallerDestino
         })
       }
     }
@@ -350,7 +360,7 @@ export default function GestorPresupuestosWorkflow() {
   const agregarOConsolidarMateriales = async (nuevosMateriales: MaterialPresupuesto[]) => {
     const actualizada = [...materialesLote]
     for (const nuevo of nuevosMateriales) {
-      const index = actualizada.findIndex(m => m.codigo === nuevo.codigo && m.detalle === nuevo.detalle)
+      const index = actualizada.findIndex(m => m.codigo === nuevo.codigo && m.detalle === nuevo.detalle && m.taller_destino === nuevo.taller_destino)
       if (index >= 0) {
         const nuevaReq = Number((actualizada[index].cantidadReq + nuevo.cantidadReq).toFixed(2))
         const stockActual = actualizada[index].stockActual
@@ -380,8 +390,10 @@ export default function GestorPresupuestosWorkflow() {
     let materialesAgregados: MaterialPresupuesto[] = []
     let productosSinVariante: string[] = []
 
+    const pedidoConTaller: Pedido = { ...pedido, taller_destino: tallerAsignacionTemp }
+
     for (const det of pedido.detalles) {
-      const componentes = await buscarVariantesAutomaticas(det, pedido.cod_venta)
+      const componentes = await buscarVariantesAutomaticas(det, pedido.cod_venta, tallerAsignacionTemp)
       if (componentes) {
         materialesAgregados.push(...componentes)
       } else {
@@ -389,7 +401,7 @@ export default function GestorPresupuestosWorkflow() {
       }
     }
 
-    const nuevosSeleccionados = [...pedidosSeleccionados, pedido]
+    const nuevosSeleccionados = [...pedidosSeleccionados, pedidoConTaller]
     setPedidosSeleccionados(nuevosSeleccionados)
     setPedidosPendientes(pedidosPendientes.filter(p => p.cod_venta !== pedido.cod_venta))
     
@@ -416,14 +428,15 @@ export default function GestorPresupuestosWorkflow() {
     setLoading(true)
     let nuevosMateriales: MaterialPresupuesto[] = []
     for (const ped of pedidosRestantes) {
+      const tallerDestino = ped.taller_destino || talleresDisponibles[0]
       for (const det of ped.detalles) {
-        const componentes = await buscarVariantesAutomaticas(det, ped.cod_venta)
+        const componentes = await buscarVariantesAutomaticas(det, ped.cod_venta, tallerDestino)
         if (componentes) nuevosMateriales.push(...componentes)
       }
     }
     let loteConsolidado: MaterialPresupuesto[] = []
     for (const nuevo of nuevosMateriales) {
-      const index = loteConsolidado.findIndex(m => m.codigo === nuevo.codigo && m.detalle === nuevo.detalle)
+      const index = loteConsolidado.findIndex(m => m.codigo === nuevo.codigo && m.detalle === nuevo.detalle && m.taller_destino === nuevo.taller_destino)
       if (index >= 0) {
         const nuevaReq = Number((loteConsolidado[index].cantidadReq + nuevo.cantidadReq).toFixed(2))
         loteConsolidado[index].cantidadReq = nuevaReq
@@ -472,7 +485,8 @@ export default function GestorPresupuestosWorkflow() {
       cantidadComprar: cant,
       precioUnitario: precioUnit,
       gastoReal: subtotalEst,
-      tipo: 'manual'
+      tipo: 'manual',
+      taller_destino: tallerAsignacionTemp
     }])
 
     setManualCodigoSeleccionado('')
@@ -532,9 +546,14 @@ export default function GestorPresupuestosWorkflow() {
     await persistirLoteEnBD(nuevoEstado, pedidosSeleccionados, materialesLote)
   }
 
+  // Filtrar materiales según la pestaña de taller seleccionada
+  const materialesFiltrados = tallerFiltroActivo === 'TODOS' 
+    ? materialesLote 
+    : materialesLote.filter(m => m.taller_destino === tallerFiltroActivo)
+
   const exportarAPDF = () => {
-    if (materialesLote.length === 0) {
-      alert('No hay materiales en el lote para exportar.')
+    if (materialesFiltrados.length === 0) {
+      alert('No hay materiales en el filtro seleccionado para exportar.')
       return
     }
 
@@ -544,14 +563,14 @@ export default function GestorPresupuestosWorkflow() {
       return
     }
 
-    const granTotalEst = materialesLote.reduce((acc, m) => acc + (Number(m.cantidadComprar) * Number(m.precioUnitario)), 0)
-    const granTotalReal = materialesLote.reduce((acc, m) => acc + Number(m.gastoReal || 0), 0)
+    const granTotalEst = materialesFiltrados.reduce((acc, m) => acc + (Number(m.cantidadComprar) * Number(m.precioUnitario)), 0)
+    const granTotalReal = materialesFiltrados.reduce((acc, m) => acc + Number(m.gastoReal || 0), 0)
 
     const htmlContent = `
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Lote - ${nombreLote} - ${fecha}</title>
+          <title>Lote - ${nombreLote} - ${tallerFiltroActivo}</title>
           <style>
             body { font-family: Arial, sans-serif; color: #222; margin: 20px; }
             h1 { color: #0B1E36; font-size: 20px; border-bottom: 2px solid #C5A059; padding-bottom: 8px; }
@@ -565,10 +584,10 @@ export default function GestorPresupuestosWorkflow() {
           </style>
         </head>
         <body>
-          <h1>Resumen Consolidado de Materiales</h1>
+          <h1>Resumen Consolidado - ${tallerFiltroActivo}</h1>
           <div class="info">
-            <p><strong>Lote:</strong> ${nombreLote} | <strong>Fecha:</strong> ${fecha} | <strong>Estado:</strong> ${estadoWorkflow.toUpperCase()}</p>
-            <p><strong>Pedidos incluidos:</strong> ${pedidosSeleccionados.map(p => `#${p.cod_venta} (${p.cliente})`).join(', ') || 'Ninguno'}</p>
+            <p><strong>Lote:</strong> ${nombreLote} | <strong>Fecha:</strong> ${fecha} | <strong>Taller:</strong> ${tallerFiltroActivo}</p>
+            <p><strong>Estado:</strong> ${estadoWorkflow.toUpperCase()}</p>
           </div>
           <table>
             <thead>
@@ -584,7 +603,7 @@ export default function GestorPresupuestosWorkflow() {
               </tr>
             </thead>
             <tbody>
-              ${materialesLote.map(m => `
+              ${materialesFiltrados.map(m => `
                 <tr>
                   <td>${m.codigo}</td>
                   <td>${m.detalle}</td>
@@ -613,8 +632,8 @@ export default function GestorPresupuestosWorkflow() {
     ventanaPrint.document.close()
   }
 
-  const granTotal = materialesLote.reduce((acc, m) => acc + (Number(m.cantidadComprar) * Number(m.precioUnitario)), 0)
-  const granTotalReal = materialesLote.reduce((acc, m) => acc + Number(m.gastoReal || 0), 0)
+  const granTotal = materialesFiltrados.reduce((acc, m) => acc + (Number(m.cantidadComprar) * Number(m.precioUnitario)), 0)
+  const granTotalReal = materialesFiltrados.reduce((acc, m) => acc + Number(m.gastoReal || 0), 0)
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f5f5f5', fontFamily: 'Arial, sans-serif' }}>
@@ -623,12 +642,12 @@ export default function GestorPresupuestosWorkflow() {
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 40px', backgroundColor: '#222', color: 'white' }}>
         <a href="/sistema" style={{ color: 'white', textDecoration: 'none', fontWeight: 'bold' }}>← Sistema</a>
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-          <span style={{ color: '#C5A059', fontWeight: 'bold' }}>Gestión Consolidada Multi-usuario</span>
-          {sincronizando && <span style={{ fontSize: '11px', color: '#10b981' }}>Sincronizando con nube... 🔄</span>}
+          <span style={{ color: '#C5A059', fontWeight: 'bold' }}>Gestión Multi-Taller por Ciudad</span>
+          {sincronizando && <span style={{ fontSize: '11px', color: '#10b981' }}>Sincronizando... 🔄</span>}
         </div>
         <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
           <button onClick={exportarAPDF} style={{ backgroundColor: '#dc2626', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}>
-            📄 Exportar a PDF
+            📄 Exportar PDF ({tallerFiltroActivo})
           </button>
           <span>{usuario?.usuario || usuario?.nombre || 'Usuario'} 👤</span>
         </div>
@@ -657,10 +676,26 @@ export default function GestorPresupuestosWorkflow() {
 
         <div style={{ display: 'flex', gap: '25px', alignItems: 'flex-start' }}>
           
-          {/* IZQUIERDA: Pedidos Pendientes */}
+          {/* IZQUIERDA: Pedidos Pendientes con Selector de Taller */}
           <div style={{ flex: '1', backgroundColor: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
             <h2 style={{ fontSize: '18px', color: '#0B1E36', borderBottom: '2px solid #C5A059', paddingBottom: '10px' }}>Pedidos para el {fecha}</h2>
-            {loading && <p>Cargando datos compartidos...</p>}
+            
+            {estadoWorkflow === 'creado' && (
+              <div style={{ margin: '15px 0', padding: '10px', backgroundColor: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#0B1E36', marginBottom: '5px' }}>Asignar Taller de Destino al Consolidar:</label>
+                <select 
+                  value={tallerAsignacionTemp} 
+                  onChange={(e) => setTallerAsignacionTemp(e.target.value)}
+                  style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '12px', backgroundColor: 'white' }}
+                >
+                  {talleresDisponibles.map(t => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {loading && <p>Cargando datos...</p>}
             {!loading && pedidosPendientes.length === 0 && <p style={{ fontSize: '14px', color: '#666' }}>No hay pedidos pendientes.</p>}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
@@ -685,14 +720,34 @@ export default function GestorPresupuestosWorkflow() {
           {/* DERECHA: Gestión de Lote y Lista Centralizada */}
           <div style={{ flex: '1.7', display: 'flex', flexDirection: 'column', gap: '20px' }}>
             
+            {/* Pestañas de Filtro por Taller */}
+            <div style={{ display: 'flex', gap: '8px', backgroundColor: 'white', padding: '12px', borderRadius: '12px', boxShadow: '0 2px 12px rgba(0,0,0,0.05)', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#0B1E36', marginRight: '10px' }}>Ver lista de:</span>
+              <button 
+                onClick={() => setTallerFiltroActivo('TODOS')}
+                style={{ padding: '6px 14px', borderRadius: '6px', border: 'none', fontWeight: 'bold', fontSize: '12px', backgroundColor: tallerFiltroActivo === 'TODOS' ? '#0B1E36' : '#e2e8f0', color: tallerFiltroActivo === 'TODOS' ? '#C5A059' : '#333', cursor: 'pointer' }}
+              >
+                🌐 Todos los Talleres (Consolidado Global)
+              </button>
+              {talleresDisponibles.map(taller => (
+                <button 
+                  key={taller}
+                  onClick={() => setTallerFiltroActivo(taller)}
+                  style={{ padding: '6px 14px', borderRadius: '6px', border: 'none', fontWeight: 'bold', fontSize: '12px', backgroundColor: tallerFiltroActivo === taller ? '#0B1E36' : '#e2e8f0', color: tallerFiltroActivo === taller ? '#C5A059' : '#333', cursor: 'pointer' }}
+                >
+                  🏭 {taller}
+                </button>
+              ))}
+            </div>
+
             {/* Pedidos Seleccionados */}
             <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
-              <h2 style={{ fontSize: '18px', color: '#0B1E36', borderBottom: '2px solid #C5A059', paddingBottom: '10px' }}>Pedidos Incluidos en el Lote Consolidado</h2>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              <h2 style={{ fontSize: '18px', color: '#0B1E36', borderBottom: '2px solid #C5A059', paddingBottom: '10px' }}>Pedidos Incluidos en el Lote</h2>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 {pedidosSeleccionados.length === 0 && <span style={{ fontSize: '13px', fontStyle: 'italic', color: '#999' }}>Ningún pedido seleccionado.</span>}
                 {pedidosSeleccionados.map(p => (
-                  <span key={p.cod_venta} style={{ backgroundColor: '#0B1E36', color: 'white', padding: '5px 10px', borderRadius: '12px', fontSize: '12px', display: 'flex', gap: '6px', alignItems: 'center' }}>
-                    #{p.cod_venta} - {p.cliente}
+                  <span key={p.cod_venta} style={{ backgroundColor: '#0B1E36', color: 'white', padding: '6px 12px', borderRadius: '12px', fontSize: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <strong>#{p.cod_venta}</strong> - {p.cliente} <span style={{ color: '#C5A059', fontSize: '10px' }}>({p.taller_destino})</span>
                     {estadoWorkflow === 'creado' && (
                       <button onClick={() => devolverAPendientes(p)} style={{ background: 'none', border: 'none', color: '#C5A059', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
                     )}
@@ -701,17 +756,17 @@ export default function GestorPresupuestosWorkflow() {
               </div>
             </div>
 
-            {/* Adición Manual desde Tablas Base (Solo en fase Creado) */}
+            {/* Adición Manual */}
             {estadoWorkflow === 'creado' && (
               <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
-                <h2 style={{ fontSize: '18px', color: '#0B1E36', borderBottom: '2px solid #C5A059', paddingBottom: '10px', marginBottom: '15px' }}>Agregar Material o Extra (Fase de Creación)</h2>
+                <h2 style={{ fontSize: '18px', color: '#0B1E36', borderBottom: '2px solid #C5A059', paddingBottom: '10px', marginBottom: '15px' }}>Agregar Material Manual para ({tallerAsignacionTemp})</h2>
                 <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
                   <select 
                     value={manualTipo} 
                     onChange={(e) => setManualTipo(e.target.value as any)}
                     style={{ padding: '8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '13px', backgroundColor: 'white' }}
                   >
-                    <option value="acero">Acero (Metros Lineales)</option>
+                    <option value="acero">Acero (Metros)</option>
                     <option value="melamina">Melamina</option>
                     <option value="accesorio">Accesorio</option>
                     <option value="insumo">Insumo</option>
@@ -720,9 +775,9 @@ export default function GestorPresupuestosWorkflow() {
                   <select 
                     value={manualCodigoSeleccionado} 
                     onChange={(e) => handleSeleccionarItemCatalogo(e.target.value)}
-                    style={{ flex: 1.5, minWidth: '180px', padding: '8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '13px', backgroundColor: 'white' }}
+                    style={{ flex: 1.2, minWidth: '150px', padding: '8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '13px', backgroundColor: 'white' }}
                   >
-                    <option value="">-- Seleccionar producto de {manualTipo} --</option>
+                    <option value="">-- Seleccionar producto --</option>
                     {catalogoItems.map((item) => (
                       <option key={item.codigo} value={item.codigo}>
                         {item.codigo} - {item.detalle}
@@ -731,19 +786,27 @@ export default function GestorPresupuestosWorkflow() {
                   </select>
 
                   <input 
+                    type="text" 
+                    placeholder="Detalles / Medidas" 
+                    value={manualDetalle} 
+                    onChange={(e) => setManualDetalle(e.target.value)} 
+                    style={{ flex: 1.5, minWidth: '150px', padding: '8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '13px' }} 
+                  />
+
+                  <input 
                     type="number" 
                     placeholder="Cant." 
                     value={manualCantidad} 
                     onChange={(e) => setManualCantidad(e.target.value)} 
-                    style={{ width: '90px', padding: '8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '13px' }} 
+                    style={{ width: '65px', padding: '8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '13px' }} 
                   />
                   
                   <input 
                     type="number" 
-                    placeholder="Precio Unit." 
+                    placeholder="P. Unit" 
                     value={manualPrecio} 
                     onChange={(e) => setManualPrecio(e.target.value)} 
-                    style={{ width: '90px', padding: '8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '13px' }} 
+                    style={{ width: '65px', padding: '8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '13px' }} 
                   />
 
                   <button 
@@ -756,15 +819,12 @@ export default function GestorPresupuestosWorkflow() {
               </div>
             )}
 
-            {/* TABLA CENTRALIZADA Y CONSOLIDADA */}
+            {/* TABLA CENTRALIZADA */}
             <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #C5A059', paddingBottom: '10px', marginBottom: '15px' }}>
-                <h2 style={{ fontSize: '18px', color: '#0B1E36', margin: 0 }}>Lista Centralizada de Materiales</h2>
+                <h2 style={{ fontSize: '18px', color: '#0B1E36', margin: 0 }}>Lista de Materiales ({tallerFiltroActivo})</h2>
                 <span style={{ fontSize: '12px', backgroundColor: '#f1f5f9', padding: '4px 8px', borderRadius: '4px', color: '#333' }}>
-                  {estadoWorkflow === 'creado' && 'Modo: Creación (Abierto a cambios)'}
-                  {estadoWorkflow === 'revision_taller' && 'Modo: Taller (PC Talleres editando Stock)'}
-                  {estadoWorkflow === 'en_compras' && 'Modo: Compras (PC Compras cotizando)'}
-                  {estadoWorkflow === 'aprobado' && 'Modo: Aprobado (Gasto Real Activo)'}
+                  Fase: {estadoWorkflow.toUpperCase()}
                 </span>
               </div>
 
@@ -772,27 +832,37 @@ export default function GestorPresupuestosWorkflow() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                   <thead>
                     <tr style={{ backgroundColor: '#f1f5f9', color: '#0B1E36' }}>
-                      <th style={{ padding: '8px', textAlign: 'left' }}>Código / Componente y Medidas</th>
+                      <th style={{ padding: '8px', textAlign: 'left' }}>Taller / Código y Detalle</th>
                       <th style={{ padding: '8px', textAlign: 'center' }}>Cant. Req.</th>
                       <th style={{ padding: '8px', textAlign: 'center', color: '#2563eb' }}>Stock (-)</th>
                       <th style={{ padding: '8px', textAlign: 'center', color: '#16a34a' }}>A Comprar</th>
                       <th style={{ padding: '8px', textAlign: 'right' }}>P. Unit. (Bs)</th>
                       <th style={{ padding: '8px', textAlign: 'right' }}>Subtotal</th>
                       {estadoWorkflow === 'aprobado' && (
-                        <th style={{ padding: '8px', textAlign: 'right', color: '#16a34a' }}>Gasto Real (Bs)</th>
+                        <th style={{ padding: '8px', textAlign: 'right', color: '#16a34a' }}>Gasto Real</th>
                       )}
                       <th style={{ padding: '8px', textAlign: 'center' }}>Acción</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {materialesLote.length === 0 && (
-                      <tr><td colSpan={estadoWorkflow === 'aprobado' ? 8 : 7} style={{ padding: '20px', textAlign: 'center', color: '#999' }}>Selecciona pedidos para generar la lista centralizada compartida.</td></tr>
+                    {materialesFiltrados.length === 0 && (
+                      <tr><td colSpan={estadoWorkflow === 'aprobado' ? 8 : 7} style={{ padding: '20px', textAlign: 'center', color: '#999' }}>No hay materiales registrados para este taller.</td></tr>
                     )}
-                    {materialesLote.map((item) => (
+                    {materialesFiltrados.map((item) => (
                       <tr key={item.id_fila} style={{ borderBottom: '1px solid #eee' }}>
                         <td style={{ padding: '8px' }}>
+                          <span style={{ fontSize: '10px', backgroundColor: '#e2e8f0', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>{item.taller_destino}</span><br/>
                           <strong>{item.codigo}</strong><br/>
-                          <span style={{ color: '#555', fontSize: '11px' }}>{item.detalle}</span>
+                          {estadoWorkflow === 'creado' ? (
+                            <input 
+                              type="text" 
+                              value={item.detalle} 
+                              onChange={(e) => actualizarFilaMaterial(item.id_fila, 'detalle', e.target.value)}
+                              style={{ width: '100%', padding: '4px', fontSize: '11px', border: '1px solid #ccc', borderRadius: '4px', marginTop: '4px' }}
+                            />
+                          ) : (
+                            <span style={{ color: '#555', fontSize: '11px' }}>{item.detalle}</span>
+                          )}
                         </td>
                         <td style={{ padding: '8px', textAlign: 'center' }}>
                           <input 
@@ -845,7 +915,7 @@ export default function GestorPresupuestosWorkflow() {
                         )}
                         <td style={{ padding: '8px', textAlign: 'center' }}>
                           {estadoWorkflow === 'creado' && (
-                            <button onClick={() => eliminarFilaMaterial(item.id_fila)} style={{ background: 'none', border: 'none', color: '#ef4444', fontWeight: 'bold', cursor: 'pointer', fontSize: '15px' }} title="Eliminar fila">✕</button>
+                            <button onClick={() => eliminarFilaMaterial(item.id_fila)} style={{ background: 'none', border: 'none', color: '#ef4444', fontWeight: 'bold', cursor: 'pointer', fontSize: '15px' }}>✕</button>
                           )}
                         </td>
                       </tr>
@@ -855,7 +925,7 @@ export default function GestorPresupuestosWorkflow() {
                     <tr>
                       {estadoWorkflow === 'aprobado' ? (
                         <>
-                          <td colSpan={5} style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', fontSize: '13px', color: '#0B1E36' }}>TOTALES FINALES:</td>
+                          <td colSpan={5} style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', fontSize: '13px', color: '#0B1E36' }}>TOTALES ({tallerFiltroActivo}):</td>
                           <td style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', fontSize: '13px', color: '#0B1E36' }}>
                             Bs. {granTotal.toFixed(2)}
                           </td>
@@ -865,7 +935,7 @@ export default function GestorPresupuestosWorkflow() {
                         </>
                       ) : (
                         <>
-                          <td colSpan={5} style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', fontSize: '13px', color: '#0B1E36' }}>TOTAL ESTIMADO:</td>
+                          <td colSpan={5} style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', fontSize: '13px', color: '#0B1E36' }}>TOTAL ESTIMADO ({tallerFiltroActivo}):</td>
                           <td colSpan={2} style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', fontSize: '13px', color: '#0B1E36' }}>
                             Bs. {granTotal.toFixed(2)}
                           </td>
@@ -876,46 +946,29 @@ export default function GestorPresupuestosWorkflow() {
                 </table>
               </div>
 
-              {/* CONTROLES DE FLUJO BIDIRECCIONALES */}
+              {/* CONTROLES DE FLUJO */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', flexWrap: 'wrap', gap: '10px' }}>
                 <div>
                   {estadoWorkflow === 'revision_taller' && (
-                    <button onClick={() => cambiarEstadoWorkflow('creado')} style={{ backgroundColor: '#4b5563', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                      ← Volver a Creación
-                    </button>
+                    <button onClick={() => cambiarEstadoWorkflow('creado')} style={{ backgroundColor: '#4b5563', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>← Volver a Creación</button>
                   )}
                   {estadoWorkflow === 'en_compras' && (
-                    <button onClick={() => cambiarEstadoWorkflow('revision_taller')} style={{ backgroundColor: '#4b5563', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                      ← Regresar a Talleres
-                    </button>
+                    <button onClick={() => cambiarEstadoWorkflow('revision_taller')} style={{ backgroundColor: '#4b5563', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>← Regresar a Talleres</button>
                   )}
                   {estadoWorkflow === 'aprobado' && (
-                    <button onClick={() => cambiarEstadoWorkflow('en_compras')} style={{ backgroundColor: '#4b5563', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                      ← Desaprobar y Regresar a Compras
-                    </button>
+                    <button onClick={() => cambiarEstadoWorkflow('en_compras')} style={{ backgroundColor: '#4b5563', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>← Desaprobar</button>
                   )}
                 </div>
 
                 <div style={{ display: 'flex', gap: '10px' }}>
                   {estadoWorkflow === 'creado' && (
-                    <button onClick={() => cambiarEstadoWorkflow('revision_taller')} style={{ backgroundColor: '#2563eb', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                      ✓ Pasar a Talleres: Revisar Stock y Restar
-                    </button>
+                    <button onClick={() => cambiarEstadoWorkflow('revision_taller')} style={{ backgroundColor: '#2563eb', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>✓ Pasar a Talleres</button>
                   )}
                   {estadoWorkflow === 'revision_taller' && (
-                    <button onClick={() => cambiarEstadoWorkflow('en_compras')} style={{ backgroundColor: '#d97706', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer'  }}>
-                      ➔ Enviar a Compras: Cotizar Precios
-                    </button>
+                    <button onClick={() => cambiarEstadoWorkflow('en_compras')} style={{ backgroundColor: '#d97706', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>➔ Enviar a Compras</button>
                   )}
                   {estadoWorkflow === 'en_compras' && (
-                    <button onClick={() => cambiarEstadoWorkflow('aprobado')} style={{ backgroundColor: '#16a34a', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                      💰 Administrador: Aprobar y Desembolsar
-                    </button>
-                  )}
-                  {estadoWorkflow === 'aprobado' && (
-                    <div style={{ padding: '10px 15px', backgroundColor: '#dcfce7', color: '#166534', borderRadius: '6px', fontWeight: 'bold' }}>
-                      ✔ Lote Aprobado y Sincronizado
-                    </div>
+                    <button onClick={() => cambiarEstadoWorkflow('aprobado')} style={{ backgroundColor: '#16a34a', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>💰 Aprobar Lote</button>
                   )}
                 </div>
               </div>

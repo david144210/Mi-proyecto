@@ -97,8 +97,12 @@ export default function Sistema() {
               <a href="/compras-accesorios" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>💰⚙️</div><h3 style={{ margin: 0 }}>Compra Accesorios</h3></a>
               <a href="/insumos" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>🧪</div><h3 style={{ margin: 0 }}>Registro Insumos</h3></a>
               <a href="/compras-insumos" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>💰🧪</div><h3 style={{ margin: 0 }}>Compra Insumos</h3></a>
+              <a href="/proveedores" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>👩‍🚒</div><h3 style={{ margin: 0 }}>Proveedores</h3></a>
+                  
             </>
           )}
+
+          
           {(esAdmin || !!usuario?.cargos?.puede_ver_produccion) && (
             <>
               <a href="/produccion" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>🏭</div><h3 style={{ margin: 0 }}>Producción</h3></a>

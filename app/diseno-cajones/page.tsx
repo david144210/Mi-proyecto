@@ -53,10 +53,10 @@ export default function DisenoCajones() {
   const [colorId, setColorId] = useState('blanco')
 
   // ---- Espesores de tablero (editables, en mm) ----
-  const [espesorSelCuerpo, setEspesorSelCuerpo] = useState<'15' | '18' | 'custom'>('18')
+  const [espesorSelCuerpo, setEspesorSelCuerpo] = useState<'15' | '18' | 'custom'>('15')
   const [espesorMM, setEspesorMM] = useState(18) // grosor del cuerpo, cajones, puertas y divisores
 
-  const [espesorSelFondo, setEspesorSelFondo] = useState<'3' | '6' | '9' | 'custom'>('6')
+  const [espesorSelFondo, setEspesorSelFondo] = useState<'15' | '3' | '6' | 'custom'>('15')
   const [espesorFondoMM, setEspesorFondoMM] = useState(6) // grosor del tablero posterior
 
   const [espesorSelBase, setEspesorSelBase] = useState<'3' | '6' | '9' | 'custom'>('6')
@@ -85,7 +85,7 @@ export default function DisenoCajones() {
   const [holguraFrenteCajon, setHolguraFrenteCajon] = useState(0.15)
   const [holguraRielAlto, setHolguraRielAlto] = useState(2.5)
   const [holguraRielFondo, setHolguraRielFondo] = useState(2)
-  const [holguraRielLateral, setHolguraRielLateral] = useState(1.2)
+  const [holguraRielLateral, setHolguraRielLateral] = useState(2.6)
   const [mostrarAjustes, setMostrarAjustes] = useState(false)
 
   // ---- Columnas (division horizontal), cada una con sus propias secciones (division vertical) ----
