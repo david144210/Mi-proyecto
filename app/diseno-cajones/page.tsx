@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 
 // ============================================================
 // TIPOS
@@ -42,7 +43,10 @@ interface PiezaCorte {
   ancho: number
   espesor: number
   seccion: string
+  canteado: string
 }
+
+const MIN_MM = 0
 
 export default function DisenoCajones() {
   const [usuario, setUsuario] = useState<any>(null)
@@ -53,6 +57,9 @@ export default function DisenoCajones() {
   const [altoCm, setAltoCm] = useState(120)
   const [profundoCm, setProfundoCm] = useState(55)
   const [colorId, setColorId] = useState('blanco')
+
+  // Pieza seleccionada desde la tabla para resaltar en 3D
+  const [piezaSeleccionada, setPiezaSeleccionada] = useState<{ pieza: string; seccion: string } | null>(null)
 
   // ---- Espesores de tablero (editables, en mm) ----
   const [espesorSelCuerpo, setEspesorSelCuerpo] = useState<'15' | '18' | 'custom'>('15')
@@ -207,7 +214,7 @@ export default function DisenoCajones() {
     }
   }, [checking])
 
-  // ---------- Reconstruir el mueble en 3D ----------
+  // ---------- Reconstruir el mueble en 3D con soporte de selección ----------
   useEffect(() => {
     const grupo = muebleGroupRef.current
     if (!grupo) return
@@ -234,23 +241,42 @@ export default function DisenoCajones() {
     const espFondo = espesorFondoCm * SC
 
     const colorHex = COLORES.find(c => c.id === colorId)?.hex ?? 0xf3f1ea
-    const matCarcasa = new THREE.MeshStandardMaterial({ 
+    
+    const matCarcasaNorm = new THREE.MeshStandardMaterial({ 
       color: colorHex, 
       roughness: 0.6,
       transparent: true,
       opacity: 0.28,
       depthWrite: false 
     })
-    const matFrente = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.45 })
-    const matCaja = new THREE.MeshStandardMaterial({ color: 0xe3ded8, roughness: 0.5 })
+    const matFrenteNorm = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.45 })
+    const matCajaNorm = new THREE.MeshStandardMaterial({ color: 0xe3ded8, roughness: 0.5 })
     const matMetal = new THREE.MeshStandardMaterial({ color: 0x9a9a9a, metalness: 0.7, roughness: 0.35 })
 
-    const addBox = (w: number, h: number, d: number, x: number, y: number, z: number, mat: THREE.Material) => {
+    const matHighlight = new THREE.MeshStandardMaterial({
+      color: 0xff6600,
+      roughness: 0.3,
+      emissive: 0x331100,
+    })
+
+    const addBox = (w: number, h: number, d: number, x: number, y: number, z: number, baseMat: THREE.Material, meta?: { pieza: string; seccion: string }) => {
+      let matFinal = baseMat
+      if (piezaSeleccionada && meta) {
+        const matchPieza = meta.pieza.toLowerCase()
+        const targetPieza = piezaSeleccionada.pieza.toLowerCase()
+        if (meta.seccion === piezaSeleccionada.seccion && (targetPieza.includes(matchPieza) || matchPieza.includes(targetPieza))) {
+          matFinal = matHighlight
+        }
+      }
+
       const geometry = new THREE.BoxGeometry(w, h, d)
-      const mesh = new THREE.Mesh(geometry, mat)
+      const mesh = new THREE.Mesh(geometry, matFinal)
+      if (meta) {
+        mesh.userData = meta
+      }
       
       const edgesGeometry = new THREE.EdgesGeometry(geometry)
-      const edgesMaterial = new THREE.LineBasicMaterial({ color: 0x333333, linewidth: 1 })
+      const edgesMaterial = new THREE.LineBasicMaterial({ color: matFinal === matHighlight ? 0xffffff : 0x333333, linewidth: 1 })
       const edges = new THREE.LineSegments(edgesGeometry, edgesMaterial)
       mesh.add(edges)
 
@@ -261,11 +287,11 @@ export default function DisenoCajones() {
       return mesh
     }
 
-    addBox(esp, alto, profundo, -ancho / 2 + esp / 2, alto / 2, 0, matCarcasa)
-    addBox(esp, alto, profundo, ancho / 2 - esp / 2, alto / 2, 0, matCarcasa)
-    addBox(ancho, esp, profundo, 0, esp / 2, 0, matCarcasa)
-    addBox(ancho, esp, profundo, 0, alto - esp / 2, 0, matCarcasa)
-    addBox(ancho, alto, espFondo, 0, alto / 2, -profundo / 2 + espFondo / 2, matCarcasa)
+    addBox(esp, alto, profundo, -ancho / 2 + esp / 2, alto / 2, 0, matCarcasaNorm, { pieza: 'Lateral', seccion: 'Cuerpo' })
+    addBox(esp, alto, profundo, ancho / 2 - esp / 2, alto / 2, 0, matCarcasaNorm, { pieza: 'Lateral', seccion: 'Cuerpo' })
+    addBox(ancho, esp, profundo, 0, esp / 2, 0, matCarcasaNorm, { pieza: 'Piso / Techo', seccion: 'Cuerpo' })
+    addBox(ancho, esp, profundo, 0, alto - esp / 2, 0, matCarcasaNorm, { pieza: 'Piso / Techo', seccion: 'Cuerpo' })
+    addBox(ancho, alto, espFondo, 0, alto / 2, -profundo / 2 + espFondo / 2, matCarcasaNorm, { pieza: 'Panel posterior', seccion: 'Cuerpo' })
 
     const alturaInteriorSC = alto - esp * 2
     let cursorX = -ancho / 2 + esp
@@ -276,9 +302,11 @@ export default function DisenoCajones() {
       let cursorY = esp
 
       col.secciones.forEach((sec, sIdx) => {
-        if (sec.tipo === 'puerta' && sIdx > 0 && col.secciones[sIdx - 1].tipo === 'cajon') {
+        const nombreSeccion = `Col.${ci + 1} — ${sec.tipo === 'cajon' ? 'Cajón' : sec.tipo === 'puerta' ? 'Puerta' : sec.tipo === 'repisa' ? 'Repisa' : 'Espacio'} ${sIdx + 1}`
+
+        if (sec.tipo === 'puerta' && sIdx > 0 && col.secciones[sIdx - 1].tipo !== 'repisa') {
           const repisaProf = profundo - espFondo - 0.03
-          addBox(colWidthSC, esp, repisaProf, colCenterX, cursorY + esp / 2, espFondo / 2, matCarcasa)
+          addBox(colWidthSC, esp, repisaProf, colCenterX, cursorY + esp / 2, espFondo / 2, matCarcasaNorm, { pieza: 'Estante / Divisor intermedio', seccion: nombreSeccion })
           cursorY += esp
         }
 
@@ -287,7 +315,7 @@ export default function DisenoCajones() {
 
         if (sec.tipo === 'cajon') {
           const frenteZ = profundo / 2 + esp / 2 + 0.02
-          addBox(colWidthSC - 0.01, h - 0.015, esp, colCenterX, centroY, frenteZ, matFrente)
+          addBox(colWidthSC - 0.01, h - 0.015, esp, colCenterX, centroY, frenteZ, matFrenteNorm, { pieza: 'Frente de cajón', seccion: nombreSeccion })
           addBox(colWidthSC * 0.35, 0.02, 0.02, colCenterX, centroY, frenteZ + esp / 2 + 0.02, matMetal)
           
           const rielLargo = profundo - esp * 1.5
@@ -308,28 +336,28 @@ export default function DisenoCajones() {
           const cajaY = cursorY + 0.02 + altoCajaSC / 2
           const cajaZCenter = (frenteZ - esp / 2) - (largoCostadoSC / 2)
 
-          addBox(espCaja, altoCajaSC, largoCostadoSC, colCenterX - anchoCajaExternaSC / 2 + espCaja / 2, cajaY, cajaZCenter, matCaja)
-          addBox(espCaja, altoCajaSC, largoCostadoSC, colCenterX + anchoCajaExternaSC / 2 - espCaja / 2, cajaY, cajaZCenter, matCaja)
-          addBox(largoRespaldoSC, altoCajaSC, espCaja, colCenterX, cajaY, cajaZCenter - largoCostadoSC / 2 + espCaja / 2, matCaja)
-          addBox(largoRespaldoSC, altoCajaSC, espCaja, colCenterX, cajaY, cajaZCenter + largoCostadoSC / 2 - espCaja / 2, matCaja)
-          addBox(anchoCajaExternaSC, espBaseCaja, largoCostadoSC, colCenterX, cursorY + 0.02 + espBaseCaja / 2, cajaZCenter, matCaja)
+          addBox(espCaja, altoCajaSC, largoCostadoSC, colCenterX - anchoCajaExternaSC / 2 + espCaja / 2, cajaY, cajaZCenter, matCajaNorm, { pieza: 'Costado de caja', seccion: nombreSeccion })
+          addBox(espCaja, altoCajaSC, largoCostadoSC, colCenterX + anchoCajaExternaSC / 2 - espCaja / 2, cajaY, cajaZCenter, matCajaNorm, { pieza: 'Costado de caja', seccion: nombreSeccion })
+          addBox(largoRespaldoSC, altoCajaSC, espCaja, colCenterX, cajaY, cajaZCenter - largoCostadoSC / 2 + espCaja / 2, matCajaNorm, { pieza: 'Contrafrente/Posterior cajón', seccion: nombreSeccion })
+          addBox(largoRespaldoSC, altoCajaSC, espCaja, colCenterX, cajaY, cajaZCenter + largoCostadoSC / 2 - espCaja / 2, matCajaNorm, { pieza: 'Contrafrente/Posterior cajón', seccion: nombreSeccion })
+          addBox(anchoCajaExternaSC, espBaseCaja, largoCostadoSC, colCenterX, cursorY + 0.02 + espBaseCaja / 2, cajaZCenter, matCajaNorm, { pieza: 'Fondo de cajón (Clavado)', seccion: nombreSeccion })
 
         } else if (sec.tipo === 'puerta') {
           const frenteZ = profundo / 2 + esp / 2 + 0.02
           if (sec.cantidadPuertas === 2) {
             const wPuerta = colWidthSC / 2 - 0.01
-            addBox(wPuerta, h - 0.015, esp, colCenterX - wPuerta / 2 - 0.005, centroY, frenteZ, matFrente)
-            addBox(wPuerta, h - 0.015, esp, colCenterX + wPuerta / 2 + 0.005, centroY, frenteZ, matFrente)
+            addBox(wPuerta, h - 0.015, esp, colCenterX - wPuerta / 2 - 0.005, centroY, frenteZ, matFrenteNorm, { pieza: 'Puerta', seccion: nombreSeccion })
+            addBox(wPuerta, h - 0.015, esp, colCenterX + wPuerta / 2 + 0.005, centroY, frenteZ, matFrenteNorm, { pieza: 'Puerta', seccion: nombreSeccion })
             addBox(0.02, 0.15, 0.02, colCenterX - 0.05, centroY, frenteZ + esp / 2 + 0.02, matMetal)
             addBox(0.02, 0.15, 0.02, colCenterX + 0.05, centroY, frenteZ + esp / 2 + 0.02, matMetal)
           } else {
-            addBox(colWidthSC - 0.01, h - 0.015, esp, colCenterX, centroY, frenteZ, matFrente)
+            addBox(colWidthSC - 0.01, h - 0.015, esp, colCenterX, centroY, frenteZ, matFrenteNorm, { pieza: 'Puerta', seccion: nombreSeccion })
             const lado = sec.bisagra === 'derecha' ? -1 : 1
             addBox(0.02, 0.15, 0.02, colCenterX + lado * (colWidthSC / 2 - 0.08), centroY, frenteZ + esp / 2 + 0.02, matMetal)
           }
         } else if (sec.tipo === 'repisa') {
            const repisaProf = profundo - espFondo - 0.03
-           addBox(colWidthSC, esp, repisaProf, colCenterX, cursorY + esp / 2, espFondo / 2, matCarcasa)
+           addBox(colWidthSC, esp, repisaProf, colCenterX, cursorY + h - esp / 2, espFondo / 2, matCarcasaNorm, { pieza: 'Estante / Repisa', seccion: nombreSeccion })
         }
 
         cursorY += h
@@ -338,18 +366,42 @@ export default function DisenoCajones() {
       cursorX += colWidthSC
 
       if (ci < columnas.length - 1) {
-        addBox(esp, alturaInteriorSC, profundo, cursorX + esp / 2, alto / 2, 0, matCarcasa)
+        addBox(esp, alturaInteriorSC, profundo, cursorX + esp / 2, alto / 2, 0, matCarcasaNorm, { pieza: 'Divisor vertical', seccion: 'Cuerpo' })
         cursorX += esp
       }
     })
 
     const cam = cameraRef.current
     const controls = controlsRef.current
-    if (cam && controls) {
+    if (cam && controls && !piezaSeleccionada) {
       controls.target.set(0, alto / 2, 0)
       cam.position.set(ancho * 1.6 + 1.5, alto * 1.1 + 0.8, profundo * 2.2 + ancho)
     }
-  }, [anchoCm, altoCm, profundoCm, colorId, columnas, checking, espesorCm, espesorFondoCm, espesorBaseCajonCm, holguraRielAlto, holguraRielFondo, holguraRielLateral])
+  }, [anchoCm, altoCm, profundoCm, colorId, columnas, checking, espesorCm, espesorFondoCm, espesorBaseCajonCm, holguraRielAlto, holguraRielFondo, holguraRielLateral, piezaSeleccionada])
+
+  // ---------- Exportar modelo a formato GLB (para IA / Visor externo) ----------
+const exportarModeloGLB = () => {
+  if (!muebleGroupRef.current) return
+  
+  const exporter = new GLTFExporter()
+  exporter.parse(
+    muebleGroupRef.current,
+    (gltfBinary) => {
+      const blob = new Blob([gltfBinary as ArrayBuffer], { type: 'model/gltf-binary' })
+      const reader = new FileReader()
+      reader.onload = () => {
+        const base64data = reader.result as string
+        localStorage.setItem('mueble_glb_base64', base64data)
+        window.open('/visor-ia', '_blank')
+      }
+      reader.readAsDataURL(blob)
+    },
+    (error) => {
+      console.error('Error al exportar el modelo 3D:', error)
+    },
+    { binary: true }
+  )
+}
 
   // ---------- Medidas internas ----------
   const alturaInterior = altoCm - espesorCm * 2
@@ -361,23 +413,57 @@ export default function DisenoCajones() {
   const anchoUsadoTotal = anchoColumnasUsado + anchoDivisores
   const anchoRestante = anchoInterior - anchoUsadoTotal
 
-  // ---------- Lista de piezas para corte ----------
+  // ---------- Lista de piezas para corte con canteado ----------
   const calcularListaPiezas = (): PiezaCorte[] => {
     const piezas: PiezaCorte[] = []
 
-    piezas.push({ pieza: 'Lateral', cantidad: 2, largo: altoCm, ancho: profundoCm, espesor: espesorCm, seccion: 'Cuerpo' })
-    piezas.push({ pieza: 'Piso / Techo', cantidad: 2, largo: anchoInterior, ancho: profundoCm, espesor: espesorCm, seccion: 'Cuerpo' })
-    piezas.push({ pieza: 'Panel posterior', cantidad: 1, largo: anchoInterior, ancho: alturaInterior > 0 ? alturaInterior : altoCm, espesor: espesorFondoCm, seccion: 'Cuerpo' })
+    piezas.push({ 
+      pieza: 'Lateral', 
+      cantidad: 2, 
+      largo: alturaInterior > 0 ? alturaInterior : altoCm, 
+      ancho: profundoCm, 
+      espesor: espesorCm, 
+      seccion: 'Cuerpo',
+      canteado: '1 Canto largo (frente)' 
+    })
+    
+    piezas.push({ 
+      pieza: 'Piso / Techo', 
+      cantidad: 2, 
+      largo: anchoCm, 
+      ancho: profundoCm, 
+      espesor: espesorCm, 
+      seccion: 'Cuerpo',
+      canteado: '1 Canto corto (frente)' 
+    })
+
+    piezas.push({ 
+      pieza: 'Panel posterior', 
+      cantidad: 1, 
+      largo: anchoInterior, 
+      ancho: alturaInterior > 0 ? alturaInterior : altoCm, 
+      espesor: espesorFondoCm, 
+      seccion: 'Cuerpo',
+      canteado: 'Sin canteado' 
+    })
 
     if (columnas.length > 1) {
-      piezas.push({ pieza: 'Divisor vertical', cantidad: columnas.length - 1, largo: alturaInterior > 0 ? alturaInterior : altoCm, ancho: profundoCm, espesor: espesorCm, seccion: 'Cuerpo' })
+      piezas.push({ 
+        pieza: 'Divisor vertical', 
+        cantidad: columnas.length - 1, 
+        largo: alturaInterior > 0 ? alturaInterior : altoCm, 
+        ancho: profundoCm, 
+        espesor: espesorCm, 
+        seccion: 'Cuerpo',
+        canteado: '1 Canto largo (frente)' 
+      })
     }
 
     columnas.forEach((col, ci) => {
       col.secciones.forEach((sec, i) => {
         const nombreSeccion = `Col.${ci + 1} — ${sec.tipo === 'cajon' ? 'Cajón' : sec.tipo === 'puerta' ? 'Puerta' : sec.tipo === 'repisa' ? 'Repisa' : 'Espacio'} ${i + 1}`
 
-        if (sec.tipo === 'puerta' && i > 0 && col.secciones[i - 1].tipo === 'cajon') {
+        if (sec.tipo === 'puerta' && i > 0 && col.secciones[i - 1].tipo !== 'repisa') {
           piezas.push({
             pieza: 'Estante / Divisor intermedio',
             cantidad: 1,
@@ -385,11 +471,20 @@ export default function DisenoCajones() {
             ancho: profundoCm - espesorFondoCm - 1,
             espesor: espesorCm,
             seccion: nombreSeccion,
+            canteado: '1 Canto (frente)',
           })
         }
 
         if (sec.tipo === 'cajon') {
-          piezas.push({ pieza: 'Frente de cajón', cantidad: 1, largo: col.anchoCm - holguraFrenteCajon, ancho: sec.alturaCm - holguraFrenteCajon, espesor: espesorCm, seccion: nombreSeccion })
+          piezas.push({ 
+            pieza: 'Frente de cajón', 
+            cantidad: 1, 
+            largo: col.anchoCm - holguraFrenteCajon, 
+            ancho: sec.alturaCm - holguraFrenteCajon, 
+            espesor: espesorCm, 
+            seccion: nombreSeccion,
+            canteado: '4 Lados (perímetro)' 
+          })
           
           const defAltoCaja = sec.alturaCajaCm !== undefined ? sec.alturaCajaCm : Math.max(5, sec.alturaCm - holguraRielAlto)
           const defProfCaja = sec.profundidadCajaCm !== undefined ? sec.profundidadCajaCm : Math.max(10, profundoCm - holguraRielFondo)
@@ -399,9 +494,9 @@ export default function DisenoCajones() {
           const largoCostado = defProfCaja
           const largoRespaldo = anchoCajaExterna - (2 * espesorCm)
 
-          piezas.push({ pieza: 'Costado de caja', cantidad: 2, largo: largoCostado, ancho: altoCaja, espesor: espesorCm, seccion: nombreSeccion })
-          piezas.push({ pieza: 'Contrafrente/Posterior cajón', cantidad: 2, largo: largoRespaldo, ancho: altoCaja, espesor: espesorCm, seccion: nombreSeccion })
-          piezas.push({ pieza: 'Fondo de cajón (Clavado)', cantidad: 1, largo: anchoCajaExterna, ancho: largoCostado, espesor: espesorBaseCajonCm, seccion: nombreSeccion })
+          piezas.push({ pieza: 'Costado de caja', cantidad: 2, largo: largoCostado, ancho: altoCaja, espesor: espesorCm, seccion: nombreSeccion, canteado: '1 Canto superior' })
+          piezas.push({ pieza: 'Contrafrente/Posterior cajón', cantidad: 2, largo: largoRespaldo, ancho: altoCaja, espesor: espesorCm, seccion: nombreSeccion, canteado: '1 Canto superior' })
+          piezas.push({ pieza: 'Fondo de cajón (Clavado)', cantidad: 1, largo: anchoCajaExterna, ancho: largoCostado, espesor: espesorBaseCajonCm, seccion: nombreSeccion, canteado: 'Sin canteado' })
         
         } else if (sec.tipo === 'puerta') {
           piezas.push({
@@ -411,6 +506,7 @@ export default function DisenoCajones() {
             ancho: sec.alturaCm - holguraPuerta,
             espesor: espesorCm,
             seccion: nombreSeccion,
+            canteado: '4 Lados (perímetro)',
           })
         } else if (sec.tipo === 'repisa') {
           piezas.push({
@@ -420,6 +516,7 @@ export default function DisenoCajones() {
             ancho: profundoCm - espesorFondoCm - 1,
             espesor: espesorCm,
             seccion: nombreSeccion,
+            canteado: '1 Canto (frente)',
           })
         }
       })
@@ -431,7 +528,7 @@ export default function DisenoCajones() {
   const agruparPiezas = (piezas: PiezaCorte[]): PiezaCorte[] => {
     const mapa = new Map<string, PiezaCorte>()
     piezas.forEach(p => {
-      const key = `${p.pieza}|${p.largo.toFixed(1)}|${p.ancho.toFixed(1)}|${p.espesor}`
+      const key = `${p.pieza}|${p.seccion}|${p.largo.toFixed(1)}|${p.ancho.toFixed(1)}|${p.espesor}|${p.canteado}`
       const existente = mapa.get(key)
       if (existente) existente.cantidad += p.cantidad
       else mapa.set(key, { ...p })
@@ -447,7 +544,7 @@ export default function DisenoCajones() {
     const texto = [
       `LISTA DE PIEZAS — ${anchoCm}×${altoCm}×${profundoCm} cm`,
       '',
-      ...listaPiezasAgrupada.map(p => `${p.cantidad} x ${p.pieza} — ${p.largo.toFixed(1)} x ${p.ancho.toFixed(1)} cm (esp. ${p.espesor} cm)`),
+      ...listaPiezasAgrupada.map(p => `${p.cantidad} x ${p.pieza} (${p.seccion}) — ${p.largo.toFixed(1)} x ${p.ancho.toFixed(1)} cm (esp. ${p.espesor} cm) [Canteado: ${p.canteado}]`),
       '',
       `Área total aprox.: ${areaTotalM2.toFixed(2)} m²`,
     ].join('\n')
@@ -469,7 +566,6 @@ export default function DisenoCajones() {
     window.location.href = '/cotizador'
   }
 
-  // ---- ENVIAR AL OPTIMIZADOR DE CORTES (SKETCHCUT) ----
   const enviarAlOptimizador = () => {
     const payload = {
       piezas: listaPiezasDetallada.map(p => ({
@@ -546,8 +642,6 @@ export default function DisenoCajones() {
   const totalPuertas = todasLasSecciones.filter(s => s.tipo === 'puerta').reduce((a, s) => a + s.cantidadPuertas, 0)
   const totalRepisas = todasLasSecciones.filter(s => s.tipo === 'repisa').length
 
-  const MIN_MM = 70
-
   const clamp = (val: number, min: number, max?: number) => {
     let v = Number.isFinite(val) ? val : min
     v = Math.max(min, v)
@@ -572,7 +666,7 @@ export default function DisenoCajones() {
         }
       `}</style>
 
-      {/* NAVBAR CORPORATIVO */}
+      {/* NAVBAR */}
       <nav style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         padding: '15px 40px', backgroundColor: '#0f3460', color: 'white',
@@ -583,9 +677,14 @@ export default function DisenoCajones() {
           MuebLess is Better
         </a>
         <span style={{ color: '#d4af37', fontSize: '16px', fontWeight: 'bold' }}>Diseñador 3D / Producción</span>
-        <a href="/cotizador" style={{ color: '#0f3460', backgroundColor: 'white', fontSize: '13px', textDecoration: 'none', fontWeight: 'bold', padding: '7px 14px', borderRadius: '8px' }}>
-          ← Volver al Cotizador
-        </a>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button onClick={exportarModeloGLB} style={{ backgroundColor: '#6200ea', color: 'white', border: 'none', fontSize: '12px', fontWeight: 'bold', padding: '7px 14px', borderRadius: '8px', cursor: 'pointer' }}>
+            🤖 Ver en Escenario IA
+          </button>
+          <a href="/cotizador" style={{ color: '#0f3460', backgroundColor: 'white', fontSize: '13px', textDecoration: 'none', fontWeight: 'bold', padding: '7px 14px', borderRadius: '8px' }}>
+            ← Volver al Cotizador
+          </a>
+        </div>
       </nav>
 
       <div style={{ padding: '90px 24px 40px 24px', maxWidth: '1400px', margin: '0 auto' }}>
@@ -896,10 +995,10 @@ export default function DisenoCajones() {
               </div>
             </div>
 
-            {/* Lista de piezas */}
+            {/* Lista de piezas con canteado y selección interactiva */}
             <div style={{ backgroundColor: 'white', borderRadius: '14px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <h2 style={{ margin: 0, fontSize: '16px' }}>✂️ Lista de piezas para corte</h2>
+                <h2 style={{ margin: 0, fontSize: '16px' }}>✂️ Lista de piezas y canteado</h2>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <button onClick={copiarListaPiezas} style={{ ...btnMini, padding: '6px 12px' }}>📋 Copiar</button>
                   <button onClick={enviarAlOptimizador} style={{ ...btnMini, padding: '6px 12px', backgroundColor: '#d4af37', color: '#0f3460', fontWeight: 'bold' }}>🖨️ Optimizar Cortes</button>
@@ -919,28 +1018,43 @@ export default function DisenoCajones() {
                 </div>
               </div>
 
+              <p style={{ fontSize: '11px', color: '#666', margin: '6px 0 12px 0' }}>
+                💡 Haz clic en cualquier fila de la tabla para resaltar la pieza en el visor 3D. {piezaSeleccionada && <button onClick={() => setPiezaSeleccionada(null)} style={{ background: 'none', border: 'none', color: '#0066cc', cursor: 'pointer', textDecoration: 'underline', padding: 0, fontSize: '11px', marginLeft: '8px' }}>Quitar selección</button>}
+              </p>
+
               {listaPiezasAgrupada.length > 0 ? (
-                <div style={{ overflowX: 'auto', marginTop: '14px' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                <div style={{ overflowX: 'auto', maxHeight: '350px', border: '1px solid #eee', borderRadius: '8px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
                     <thead>
-                      <tr style={{ backgroundColor: '#f9f9f9' }}>
-                        <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '2px solid #eee' }}>Pieza</th>
-                        <th style={{ padding: '8px 10px', textAlign: 'center', borderBottom: '2px solid #eee' }}>Cant.</th>
-                        <th style={{ padding: '8px 10px', textAlign: 'center', borderBottom: '2px solid #eee' }}>Largo</th>
-                        <th style={{ padding: '8px 10px', textAlign: 'center', borderBottom: '2px solid #eee' }}>Ancho</th>
-                        <th style={{ padding: '8px 10px', textAlign: 'center', borderBottom: '2px solid #eee' }}>Esp.</th>
+                      <tr style={{ backgroundColor: '#f9f9f9', position: 'sticky', top: 0, zIndex: 10 }}>
+                        <th style={{ padding: '8px 8px', textAlign: 'left', borderBottom: '2px solid #eee' }}>Pieza</th>
+                        <th style={{ padding: '8px 8px', textAlign: 'left', borderBottom: '2px solid #eee' }}>Sección</th>
+                        <th style={{ padding: '8px 8px', textAlign: 'center', borderBottom: '2px solid #eee' }}>Cant.</th>
+                        <th style={{ padding: '8px 8px', textAlign: 'center', borderBottom: '2px solid #eee' }}>Medidas</th>
+                        <th style={{ padding: '8px 8px', textAlign: 'left', borderBottom: '2px solid #eee' }}>Canteado</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {listaPiezasAgrupada.map((p, i) => (
-                        <tr key={i} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
-                          <td style={{ padding: '7px 10px', borderBottom: '1px solid #f0f0f0' }}>{p.pieza}</td>
-                          <td style={{ padding: '7px 10px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>{p.cantidad}</td>
-                          <td style={{ padding: '7px 10px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>{p.largo.toFixed(1)} cm</td>
-                          <td style={{ padding: '7px 10px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>{p.ancho.toFixed(1) } cm</td>
-                          <td style={{ padding: '7px 10px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>{p.espesor} cm</td>
-                        </tr>
-                      ))}
+                      {listaPiezasAgrupada.map((p, i) => {
+                        const isSelected = piezaSeleccionada?.pieza === p.pieza && piezaSeleccionada?.seccion === p.seccion
+                        return (
+                          <tr 
+                            key={i} 
+                            onClick={() => setPiezaSeleccionada({ pieza: p.pieza, seccion: p.seccion })}
+                            style={{ 
+                              backgroundColor: isSelected ? '#fff3e0' : (i % 2 === 0 ? 'white' : '#fafafa'),
+                              cursor: 'pointer',
+                              outline: isSelected ? '1.5px solid #ff9800' : 'none'
+                            }}
+                          >
+                            <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0f0f0', fontWeight: 'bold', color: isSelected ? '#d84315' : '#0f3460' }}>{p.pieza}</td>
+                            <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0f0f0', color: '#666' }}>{p.seccion}</td>
+                            <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>{p.cantidad}</td>
+                            <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0f0f0', textAlign: 'center', whiteSpace: 'nowrap' }}>{p.largo.toFixed(1)} × {p.ancho.toFixed(1)} cm</td>
+                            <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0f0f0', color: '#333', fontWeight: '500' }}>{p.canteado}</td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -952,7 +1066,7 @@ export default function DisenoCajones() {
             </div>
           </div>
 
-          {/* ===== VISTA 3D SIN COTAS ===== */}
+          {/* ===== VISTA 3D ===== */}
           <div className="diseno-canvas" style={{
             height: 'calc(100vh - 130px)', minHeight: '500px', borderRadius: '14px', overflow: 'hidden',
             boxShadow: '0 2px 12px rgba(0,0,0,0.08)', position: 'sticky', top: '90px',
