@@ -62,7 +62,7 @@ export default function Sistema() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <a href="/cotizador" style={{ color: '#D4AF37', textDecoration: 'none', fontSize: '18px', borderBottom: '1px solid #D4AF37', paddingBottom: '10px' }}>⚡ Cotizador</a>
           <a href="/productos" style={{ color: '#D4AF37', textDecoration: 'none', fontSize: '18px', borderBottom: '1px solid #D4AF37', paddingBottom: '10px' }}>📦 Productos</a>
-          {(esAdmin || !!usuario?.cargos?.puede_gestionar_cobranza_delivery || !!usuario?.cargos?.puede_gestionar_encargado_delivery) && (
+          {(esAdmin || !!usuario?.cargos?.puede_ver_entregas || !!usuario?.cargos?.puede_gestionar_encargado_delivery) && (
             <a href="/deliverys" style={{ color: '#D4AF37', textDecoration: 'none', fontSize: '18px', borderBottom: '1px solid #D4AF37', paddingBottom: '10px' }}>🚚 Deliverys</a>
           )}
         </div>
@@ -84,7 +84,7 @@ export default function Sistema() {
           {(esAdmin || !!usuario?.cargos?.puede_ver_caja_chica) && (
             <a href="/cajas" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>🧾</div><h3 style={{ margin: 0 }}>Caja Chica</h3></a>
           )}
-          {(esAdmin || !!usuario?.cargos?.puede_gestionar_cobranza_delivery || !!usuario?.cargos?.puede_gestionar_encargado_delivery) && (
+          {(esAdmin || !!usuario?.cargos?.puede_ver_entregas || !!usuario?.cargos?.puede_gestionar_encargado_delivery) && (
             <a href="/deliverys" style={cardStyle}><div style={{ fontSize: '40px', marginBottom: '12px' }}>🚚</div><h3 style={{ margin: 0 }}>Deliverys</h3></a>
           )}
           {esAdmin && (
