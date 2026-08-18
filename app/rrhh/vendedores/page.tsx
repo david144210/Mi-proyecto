@@ -578,7 +578,7 @@ export default function GestionVendedores() {
                   return (
                     <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: idx % 2 === 0 ? 'white' : '#fafafa' }}>
                       <td style={tdSt}>
-                        <span style={{ fontWeight: 'bold', color: '#1e293b' }}>{vend?.name || vend?.nombre || `ID: ${c.vendedor_id}`}</span>
+                        <span style={{ fontWeight: 'bold', color: '#1e293b' }}>{vend?.nombre || `ID: ${c.vendedor_id}`}</span>
                       </td>
                       <td style={tdSt}>
                         <span style={{ backgroundColor: cfg.bg, color: cfg.color, borderRadius: '6px', padding: '3px 8px', fontSize: '11px', fontWeight: 'bold' }}>
