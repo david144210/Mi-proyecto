@@ -102,7 +102,7 @@ export default function Deliverys() {
 
   const esAdmin = usuario?.cargos?.es_admin === true
   const esCobranza = esAdmin || !!usuario?.cargos?.puede_gestionar_cobranza_delivery
-  const esEncargado = esAdmin || !!usuario?.cargos?.puede_gestionar_encargado_delivery
+  const esEncargado = esAdmin || !!usuario?.cargos?.puede_ver_entregas
 
   useEffect(() => {
     if (!loading && !esAdmin && !esCobranza && !esEncargado) window.location.replace('/')
