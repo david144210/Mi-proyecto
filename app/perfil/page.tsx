@@ -14,10 +14,20 @@ const getRangoMesActual = () => {
   return { inicio, fin, mesNombre: hoy.toLocaleString('es-ES', { month: 'long', year: 'numeric' }) }
 }
 
+const CANALES_CFG: Record<string, { label: string; color: string }> = {
+  facebook_marketplace: { label: 'Facebook Marketplace', color: '#1877f2' },
+  instagram:            { label: 'Instagram',              color: '#e1306c' },
+  tiktok:               { label: 'TikTok',                 color: '#ffffff' },
+  telegram:             { label: 'Telegram',               color: '#229ed9' },
+  otro:                 { label: 'Otro Canal',             color: '#94a3b8' },
+}
+
 export default function Perfil() {
   const [inputCarnet, setInputCarnet] = useState('')
   const [usuario, setUsuario] = useState<any>(null)
+  const [vendedorData, setVendedorData] = useState<any>(null)
   const [desempenio, setDesempenio] = useState<any>(null)
+  const [cuentasSociales, setCuentasSociales] = useState<any[]>([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [subiendoFoto, setSubiendoFoto] = useState(false)
@@ -44,7 +54,9 @@ export default function Perfil() {
     if (errPersona || !persona) {
       setError('Carnet no encontrado o usuario inactivo.')
       setUsuario(null)
+      setVendedorData(null)
       setDesempenio(null)
+      setCuentasSociales([])
       setLoading(false)
       return
     }
@@ -61,12 +73,14 @@ export default function Perfil() {
       .maybeSingle()
 
     if (vendedor) {
+      setVendedorData(vendedor)
       const { inicio, fin, mesNombre } = getRangoMesActual()
       const codVendedor = vendedor.id
 
-      const [{ data: cobros }, { data: esc }] = await Promise.all([
+      const [{ data: cobros }, { data: esc }, { data: cuentas }] = await Promise.all([
         supabase.from('cobranzas').select('total_cobrado, ventas!inner(cod_vendedor)').eq('ventas.cod_vendedor', codVendedor).gte('created_at', `${inicio}T00:00:00`).lte('created_at', `${fin}T23:59:59`),
-        supabase.from('escalas_vendedor').select('*').eq('activa', true).order('venta_min', { ascending: true })
+        supabase.from('escalas_vendedor').select('*').eq('activa', true).order('venta_min', { ascending: true }),
+        supabase.from('vendedor_cuentas_sociales').select('*').eq('vendedor_id', codVendedor).eq('activo', true)
       ])
 
       let totalCobradoMes = 0
@@ -98,8 +112,11 @@ export default function Perfil() {
         comisionEst,
         mesNombre
       })
+      setCuentasSociales(cuentas || [])
     } else {
+      setVendedorData(null)
       setDesempenio(null)
+      setCuentasSociales([])
     }
 
     setLoading(false)
@@ -183,7 +200,9 @@ export default function Perfil() {
   const handleCerrarSesion = () => {
     localStorage.removeItem('carnet')
     setUsuario(null)
+    setVendedorData(null)
     setDesempenio(null)
+    setCuentasSociales([])
     setInputCarnet('')
   }
 
@@ -440,6 +459,63 @@ export default function Perfil() {
                   <span style={{ color: '#a3c47d', fontWeight: 'bold' }}>{fmt(desempenio.comisionEst)}</span>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* CUENTAS Y REDES SOCIALES ASIGNADAS */}
+          {vendedorData && (
+            <div style={{
+              backgroundColor: '#1a1a1a',
+              border: '1px solid #2a2a2a',
+              borderRadius: '16px',
+              padding: '24px 28px',
+              marginBottom: '16px',
+              boxShadow: '0 10px 40px rgba(0,0,0,0.4)',
+            }}>
+              <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 'normal', color: '#a3c47d', borderBottom: '1px solid #222', paddingBottom: '10px' }}>
+                Cuentas y Redes Sociales Asignadas
+              </h3>
+              {cuentasSociales && cuentasSociales.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {cuentasSociales.map((c: any) => {
+                    const cfg = CANALES_CFG[c.canal] || CANALES_CFG['otro']
+                    return (
+                      <div key={c.id} style={{
+                        backgroundColor: '#111',
+                        border: '1px solid #222',
+                        borderRadius: '10px',
+                        padding: '14px 16px',
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                          <span style={{
+                            backgroundColor: '#222',
+                            color: cfg.color,
+                            borderRadius: '6px',
+                            padding: '2px 8px',
+                            fontSize: '11px',
+                            fontWeight: 'bold',
+                          }}>
+                            {cfg.label}
+                          </span>
+                          <span style={{ fontWeight: 'bold', fontSize: '14px', color: '#f0ece4' }}>
+                            {c.nombre_cuenta}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '13px', color: '#aaa', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {c.correo && <div><span style={{ color: '#888' }}>Correo:</span> <span style={{ color: '#f0ece4' }}>{c.correo}</span></div>}
+                          {c.contrasena && <div><span style={{ color: '#888' }}>Contraseña:</span> <span style={{ color: '#d97706', fontFamily: 'monospace', fontWeight: 'bold' }}>{c.contrasena}</span></div>}
+                          {c.celular_corporativo && <div><span style={{ color: '#888' }}>Celular Corporativo:</span> <span style={{ color: '#f0ece4' }}>{c.celular_corporativo}</span></div>}
+                          {c.celular_asignado && <div><span style={{ color: '#888' }}>Celular Asignado (Dispositivo):</span> <span style={{ color: '#f0ece4' }}>{c.celular_asignado}</span></div>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <p style={{ color: '#888', fontSize: '13px', margin: 0, fontStyle: 'italic', textAlign: 'center' }}>
+                  Aún no se asignó cuentas en redes sociales.
+                </p>
+              )}
             </div>
           )}
 
