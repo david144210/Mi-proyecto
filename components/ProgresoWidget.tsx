@@ -4,7 +4,7 @@
 // Widget compacto de progresión personal para la página principal del Dashboard
 
 import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabase' // Ajusta la ruta relativa según donde ubiques la carpeta components
+import { supabase } from '../lib/supabase'
 import Link from 'next/link'
 
 type Escala = {
@@ -33,17 +33,25 @@ export default function ProgresoWidget() {
       const carnetStorage = localStorage.getItem('carnet')
       if (!carnetStorage) return
 
-      // 1. Obtener tipo de vendedor
+      // 1. Obtener datos del personal por carnet
       const { data: personalData } = await supabase
         .from('personal')
-        .select('id, tipo_vendedor')
+        .select('id')
         .eq('carnet', carnetStorage)
         .single()
 
       if (!personalData) return
-      const tipoDetectado = personalData.tipo_vendedor || 'Planta'
 
-      // 2. Obtener escalas activas
+      // 2. Buscar el registro de vendedor asociado (para obtener su tipo y ID de ventas de forma segura)
+      const { data: vendedorData } = await supabase
+        .from('vendedores')
+        .select('*')
+        .eq('personal_id', personalData.id)
+        .maybeSingle()
+
+      const tipoDetectado = vendedorData?.tipo || 'Planta'
+
+      // 3. Obtener escalas activas
       const { data: escalasData } = await supabase
         .from('escalas_vendedor')
         .select('*')
@@ -54,15 +62,18 @@ export default function ProgresoWidget() {
           .filter(e => e.tipo === tipoDetectado)
           .sort((a, b) => a.nivel - b.nivel)
 
-        // 3. Obtener ventas reales del usuario
-        const { data: ventasData } = await supabase
-          .from('ventas')
-          .select('monto_total')
-          .eq('vendedor_id', personalData.id)
+        // 4. Obtener ventas reales solo si existe registro de vendedor, usando 'cod_vendedor' y 'total_venta'
+        let totalVendido = 0
+        if (vendedorData) {
+          const { data: ventasData } = await supabase
+            .from('ventas')
+            .select('total_venta')
+            .eq('cod_vendedor', vendedorData.id)
 
-        const totalVendido = ventasData 
-          ? ventasData.reduce((acc, curr) => acc + (Number(curr.monto_total) || 0), 0) 
-          : 0
+          totalVendido = ventasData 
+            ? ventasData.reduce((acc, curr) => acc + (Number(curr.total_venta) || 0), 0) 
+            : 0
+        }
 
         setVentasReales(totalVendido)
 

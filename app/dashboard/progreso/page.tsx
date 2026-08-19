@@ -24,6 +24,7 @@ type Vendedor = {
   carnet: string;
   foto?: string | null;
   tipo_vendedor?: 'Planta' | 'Virtual';
+  cargo?: string;
 }
 
 const fmt = (n: number) => new Intl.NumberFormat('es-BO', { minimumFractionDigits: 2 }).format(n)
@@ -52,9 +53,10 @@ export default function ProgresoResponsivePage() {
         return
       }
 
+      // 1. Obtener datos del personal y hacer join con la tabla cargos para traer el nombre del cargo
       const { data: personalData, error: errPersonal } = await supabase
         .from('personal')
-        .select('*')
+        .select('*, cargos(nombre)')
         .eq('carnet', carnetStorage)
         .single()
 
@@ -63,17 +65,29 @@ export default function ProgresoResponsivePage() {
         return
       }
 
-      const tipoDetectado: 'Planta' | 'Virtual' = personalData.tipo_vendedor || 'Planta'
+      // 2. Buscar si existe un registro en vendedores asociado (usando maybeSingle para que no arroje error si no existe)
+      const { data: vendedorData } = await supabase
+        .from('vendedores')
+        .select('*')
+        .eq('personal_id', personalData.id)
+        .maybeSingle()
+
+      // Resolver nombre y cargo de forma segura con base en las tablas correctas
+      const nombreColaborador = vendedorData?.nombre || personalData.usuario || `Colaborador (${personalData.carnet})`
+      const cargoColaborador = (personalData.cargos as any)?.nombre || personalData.cargo || 'Sin cargo asignado'
+      const tipoDetectado: 'Planta' | 'Virtual' = vendedorData?.tipo || 'Planta'
 
       const datosVendedor: Vendedor = {
-        id: personalData.id,
-        nombre: personalData.nombre || 'Colaborador',
+        id: vendedorData ? vendedorData.id : personalData.id,
+        nombre: nombreColaborador,
         carnet: personalData.carnet,
-        foto: personalData.foto || null,
-        tipo_vendedor: tipoDetectado
+        foto: personalData.foto_url || null,
+        tipo_vendedor: tipoDetectado,
+        cargo: cargoColaborador
       }
       setVendedor(datosVendedor)
 
+      // 3. Obtener escalas activas
       const { data: escalasData } = await supabase
         .from('escalas_vendedor')
         .select('*')
@@ -86,14 +100,18 @@ export default function ProgresoResponsivePage() {
 
         setEscalasTipo(escalasFiltradas)
 
-        const { data: ventasData } = await supabase
-          .from('ventas')
-          .select('monto_total')
-          .eq('vendedor_id', datosVendedor.id)
+        // 4. Consultar ventas SOLO si el usuario tiene un registro en la tabla vendedores
+        let totalVendido = 0
+        if (vendedorData) {
+          const { data: ventasData } = await supabase
+            .from('ventas')
+            .select('total_venta')
+            .eq('cod_vendedor', vendedorData.id)
 
-        const totalVendido = ventasData 
-          ? ventasData.reduce((acc, curr) => acc + (Number(curr.monto_total) || 0), 0) 
-          : 0
+          totalVendido = ventasData 
+            ? ventasData.reduce((acc, curr) => acc + (Number(curr.total_venta) || 0), 0) 
+            : 0
+        }
 
         setVentasReales(totalVendido)
         evaluarProgreso(escalasFiltradas, totalVendido)
@@ -146,7 +164,6 @@ export default function ProgresoResponsivePage() {
   return (
     <div style={{ fontFamily: 'Arial, sans-serif', minHeight: '100vh', backgroundColor: '#001328', color: '#ffffff', padding: 'clamp(15px, 4vw, 35px) clamp(10px, 3vw, 20px)', boxSizing: 'border-box' }}>
       
-      {/* Estilos CSS incrustados para control absoluto de Media Queries Responsivas */}
       <style>{`
         @media (max-width: 640px) {
           .header-card {
@@ -181,7 +198,7 @@ export default function ProgresoResponsivePage() {
 
       <div style={{ maxWidth: '800px', margin: '0 auto' }}>
 
-        {/* Cabecera del Usuario con Foto Real y Ajuste Responsivo */}
+        {/* Cabecera del Usuario con Nombre, Cargo y Foto Real */}
         <div className="header-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', background: 'linear-gradient(135deg, #002855 0%, #001a3d 100%)', padding: 'clamp(16px, 3vw, 24px)', borderRadius: '16px', border: '1px solid rgba(212, 175, 55, 0.3)', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
           <div className="header-user-info" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             
@@ -198,7 +215,7 @@ export default function ProgresoResponsivePage() {
 
             <div>
               <span style={{ color: '#d4af37', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 'bold' }}>
-                {vendedor?.tipo_vendedor} B2C
+                {vendedor?.tipo_vendedor} B2C • {vendedor?.cargo}
               </span>
               <h1 style={{ margin: '2px 0 2px', fontSize: 'clamp(18px, 2.5vw, 22px)', color: '#ffffff', wordBreak: 'break-word' }}>{vendedor?.nombre}</h1>
               <span style={{ color: '#94a3b8', fontSize: '12px' }}>Categoría: <strong style={{ color: '#d4af37' }}>{nivelActual?.categoria}</strong></span>
