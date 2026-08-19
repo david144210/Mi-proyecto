@@ -1,7 +1,7 @@
 'use client'
 
 // app/dashboard/progreso/page.tsx
-// Vista de Progresión RPG con Diseño Responsivo de Siguiente Nivel
+// Vista de Progresión RPG con Diseño Responsivo de Siguiente Nivel (Filtrado al mes en curso)
 
 import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
@@ -53,7 +53,7 @@ export default function ProgresoResponsivePage() {
         return
       }
 
-      // 1. Obtener datos del personal y hacer join con la tabla cargos para traer el nombre del cargo
+      // 1. Obtener datos del personal y hacer join con la tabla cargos para traer el nombre del cargo[cite: 6]
       const { data: personalData, error: errPersonal } = await supabase
         .from('personal')
         .select('*, cargos(nombre)')
@@ -65,14 +65,14 @@ export default function ProgresoResponsivePage() {
         return
       }
 
-      // 2. Buscar si existe un registro en vendedores asociado (usando maybeSingle para que no arroje error si no existe)
+      // 2. Buscar si existe un registro en vendedores asociado[cite: 6]
       const { data: vendedorData } = await supabase
         .from('vendedores')
         .select('*')
         .eq('personal_id', personalData.id)
         .maybeSingle()
 
-      // Resolver nombre y cargo de forma segura con base en las tablas correctas
+      // Resolver nombre y cargo de forma segura[cite: 6]
       const nombreColaborador = vendedorData?.nombre || personalData.usuario || `Colaborador (${personalData.carnet})`
       const cargoColaborador = (personalData.cargos as any)?.nombre || personalData.cargo || 'Sin cargo asignado'
       const tipoDetectado: 'Planta' | 'Virtual' = vendedorData?.tipo || 'Planta'
@@ -87,7 +87,7 @@ export default function ProgresoResponsivePage() {
       }
       setVendedor(datosVendedor)
 
-      // 3. Obtener escalas activas
+      // 3. Obtener escalas activas[cite: 6]
       const { data: escalasData } = await supabase
         .from('escalas_vendedor')
         .select('*')
@@ -100,13 +100,24 @@ export default function ProgresoResponsivePage() {
 
         setEscalasTipo(escalasFiltradas)
 
-        // 4. Consultar ventas SOLO si el usuario tiene un registro en la tabla vendedores
+        // 4. Obtener el rango de fechas estrictamente del mes en curso
+        const hoy = new Date()
+        const anio = hoy.getFullYear()
+        const mes = hoy.getMonth() + 1
+        const mesStr = `${anio}-${String(mes).padStart(2, '0')}`
+        const inicio = `${mesStr}-01`
+        const fin = new Date(anio, mes, 0).toISOString().split('T')[0]
+
+        // 5. Consultar ventas del mes actual SOLO si el usuario tiene registro de vendedor y estado activo (> 0)
         let totalVendido = 0
         if (vendedorData) {
           const { data: ventasData } = await supabase
             .from('ventas')
             .select('total_venta')
             .eq('cod_vendedor', vendedorData.id)
+            .gte('fecha_pedido', inicio)
+            .lte('fecha_pedido', fin)
+            .gt('estado', 0)
 
           totalVendido = ventasData 
             ? ventasData.reduce((acc, curr) => acc + (Number(curr.total_venta) || 0), 0) 
@@ -198,7 +209,7 @@ export default function ProgresoResponsivePage() {
 
       <div style={{ maxWidth: '800px', margin: '0 auto' }}>
 
-        {/* Cabecera del Usuario con Nombre, Cargo y Foto Real */}
+        {/* Cabecera del Usuario[cite: 6] */}
         <div className="header-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', background: 'linear-gradient(135deg, #002855 0%, #001a3d 100%)', padding: 'clamp(16px, 3vw, 24px)', borderRadius: '16px', border: '1px solid rgba(212, 175, 55, 0.3)', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
           <div className="header-user-info" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             
@@ -223,12 +234,12 @@ export default function ProgresoResponsivePage() {
           </div>
 
           <div className="header-stats" style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase' }}>Ventas Reales</div>
+            <div style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase' }}>Ventas del Mes</div>
             <div style={{ fontSize: 'clamp(20px, 3vw, 24px)', fontWeight: 'bold', color: '#d4af37' }}>{fmt(ventasReales)} <span style={{ fontSize: '12px', color: '#fff' }}>Bs.</span></div>
           </div>
         </div>
 
-        {/* Banner de Motivación con Mascota Adaptativa */}
+        {/* Banner de Motivación[cite: 6] */}
         <div className="mascot-banner" style={{ display: 'flex', alignItems: 'center', gap: '16px', background: 'linear-gradient(135deg, #00234a 0%, #001730 100%)', borderRadius: '16px', padding: '16px 20px', border: '1px solid rgba(212,175,55,0.2)', marginBottom: '20px' }}>
           <div style={{ width: '56px', height: '56px', flexShrink: 0, borderRadius: '50%', backgroundColor: '#001a3d', border: '2px solid #d4af37', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
             <img src={mascotaImg} alt="Mascota Guía" style={{ width: '130%', height: '130%', objectFit: 'cover', objectPosition: 'top center' }} />
@@ -237,13 +248,13 @@ export default function ProgresoResponsivePage() {
             <h4 style={{ margin: '0 0 4px', fontSize: '14px', color: '#d4af37' }}>Consejo del Arquitecto MuebLess</h4>
             <p style={{ margin: 0, fontSize: '13px', color: '#cbd5e1', lineHeight: '1.4' }}>
               {esMaximoNivel 
-                ? '¡Extraordinario trabajo! Has alcanzado la cima de esta temporada, tu dedicación construye grandes espacios.' 
-                : `Estás a ${fmt((siguienteNivel?.venta_min || 0) - ventasReales)} Bs. de desbloquear el nivel ${siguienteNivel?.categoria}. ¡Cada plano cerrado cuenta!`}
+                ? '¡Extraordinario trabajo! Has alcanzado la cima de este mes, tu dedicación construye grandes espacios.' 
+                : `Estás a ${fmt((siguienteNivel?.venta_min || 0) - ventasReales)} Bs. de desbloquear el nivel ${siguienteNivel?.categoria} este mes. ¡Cada plano cerrado cuenta!`}
             </p>
           </div>
         </div>
 
-        {/* Tarjeta de Barra de Progreso */}
+        {/* Tarjeta de Barra de Progreso[cite: 6] */}
         <div style={{ background: 'linear-gradient(180deg, #00234a 0%, #001730 100%)', borderRadius: '16px', padding: 'clamp(20px, 3vw, 28px)', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '24px', boxShadow: '0 10px 30px rgba(0,0,0,0.4)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', gap: '8px', flexWrap: 'wrap' }}>
             <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#cbd5e1' }}>
@@ -264,13 +275,13 @@ export default function ProgresoResponsivePage() {
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8', marginTop: '8px', gap: '4px', flexWrap: 'wrap' }}>
-            <span>Acumulado: {fmt(ventasReales)} Bs.</span>
+            <span>Mes en curso: {fmt(ventasReales)} Bs.</span>
             <span>{siguienteNivel ? `Faltan ${fmt(siguienteNivel.venta_min - ventasReales)} Bs.` : 'Completado'}</span>
             <span>Meta: {siguienteNivel ? fmt(siguienteNivel.venta_min) + ' Bs.' : 'MAX'}</span>
           </div>
         </div>
 
-        {/* Mapa de Niveles Adaptativo */}
+        {/* Mapa de Niveles Adaptativo[cite: 6] */}
         <h3 style={{ fontSize: '14px', color: '#d4af37', marginBottom: '14px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Mapa de Niveles — MuebLess is Better</h3>
         
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
