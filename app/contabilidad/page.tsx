@@ -37,7 +37,7 @@ export default function Contabilidad() {
   const exportarCSV = () => {
     const csvContent = "data:text/csv;charset=utf-8," + 
       "Fecha,Glosa,Monto\n" +
-      asientosCaja.map(a => `${formatearFecha(a.fecha)},${a.glosa},${a.contabilidad_lineas.reduce((s:any, l:any) => s + Number(l.debe || l.haber), 0)}`).join("\n");
+      asientosCaja.map(a => `${formatearFecha(a.fecha)},${a.glosa},${a.contabilidad_lineas.reduce((s:any, l:any) => s + Number(l.debe || 0), 0)}`).join("\n");
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -210,7 +210,7 @@ export default function Contabilidad() {
                       <td style={{padding:'10px'}}>{formatearFecha(a.fecha)}</td>
                       <td style={{padding:'10px'}}>{a.glosa}</td>
                       <td style={{padding:'10px'}}>{esCobro(a.glosa) ? 'Cobro' : esCompra(a.glosa) ? 'Compra' : esAnticipo(a.glosa) ? 'Anticipo' : 'Otro'}</td>
-                      <td style={{padding:'10px'}}>${a.contabilidad_lineas.reduce((sum: number, l: any) => sum + Number(l.debe || l.haber), 0).toFixed(2)}</td>
+                      <td style={{padding:'10px'}}>${a.contabilidad_lineas.reduce((sum: number, l: any) => sum + Number(l.debe || 0), 0).toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>

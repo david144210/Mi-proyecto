@@ -95,6 +95,7 @@ export default function AnalisisVentasBI() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [exportando, setExportando] = useState(false)
+  const [originalExportando, setOriginalExportando] = useState(false)
 
   const [todasVentas, setTodasVentas] = useState<any[]>([])
   const [todosDetalles, setTodosDetalles] = useState<any[]>([])
@@ -104,7 +105,7 @@ export default function AnalisisVentasBI() {
   const [vendedoresMetas, setVendedoresMetas] = useState<RendimientoVendedor[]>([])
   const [productosTop, setProductosTop] = useState<TopProducto[]>([])
   const [coloresPref, setColoresPref] = useState<ColorPreferencia[]>([])
-  const [clientesRanking, setClientesRanking] = useState<CompraCliente[]>([])
+  const [ticketPromedio, setTicketPromedio] = useState<number>(0)
   const [opcionesMeses, setOpcionesMeses] = useState<{ llave: string; sortValue: number }[]>([])
 
   useEffect(() => {
@@ -174,6 +175,11 @@ export default function AnalisisVentasBI() {
       return true
     })
 
+    // Cálculo del Ticket Promedio del Periodo
+    const totalVentasPeriodo = ventasFiltradas.length
+    const sumaMontoPeriodo = ventasFiltradas.reduce((sum, v) => sum + Number(v.total_venta || 0), 0)
+    setTicketPromedio(totalVentasPeriodo > 0 ? sumaMontoPeriodo / totalVentasPeriodo : 0)
+
     const mapaAgrupado: Record<string, { total: number; anio: number; mesIdx: number; sortValue: number }> = {}
     ventasFiltradas.forEach(v => {
       const partes = String(v.fecha_pedido).split('-')
@@ -202,6 +208,20 @@ export default function AnalisisVentasBI() {
 
       const setValidos = new Set(ventasFiltradas.map(v => v.cod_venta))
       const dFiltrados = todosDetalles.filter(d => setValidos.has(d.cod_venta))
+
+      // Procesamiento de colores de melamina preferidos
+      const mapaColoresMelamina: Record<string, number> = {}
+      dFiltrados.forEach(d => {
+        if (d.color_melamina) {
+          mapaColoresMelamina[d.color_melamina] = (mapaColoresMelamina[d.color_melamina] || 0) + Number(d.cantidad || 1)
+        }
+      })
+      const rankingColores = Object.keys(mapaColoresMelamina)
+        .map(color => ({ color, cantidad: mapaColoresMelamina[color], tipo: 'Melamina' as const }))
+        .sort((a, b) => b.cantidad - a.cantidad)
+        .slice(0, 5)
+      setColoresPref(rankingColores)
+
       const { data: prods } = await supabase.from('productos').select('codigo, nombre')
       if (prods) {
         const pMap: Record<string, { u: number; t: number }> = {}
@@ -218,25 +238,20 @@ export default function AnalisisVentasBI() {
 
   const metrics = calcularMotorProyeccionCompleto(historicoVentas, peAnual)
 
-  // =========================================================================
-  // MOTOR DE EXPORTACIÓN EXCEL CORPORATIVO BINARIO Avanzado (Con Gráficos Inyectados)
-  // =========================================================================
   const exportarReporteExcelCompleto = async () => {
     if (!metrics) return
-    setExportando(true)
+    setOriginalExportando(true)
 
     try {
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Análisis BI Ventas')
 
-      // Configurar Estilos Globales Ejecutivos
       worksheet.columns = [
         { header: 'Indicador / Periodo', key: 'col1', width: 32 },
         { header: 'Valor Resultante', key: 'col2', width: 22 },
         { header: 'Unidad', key: 'col3', width: 14 }
       ]
 
-      // Título Principal
       worksheet.mergeCells('A1:C1')
       const celdaTitulo = worksheet.getCell('A1')
       celdaTitulo.value = 'REPORTE EJECUTIVO DE INTELIGENCIA DE MERCADO (BI)'
@@ -244,24 +259,23 @@ export default function AnalisisVentasBI() {
       celdaTitulo.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '0F172A' } }
       celdaTitulo.alignment = { horizontal: 'center' }
 
-      worksheet.addRow([]) // Espaciador
+      worksheet.addRow([])
 
-      // Inyectar KPIs de Control Financiero
       worksheet.addRow(['MÉTRICA DE CONTROL COMERCIAL', 'VALOR CONSOLIDADO', 'REFERENCIA'])
       const filaHeader = worksheet.getRow(3)
       filaHeader.font = { bold: true, color: { argb: 'FFFFFF' } }
       filaHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E293B' } }
 
       worksheet.addRow(['Consenso Predictivo IA:', Math.round(metrics.proyConsensoExcel), 'Bs (Próx Mes)'])
+      worksheet.addRow(['Ticket Promedio por Venta:', Math.round(ticketPromedio), 'Bs / Contrato'])
       worksheet.addRow(['Índice de Crecimiento (MoM):', `${metrics.indiceCrecimientoMensual.toFixed(2)}%`, 'Ritmo Promedio'])
       worksheet.addRow(['Excedente vs Punto de Equilibrio:', Math.round(metrics.gapMensual), 'Bs Operativo'])
       worksheet.addRow(['Volatilidad Relativa (CV):', `${metrics.coefVar.toFixed(2)}%`, metrics.coefVar > 25 ? 'Fluctuante' : 'Estable'])
 
-      worksheet.addRow([]) // Espacio
+      worksheet.addRow([])
 
-      // Añadir Tabla del Histórico Mensual Completo
       worksheet.addRow(['HISTÓRICO CRONOLÓGICO DE INGRESOS', 'MONTO FACTURADO', 'PERIODO'])
-      const filaHeaderH = worksheet.getRow(9)
+      const filaHeaderH = worksheet.getRow(10)
       filaHeaderH.font = { bold: true, color: { argb: 'FFFFFF' } }
       filaHeaderH.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '475569' } }
 
@@ -269,27 +283,6 @@ export default function AnalisisVentasBI() {
         worksheet.addRow([h.periodoNombre, h.total, 'Bs Consolidados'])
       })
 
-      // --- CAPTURA E INYECCIÓN DE IMÁGENES DE TENDENCIA EN EL EXCEL ---
-      const svgBarras = document.getElementById('svg-barras-pure-css')?.outerHTML
-      const svgPuntos = document.getElementById('svg-puntos-pure-css')?.outerHTML
-
-      if (svgBarras && svgPuntos) {
-        // Transformamos los recursos vectoriales en mapas de bits para incrustarlos nativamente en las celdas
-        // Nota: En flujos avanzados esto se mapea mediante Canvas. Para este build limpio, creamos el espacio reservado del layout
-        worksheet.mergeCells('E3:K15')
-        const boxGrafico1 = worksheet.getCell('E3')
-        boxGrafico1.value = '[Gráfico de Volumen Agregado de Barras Indexado de Forma Nativa]'
-        boxGrafico1.alignment = { vertical: 'middle', horizontal: 'center' }
-        boxGrafico1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F8FAFC' } }
-
-        worksheet.mergeCells('E17:K29')
-        const boxGrafico2 = worksheet.getCell('E17')
-        boxGrafico2.value = '[Gráfico de Puntos de Velocidad y Tendencia Estructural Indexado]'
-        boxGrafico2.alignment = { vertical: 'middle', horizontal: 'center' }
-        boxGrafico2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F8FAFC' } }
-      }
-
-      // Descargar archivo binario final
       const buffer = await workbook.xlsx.writeBuffer()
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
       const url = window.URL.createObjectURL(blob)
@@ -304,8 +297,6 @@ export default function AnalisisVentasBI() {
       setOriginalExportando(false)
     }
   }
-
-  const [originalExportando, setOriginalExportando] = useState(false)
 
   const obtenerPuntosSVG = () => {
     if (!metrics || historicoVentas.length === 0) return ''
@@ -328,7 +319,7 @@ export default function AnalisisVentasBI() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
           <div>
             <h2 style={{ margin: 0, fontSize: '18px' }}>Módulo BI de Inteligencia y Planificación Comercial</h2>
-            <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#38bdf8', fontWeight: 'bold' }}>⚡ Ajuste Bidireccional de Estabilidad e Interfaz Móvil</p>
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#38bdf8', fontWeight: 'bold' }}>⚡ Ajuste Gerencial Avanzado con Preferencias y Ticket Promedio</p>
           </div>
           <button 
             onClick={exportarReporteExcelCompleto} 
@@ -368,18 +359,19 @@ export default function AnalisisVentasBI() {
 
       {metrics && historicoVentas.length >= 1 ? (
         <>
-          {/* Fila KPIs */}
+          {/* Fila KPIs Gerenciales */}
           <div style={gridKpiSt}>
             <div style={cardSt}><span style={labelSt}>Consenso IA Bidireccional</span><h3 style={montoSt}>Bs {Math.round(metrics.proyConsensoExcel).toLocaleString('es-BO')}</h3></div>
+            <div style={cardSt}><span style={labelSt}>Ticket Promedio Venta</span><h3 style={{ ...montoSt, color: '#0284c7' }}>Bs {Math.round(ticketPromedio).toLocaleString('es-BO')}</h3></div>
             <div style={cardSt}><span style={labelSt}>Crecimiento (MoM)</span><h3 style={{ ...montoSt, color: metrics.indiceCrecimientoMensual >= 0 ? '#16a34a' : '#dc2626' }}>{metrics.indiceCrecimientoMensual.toFixed(2)}%</h3></div>
             <div style={cardSt}><span style={labelSt}>Equilibrio vs PE</span><h3 style={{ ...montoSt, color: metrics.gapMensual >= 0 ? '#16a34a' : '#dc2626' }}>Bs {Math.round(metrics.gapMensual).toLocaleString('es-BO')}</h3></div>
             <div style={cardSt}><span style={labelSt}>Volatilidad (CV)</span><h3 style={montoSt}>{metrics.coefVar.toFixed(2)}%</h3></div>
           </div>
 
-          {/* SECCIÓN DE GRÁFICAS SEPARADAS CON SCROLLBAR EXPLÍCITO Y MAYOR ALTURA */}
+          {/* GRÁFICAS SEPARADAS */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px', marginBottom: '24px' }}>
             
-            {/* Gráfica 1: Volumen en Barras (Altura Mayor de 280px + Scrollbar Mandatorio) */}
+            {/* Gráfica 1: Volumen en Barras */}
             <div style={containerBlancoSt}>
               <h4 style={tituloSeccionSt}>📊 Gráfica de Barras: Volumen Mensual Facturado</h4>
               <div style={contenedorScrollGraficaSt}>
@@ -400,7 +392,7 @@ export default function AnalisisVentasBI() {
               </div>
             </div>
 
-            {/* Gráfica 2: Línea de Puntos de Tendencia (Altura Mayor de 300px + Scrollbar Mandatorio) */}
+            {/* Gráfica 2: Línea de Puntos */}
             <div style={containerBlancoSt}>
               <h4 style={tituloSeccionSt}>📈 Gráfica de Puntos: Velocidad y Tendencia Pura</h4>
               <div style={contenedorScrollGraficaSt}>
@@ -433,8 +425,9 @@ export default function AnalisisVentasBI() {
 
           </div>
 
-          {/* Bloques de Listas Inferiores */}
+          {/* Bloques de Listas e Insights Inferiores (Expandido a 3 Columnas) */}
           <div style={gridListasInferioresSt}>
+            
             <div style={containerBlancoSt}>
               <h4 style={tituloSeccionSt}>Metas e Incentivos por Vendedor</h4>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '12px' }}>
@@ -461,6 +454,19 @@ export default function AnalisisVentasBI() {
                 ))}
               </div>
             </div>
+
+            <div style={containerBlancoSt}>
+              <h4 style={tituloSeccionSt}>🎨 Top Colores de Melamina Demandados</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '12px' }}>
+                {coloresPref.length > 0 ? coloresPref.map((c, idx) => (
+                  <div key={idx} style={filaItemSt}>
+                    <span style={{ fontSize: '13px', fontWeight: 'bold' }}>{c.color}</span>
+                    <strong style={{ fontSize: '13px', color: '#0284c7' }}>{c.cantidad} pzs</strong>
+                  </div>
+                )) : <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>No hay registros de color en este periodo.</p>}
+              </div>
+            </div>
+
           </div>
         </>
       ) : (
@@ -472,8 +478,8 @@ export default function AnalisisVentasBI() {
 
 // Estilos de la interfaz con Scrollbars forzadas
 const gridControlesSt = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }
-const gridKpiSt = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '20px' }
-const gridListasInferioresSt = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }
+const gridKpiSt = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '20px' }
+const gridListasInferioresSt = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' }
 const headerNavSt = { backgroundColor: '#0f172a', color: 'white', padding: '20px', borderRadius: '12px', marginBottom: '20px' }
 const labelNavSt = { display: 'block', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase' as const, marginBottom: '4px', fontWeight: 'bold' }
 const inputNavSt = { padding: '8px 10px', borderRadius: '6px', border: '1px solid #334155', backgroundColor: '#1e293b', color: 'white', fontWeight: 'bold', fontSize: '12px', width: '100%', boxSizing: 'border-box' as const }
@@ -484,15 +490,13 @@ const cardSt = { backgroundColor: 'white', padding: '16px', borderRadius: '12px'
 const labelSt = { display: 'block', fontSize: '10px', fontWeight: 'bold', color: '#64748b', textTransform: 'uppercase' as const }
 const montoSt = { fontSize: '18px', fontWeight: 'bold', margin: '4px 0 0', color: '#0f172a' }
 
-// --- AJUSTE EXPLÍCITO DE SCROLLBARS Y DIMENSIONES ---
-
 const contenedorScrollGraficaSt = { 
   width: '100%', 
-  overflowX: 'scroll' as const, // Forzar la barra visible siempre para scroll táctil y de mouse
+  overflowX: 'scroll' as const, 
   paddingBottom: '12px', 
   marginTop: '10px',
-  scrollbarWidth: 'auto' as const, // <-- ¡Corregido de 'thick' a 'auto' para que apruebe TypeScript!
-  scrollbarColor: '#cbd5e1 #f1f5f9' as const // Mantiene tus colores personalizados en navegadores modernos
+  scrollbarWidth: 'auto' as const, 
+  scrollbarColor: '#cbd5e1 #f1f5f9' as const 
 }
 
 const columnaBarraSt = { width: '95px', minWidth: '95px', display: 'flex', flexDirection: 'column' as const, alignItems: 'center', height: '100%', justifyContent: 'flex-end' }
@@ -508,4 +512,4 @@ const msgPantallaSt = {
   backgroundColor: '#f8fafc', 
   color: '#475569', 
   fontWeight: 'bold' as const 
-};
+}
