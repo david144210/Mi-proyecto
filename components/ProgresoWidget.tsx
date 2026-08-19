@@ -1,0 +1,160 @@
+'use client'
+
+// components/ProgresoWidget.tsx
+// Widget compacto de progresión personal para la página principal del Dashboard
+
+import { useEffect, useState } from 'react'
+import { supabase } from '../lib/supabase' // Ajusta la ruta relativa según donde ubiques la carpeta components
+import Link from 'next/link'
+
+type Escala = {
+  id: number;
+  nivel: number;
+  tipo: 'Planta' | 'Virtual';
+  categoria: string;
+  venta_min: number;
+}
+
+const fmt = (n: number) => new Intl.NumberFormat('es-BO', { minimumFractionDigits: 0 }).format(n)
+
+export default function ProgresoWidget() {
+  const [loading, setLoading] = useState(true)
+  const [ventasReales, setVentasReales] = useState<number>(0)
+  const [nivelActual, setNivelActual] = useState<Escala | null>(null)
+  const [siguienteNivel, setSiguienteNivel] = useState<Escala | null>(null)
+  const [progresoPct, setProgresoPct] = useState<number>(0)
+
+  useEffect(() => {
+    cargarResumenProgreso()
+  }, [])
+
+  const cargarResumenProgreso = async () => {
+    try {
+      const carnetStorage = localStorage.getItem('carnet')
+      if (!carnetStorage) return
+
+      // 1. Obtener tipo de vendedor
+      const { data: personalData } = await supabase
+        .from('personal')
+        .select('id, tipo_vendedor')
+        .eq('carnet', carnetStorage)
+        .single()
+
+      if (!personalData) return
+      const tipoDetectado = personalData.tipo_vendedor || 'Planta'
+
+      // 2. Obtener escalas activas
+      const { data: escalasData } = await supabase
+        .from('escalas_vendedor')
+        .select('*')
+        .eq('activa', true)
+
+      if (escalasData) {
+        const filtradas = (escalasData as Escala[])
+          .filter(e => e.tipo === tipoDetectado)
+          .sort((a, b) => a.nivel - b.nivel)
+
+        // 3. Obtener ventas reales del usuario
+        const { data: ventasData } = await supabase
+          .from('ventas')
+          .select('monto_total')
+          .eq('vendedor_id', personalData.id)
+
+        const totalVendido = ventasData 
+          ? ventasData.reduce((acc, curr) => acc + (Number(curr.monto_total) || 0), 0) 
+          : 0
+
+        setVentasReales(totalVendido)
+
+        // Calcular niveles
+        let actual = filtradas[0]
+        let siguiente = filtradas[1] || null
+
+        for (let i = 0; i < filtradas.length; i++) {
+          if (totalVendido >= filtradas[i].venta_min) {
+            actual = filtradas[i]
+            siguiente = filtradas[i + 1] || null
+          }
+        }
+
+        setNivelActual(actual)
+        setSiguienteNivel(siguiente)
+
+        if (siguiente) {
+          const base = actual.venta_min
+          const tope = siguiente.venta_min
+          const avance = totalVendido - base
+          const span = tope - base
+          const pct = span > 0 ? Math.min(Math.max((avance / span) * 100, 0), 100) : 100
+          setProgresoPct(pct)
+        } else {
+          setProgresoPct(100)
+        }
+      }
+    } catch (e) {
+      console.error('Error cargando widget de progreso:', e)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (loading) return null
+
+  return (
+    <div style={{ 
+      background: 'linear-gradient(135deg, #002855 0%, #001730 100%)', 
+      borderRadius: '16px', 
+      padding: '20px 24px', 
+      border: '1px solid rgba(212, 175, 55, 0.3)', 
+      boxShadow: '0 8px 20px rgba(0,0,0,0.3)',
+      color: '#ffffff',
+      fontFamily: 'Arial, sans-serif',
+      marginBottom: '24px'
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span style={{ fontSize: '20px' }}>⭐</span>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '15px', color: '#ffffff' }}>Tu Progreso de Comisiones</h3>
+            <span style={{ fontSize: '12px', color: '#d4af37', fontWeight: 'bold' }}>Nivel {nivelActual?.nivel}: {nivelActual?.categoria}</span>
+          </div>
+        </div>
+        <Link href="/dashboard/progreso" style={{ 
+          fontSize: '12px', 
+          color: '#002855', 
+          backgroundColor: '#d4af37', 
+          padding: '6px 14px', 
+          borderRadius: '8px', 
+          textDecoration: 'none', 
+          fontWeight: 'bold',
+          boxShadow: '0 2px 8px rgba(212,175,55,0.4)',
+          transition: 'all 0.2s'
+        }}>
+          Ver Mapa Completo →
+        </Link>
+      </div>
+
+      {/* Barra compacta */}
+      <div style={{ margin: '14px 0 8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px', color: '#cbd5e1' }}>
+          <span>Progreso a: <strong style={{ color: '#fff' }}>{siguienteNivel ? siguienteNivel.categoria : 'Cima alcanzada 🏆'}</strong></span>
+          <span style={{ color: '#d4af37', fontWeight: 'bold' }}>{progresoPct.toFixed(0)}%</span>
+        </div>
+        <div style={{ width: '100%', height: '10px', backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: '5px', overflow: 'hidden', border: '1px solid rgba(212,175,55,0.2)' }}>
+          <div style={{ 
+            width: `${progresoPct}%`, 
+            height: '100%', 
+            background: 'linear-gradient(90deg, #b8860b, #d4af37, #fef08a)', 
+            borderRadius: '4px',
+            transition: 'width 1s ease-in-out'
+          }} />
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8' }}>
+        <span>Ventas: {fmt(ventasReales)} Bs.</span>
+        <span>{siguienteNivel ? `Faltan ${fmt(siguienteNivel.venta_min - ventasReales)} Bs.` : '¡Máximo nivel!'}</span>
+      </div>
+    </div>
+  )
+}
