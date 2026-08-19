@@ -20,6 +20,7 @@ export default function ProgresoWidget() {
   const [nivelActual, setNivelActual] = useState<Escala | null>(null)
   const [siguienteNivel, setSiguienteNivel] = useState<Escala | null>(null)
   const [progresoPct, setProgresoPct] = useState<number>(0)
+  const [tieneAsignacion, setTieneAsignacion] = useState(false)
 
   useEffect(() => {
     cargarResumenProgreso()
@@ -30,22 +31,31 @@ export default function ProgresoWidget() {
       const carnetStorage = localStorage.getItem('carnet')
       if (!carnetStorage) return
 
-      const { data: personalData } = await supabase
+      // 1. Buscar personal por CI
+      const { data: personalData, error: errPersonal } = await supabase
         .from('personal')
         .select('id')
-        .eq('carnet', carnetStorage)
+        .eq('carnet', carnetStorage.trim())
         .single()
 
-      if (!personalData) return
+      if (errPersonal || !personalData) return
 
-      const { data: vendedorData } = await supabase
+      // 2. Buscar asignación de vendedor
+      const { data: vendedorData, error: errVendedor } = await supabase
         .from('vendedores')
         .select('*')
         .eq('personal_id', personalData.id)
         .maybeSingle()
 
-      const tipoDetectado = vendedorData?.tipo || 'Planta'
+      if (errVendedor || !vendedorData) {
+        setLoading(false)
+        return
+      }
 
+      setTieneAsignacion(true)
+      const tipoDetectado = vendedorData.tipo === 'Virtual' ? 'Virtual' : 'Planta'
+
+      // 3. Obtener escalas activas
       const { data: escalasData } = await supabase
         .from('escalas_vendedor')
         .select('*')
@@ -56,7 +66,11 @@ export default function ProgresoWidget() {
           .filter(e => e.tipo === tipoDetectado)
           .sort((a, b) => a.nivel - b.nivel)
 
-        // Rango estricto del mes en curso
+        if (filtradas.length === 0) {
+          setLoading(false)
+          return
+        }
+
         const hoy = new Date()
         const anio = hoy.getFullYear()
         const mes = hoy.getMonth() + 1
@@ -64,29 +78,64 @@ export default function ProgresoWidget() {
         const inicio = `${mesStr}-01`
         const fin = new Date(anio, mes, 0).toISOString().split('T')[0]
 
-        let totalVendido = 0
-        if (vendedorData) {
-          // Consulta con filtro estricto de fechas y estado activo
-          const { data: ventasData } = await supabase
-            .from('ventas')
-            .select('total_venta')
-            .eq('cod_vendedor', vendedorData.id)
-            .gte('fecha_pedido', inicio)
-            .lte('fecha_pedido', fin)
-            .gt('estado', 0)
+        // 4. Calcular ventas saldadas en su totalidad dentro del mes actual
+        let totalVentasSaldadasMes = 0
 
-          totalVendido = ventasData 
-            ? ventasData.reduce((acc, curr) => acc + (Number(curr.total_venta) || 0), 0) 
-            : 0
+        const { data: ventasVendedor } = await supabase
+          .from('ventas')
+          .select('cod_venta, total_venta, anticipo')
+          .eq('cod_vendedor', vendedorData.id)
+          .gt('estado', 0)
+
+        if (ventasVendedor && ventasVendedor.length > 0) {
+          const codsVentas = ventasVendedor.map(v => v.cod_venta)
+
+          const { data: todasCobranzas } = await supabase
+            .from('cobranzas')
+            .select('cod_venta, total_cobrado, created_at')
+            .in('cod_venta', codsVentas)
+
+          const pagosAnterioresAlMes: Record<number, number> = {}
+          const pagosHastaFinDeMes: Record<number, number> = {}
+
+          ventasVendedor.forEach(v => {
+            pagosAnterioresAlMes[v.cod_venta] = Number(v.anticipo) || 0
+            pagosHastaFinDeMes[v.cod_venta] = Number(v.anticipo) || 0
+          })
+
+          todasCobranzas?.forEach(c => {
+            const monto = Number(c.total_cobrado) || 0
+            const fechaCobro = c.created_at.split('T')[0]
+
+            if (fechaCobro < inicio) {
+              pagosAnterioresAlMes[c.cod_venta] = (pagosAnterioresAlMes[c.cod_venta] || 0) + monto
+            }
+            if (fechaCobro <= fin) {
+              pagosHastaFinDeMes[c.cod_venta] = (pagosHastaFinDeMes[c.cod_venta] || 0) + monto
+            }
+          })
+
+          ventasVendedor.forEach(v => {
+            const totalVenta = Number(v.total_venta) || 0
+            const pagadoAntes = pagosAnterioresAlMes[v.cod_venta] || 0
+            const pagadoHastaFin = pagosHastaFinDeMes[v.cod_venta] || 0
+
+            const estabaSaldadaAntes = pagadoAntes >= totalVenta
+            const estaSaldadaAhora = pagadoHastaFin >= totalVenta
+
+            if (!estabaSaldadaAntes && estaSaldadaAhora) {
+              totalVentasSaldadasMes += totalVenta
+            }
+          })
         }
 
-        setVentasReales(totalVendido)
+        setVentasReales(totalVentasSaldadasMes)
 
         let actual = filtradas[0]
         let siguiente = filtradas[1] || null
 
         for (let i = 0; i < filtradas.length; i++) {
-          if (totalVendido >= filtradas[i].venta_min) {
+          if (totalVentasSaldadasMes >= filtradas[i].venta_min) {
             actual = filtradas[i]
             siguiente = filtradas[i + 1] || null
           }
@@ -98,12 +147,12 @@ export default function ProgresoWidget() {
         if (siguiente) {
           const base = actual.venta_min
           const tope = siguiente.venta_min
-          const avance = totalVendido - base
+          const avance = totalVentasSaldadasMes - base
           const span = tope - base
           const pct = span > 0 ? Math.min(Math.max((avance / span) * 100, 0), 100) : 100
           setProgresoPct(pct)
         } else {
-          setProgresoPct(totalVendido >= actual.venta_min ? 100 : 0)
+          setProgresoPct(actual ? (totalVentasSaldadasMes >= actual.venta_min ? 100 : 0) : 0)
         }
       }
     } catch (e) {
@@ -113,7 +162,7 @@ export default function ProgresoWidget() {
     }
   }
 
-  if (loading) return null
+  if (loading || !tieneAsignacion) return null
 
   return (
     <div style={{ 
@@ -165,7 +214,7 @@ export default function ProgresoWidget() {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8' }}>
-        <span>Ventas del mes: {fmt(ventasReales)} Bs.</span>
+        <span>Ventas saldadas del mes: {fmt(ventasReales)} Bs.</span>
         <span>{siguienteNivel ? `Faltan ${fmt(siguienteNivel.venta_min - ventasReales)} Bs.` : '¡Máximo nivel!'}</span>
       </div>
     </div>

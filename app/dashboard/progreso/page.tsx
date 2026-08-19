@@ -28,6 +28,7 @@ const fmt = (n: number) => new Intl.NumberFormat('es-BO', { minimumFractionDigit
 
 export default function ProgresoResponsivePage() {
   const [loading, setLoading] = useState(true)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [vendedor, setVendedor] = useState<Vendedor | null>(null)
   const [escalasTipo, setEscalasTipo] = useState<Escala[]>([])
   const [ventasReales, setVentasReales] = useState<number>(0)
@@ -35,8 +36,6 @@ export default function ProgresoResponsivePage() {
   const [siguienteNivel, setSiguienteNivel] = useState<Escala | null>(null)
   const [progresoPct, setProgresoPct] = useState<number>(0)
   const [animarXP, setAnimarXP] = useState(false)
-
-  const mascotaImg = '/mascota.png'
 
   useEffect(() => {
     cargarDatosReales()
@@ -46,21 +45,26 @@ export default function ProgresoResponsivePage() {
     try {
       const carnetStorage = localStorage.getItem('carnet')
       if (!carnetStorage) {
-        window.location.replace('/')
+        setErrorMsg('No se encontró sesión activa (Carnet no detectado). Por favor vuelve a iniciar sesión.')
+        setLoading(false)
         return
       }
 
-      const { data: personalData, error: errPersonal } = await supabase
+      // 1. Buscar en personal de forma segura
+      const { data: personalList, error: errPersonal } = await supabase
         .from('personal')
         .select('*, cargos(nombre)')
-        .eq('carnet', carnetStorage)
-        .single()
+        .eq('carnet', carnetStorage.trim())
 
-      if (errPersonal || !personalData) {
-        window.location.replace('/')
+      if (errPersonal || !personalList || personalList.length === 0) {
+        setErrorMsg(`No se encontró el registro de personal para el carnet: ${carnetStorage}`)
+        setLoading(false)
         return
       }
 
+      const personalData = personalList[0]
+
+      // 2. Buscar asignación en vendedores
       const { data: vendedorData } = await supabase
         .from('vendedores')
         .select('*')
@@ -69,7 +73,7 @@ export default function ProgresoResponsivePage() {
 
       const nombreColaborador = vendedorData?.nombre || personalData.usuario || `Colaborador (${personalData.carnet})`
       const cargoColaborador = (personalData.cargos as any)?.nombre || personalData.cargo || 'Sin cargo asignado'
-      const tipoDetectado: 'Planta' | 'Virtual' = vendedorData?.tipo || 'Planta'
+      const tipoDetectado: 'Planta' | 'Virtual' = vendedorData?.tipo === 'Virtual' ? 'Virtual' : 'Planta'
 
       const datosVendedor: Vendedor = {
         id: vendedorData ? vendedorData.id : personalData.id,
@@ -81,47 +85,100 @@ export default function ProgresoResponsivePage() {
       }
       setVendedor(datosVendedor)
 
-      const { data: escalasData } = await supabase
+      // 3. Cargar escalas activas
+      const { data: escalasData, error: errEscalas } = await supabase
         .from('escalas_vendedor')
         .select('*')
         .eq('activa', true)
 
-      if (escalasData && escalasData.length > 0) {
-        const escalasFiltradas = (escalasData as Escala[])
-          .filter(e => e.tipo === tipoDetectado)
-          .sort((a, b) => a.nivel - b.nivel)
-
-        setEscalasTipo(escalasFiltradas)
-
-        // Rango estricto del mes en curso
-        const hoy = new Date()
-        const anio = hoy.getFullYear()
-        const mes = hoy.getMonth() + 1
-        const mesStr = `${anio}-${String(mes).padStart(2, '0')}`
-        const inicio = `${mesStr}-01`
-        const fin = new Date(anio, mes, 0).toISOString().split('T')[0]
-
-        let totalVendido = 0
-        if (vendedorData) {
-          // Consulta con filtro estricto de fechas y estado activo
-          const { data: ventasData } = await supabase
-            .from('ventas')
-            .select('total_venta')
-            .eq('cod_vendedor', vendedorData.id)
-            .gte('fecha_pedido', inicio)
-            .lte('fecha_pedido', fin)
-            .gt('estado', 0)
-
-          totalVendido = ventasData 
-            ? ventasData.reduce((acc, curr) => acc + (Number(curr.total_venta) || 0), 0) 
-            : 0
-        }
-
-        setVentasReales(totalVendido)
-        evaluarProgreso(escalasFiltradas, totalVendido)
+      if (errEscalas || !escalasData || escalasData.length === 0) {
+        setErrorMsg('No hay escalas de comisiones activas configuradas en el sistema.')
+        setLoading(false)
+        return
       }
+
+      const escalasFiltradas = (escalasData as Escala[])
+        .filter(e => e.tipo === tipoDetectado)
+        .sort((a, b) => a.nivel - b.nivel)
+
+      if (escalasFiltradas.length === 0) {
+        setErrorMsg(`No se encontraron escalas configuradas para el tipo de vendedor: ${tipoDetectado}`)
+        setLoading(false)
+        return
+      }
+
+      setEscalasTipo(escalasFiltradas)
+
+      // 4. Rango de fechas del mes en curso
+      const hoy = new Date()
+      const anio = hoy.getFullYear()
+      const mes = hoy.getMonth() + 1
+      const mesStr = `${anio}-${String(mes).padStart(2, '0')}`
+      const inicio = `${mesStr}-01`
+      const fin = new Date(anio, mes, 0).toISOString().split('T')[0]
+
+      // 5. Lógica de comisiones por ventas pagadas en su totalidad en el mes
+      let totalVentasSaldadasMes = 0
+
+      if (vendedorData) {
+        // A. Obtener todas las ventas del vendedor
+        const { data: ventasVendedor } = await supabase
+          .from('ventas')
+          .select('cod_venta, total_venta, anticipo')
+          .eq('cod_vendedor', vendedorData.id)
+          .gt('estado', 0)
+
+        if (ventasVendedor && ventasVendedor.length > 0) {
+          const codsVentas = ventasVendedor.map(v => v.cod_venta)
+
+          // B. Obtener todas las cobranzas históricas de esas ventas
+          const { data: todasCobranzas } = await supabase
+            .from('cobranzas')
+            .select('cod_venta, total_cobrado, created_at')
+            .in('cod_venta', codsVentas)
+
+          const pagosAnterioresAlMes: Record<number, number> = {}
+          const pagosHastaFinDeMes: Record<number, number> = {}
+
+          ventasVendedor.forEach(v => {
+            pagosAnterioresAlMes[v.cod_venta] = Number(v.anticipo) || 0
+            pagosHastaFinDeMes[v.cod_venta] = Number(v.anticipo) || 0
+          })
+
+          todasCobranzas?.forEach(c => {
+            const monto = Number(c.total_cobrado) || 0
+            const fechaCobro = c.created_at.split('T')[0]
+
+            if (fechaCobro < inicio) {
+              pagosAnterioresAlMes[c.cod_venta] = (pagosAnterioresAlMes[c.cod_venta] || 0) + monto
+            }
+            if (fechaCobro <= fin) {
+              pagosHastaFinDeMes[c.cod_venta] = (pagosHastaFinDeMes[c.cod_venta] || 0) + monto
+            }
+          })
+
+          // C. Sumar el total de la venta solo si se terminó de pagar (se saldó) dentro del mes actual
+          ventasVendedor.forEach(v => {
+            const totalVenta = Number(v.total_venta) || 0
+            const pagadoAntes = pagosAnterioresAlMes[v.cod_venta] || 0
+            const pagadoHastaFin = pagosHastaFinDeMes[v.cod_venta] || 0
+
+            const estabaSaldadaAntes = pagadoAntes >= totalVenta
+            const estaSaldadaAhora = pagadoHastaFin >= totalVenta
+
+            if (!estabaSaldadaAntes && estaSaldadaAhora) {
+              totalVentasSaldadasMes += totalVenta
+            }
+          })
+        }
+      }
+
+      setVentasReales(totalVentasSaldadasMes)
+      evaluarProgreso(escalasFiltradas, totalVentasSaldadasMes)
+
     } catch (e) {
       console.error('Error cargando datos reales:', e)
+      setErrorMsg('Ocurrió un error inesperado al cargar los datos.')
     } finally {
       setLoading(false)
       setTimeout(() => setAnimarXP(true), 150)
@@ -154,13 +211,25 @@ export default function ProgresoResponsivePage() {
     }
   }
 
-  const esMaximoNivel = !siguienteNivel
-
   if (loading) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#001328', color: '#d4af37', fontFamily: 'Arial, sans-serif' }}>
         <div style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '8px' }}>Cargando tus registros...</div>
         <div style={{ color: '#88a0c0', fontSize: '13px' }}>MuebLess is Better</div>
+      </div>
+    )
+  }
+
+  if (errorMsg) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#001328', color: '#ffffff', fontFamily: 'Arial, sans-serif', padding: '20px', textAlign: 'center' }}>
+        <div style={{ maxWidth: '400px', background: '#002855', padding: '24px', borderRadius: '12px', border: '1px solid rgba(212,175,55,0.3)' }}>
+          <h3 style={{ color: '#d4af37', marginBottom: '12px' }}>Aviso del Sistema</h3>
+          <p style={{ fontSize: '13px', color: '#cbd5e1', marginBottom: '20px' }}>{errorMsg}</p>
+          <a href="/dashboard" style={{ backgroundColor: '#d4af37', color: '#002855', padding: '8px 16px', borderRadius: '6px', textDecoration: 'none', fontWeight: 'bold', fontSize: '12px' }}>
+            Volver al Panel
+          </a>
+        </div>
       </div>
     )
   }
@@ -186,7 +255,7 @@ export default function ProgresoResponsivePage() {
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase' }}>Ventas del Mes</div>
+            <div style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase' }}>Ventas Saldadas (Mes)</div>
             <div style={{ fontSize: 'clamp(20px, 3vw, 24px)', fontWeight: 'bold', color: '#d4af37' }}>{fmt(ventasReales)} <span style={{ fontSize: '12px', color: '#fff' }}>Bs.</span></div>
           </div>
         </div>
@@ -210,7 +279,7 @@ export default function ProgresoResponsivePage() {
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8', marginTop: '8px' }}>
-            <span>Mes en curso: {fmt(ventasReales)} Bs.</span>
+            <span>Saldadas del mes: {fmt(ventasReales)} Bs.</span>
             <span>{siguienteNivel ? `Faltan ${fmt(siguienteNivel.venta_min - ventasReales)} Bs.` : 'Completado'}</span>
             <span>Meta: {siguienteNivel ? fmt(siguienteNivel.venta_min) + ' Bs.' : 'MAX'}</span>
           </div>
