@@ -12,48 +12,6 @@ export default function AdminPromo() {
     activa: false
   })
 
-  // --- Chequeo de acceso al panel ---
-  const [verificandoAcceso, setVerificandoAcceso] = useState(true)
-  const [accesoPermitido, setAccesoPermitido] = useState(false)
-  const [nombreAdmin, setNombreAdmin] = useState('')
-
-  // --- Moderación de reseñas ---
-  const [resenasAdmin, setResenasAdmin] = useState<any[]>([])
-  const [cargandoResenas, setCargandoResenas] = useState(false)
-  const [eliminandoResenaId, setEliminandoResenaId] = useState<number | string | null>(null)
-  const [mensajeResenas, setMensajeResenas] = useState('')
-
-  // Verifica que quien entra a esta página sea personal con permiso de admin/marketing.
-  // Usa el mismo carnet que guarda el login del home en localStorage.
-  useEffect(() => {
-    const verificarAcceso = async () => {
-      const carnetGuardado = localStorage.getItem('carnet')
-      const tipoGuardado = localStorage.getItem('tipoUsuario')
-
-      if (!carnetGuardado || tipoGuardado !== 'personal') {
-        setAccesoPermitido(false)
-        setVerificandoAcceso(false)
-        return
-      }
-
-      const { data } = await supabase
-        .from('personal')
-        .select('*, cargos(*)')
-        .eq('carnet', carnetGuardado)
-        .eq('estado', true)
-        .single()
-
-      const tienePermiso =
-        !!data && (data.rol === 'admin' || data.cargos?.es_admin || data.cargos?.puede_ver_mk)
-
-      setAccesoPermitido(tienePermiso)
-      if (tienePermiso && data) setNombreAdmin(data.usuario || '')
-      setVerificandoAcceso(false)
-    }
-
-    verificarAcceso()
-  }, [])
-
   // Cargar la configuración actual al montar el componente
   useEffect(() => {
     const fetchConfig = async () => {
@@ -72,40 +30,6 @@ export default function AdminPromo() {
     }
     fetchConfig()
   }, [])
-
-  // Cargar reseñas para moderación (efecto independiente, no toca el de arriba)
-  useEffect(() => {
-    cargarResenasAdmin()
-  }, [])
-
-  const cargarResenasAdmin = async () => {
-    setCargandoResenas(true)
-    const { data } = await supabase
-      .from('resenas')
-      .select('*')
-      .order('creado_en', { ascending: false })
-    if (data) setResenasAdmin(data)
-    setCargandoResenas(false)
-  }
-
-  const handleEliminarResenaAdmin = async (id: number | string) => {
-    setEliminandoResenaId(id)
-    setMensajeResenas('')
-
-    const carnetAdmin = localStorage.getItem('carnet')
-    const { data: exito, error } = await supabase.rpc('eliminar_resena_admin', {
-      p_resena_id: id,
-      p_carnet: carnetAdmin,
-    })
-
-    if (error || !exito) {
-      setMensajeResenas('No tienes permiso para eliminar reseñas, o hubo un error.')
-    } else {
-      setResenasAdmin(prev => prev.filter(r => r.id !== id))
-      setMensajeResenas('Reseña eliminada.')
-    }
-    setEliminandoResenaId(null)
-  }
 
   // Función para gestionar la subida de la imagen
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -151,18 +75,19 @@ export default function AdminPromo() {
 
     setLoading(true)
     setMensaje('')
+    
+    const { error } = await supabase
+      .from('portada_config')
+      .update({
+        imagen_url: config.imagen_url,
+        link_destino: '/promociones', // Ruta fija solicitada
+        activa: config.activa,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', config.id || 1) // Usamos el ID cargado o el 1 por defecto
 
-    const carnetAdmin = localStorage.getItem('carnet')
-    const { data: exito, error } = await supabase.rpc('actualizar_portada_admin', {
-      p_id: config.id || 1,
-      p_imagen_url: config.imagen_url,
-      p_link_destino: '/promociones', // Ruta fija solicitada
-      p_activa: config.activa,
-      p_carnet: carnetAdmin,
-    })
-
-    if (error || !exito) {
-      setMensaje('No se pudo actualizar (sin permiso o error de conexión).')
+    if (error) {
+      setMensaje('Error al actualizar: ' + error.message)
     } else {
       setMensaje('¡Portada actualizada correctamente!')
     }
@@ -178,10 +103,8 @@ export default function AdminPromo() {
           color: white;
           font-family: 'Inter', sans-serif;
           display: flex;
-          flex-direction: column;
           justify-content: center;
           align-items: center;
-          gap: 24px;
           padding: 20px;
         }
         .admin-card {
@@ -260,47 +183,8 @@ export default function AdminPromo() {
           color: #FFD700;
           font-size: 12px;
         }
-
-        /* Moderación de reseñas */
-        .resena-admin-item {
-          background: #111122;
-          border: 1px solid #3f3f46;
-          border-radius: 8px;
-          padding: 12px 14px;
-          margin-bottom: 10px;
-        }
-        .resena-admin-stars { color: #FFD700; font-size: 12px; margin-bottom: 4px; }
-        .resena-admin-texto { font-size: 13px; color: #d4d4d8; margin: 0 0 8px 0; line-height: 1.5; }
-        .resena-admin-meta { font-size: 11px; color: #71717a; margin-bottom: 8px; }
-        .btn-eliminar-resena {
-          background: none; border: 1px solid #ef4444; color: #ef4444;
-          padding: 5px 10px; border-radius: 6px; font-size: 11.5px; cursor: pointer;
-        }
-        .btn-eliminar-resena:hover { background: rgba(239,68,68,0.1); }
-        .btn-eliminar-resena:disabled { opacity: 0.5; cursor: not-allowed; }
       `}</style>
 
-      {/* GUARDIA DE ACCESO - antes de mostrar cualquier panel, valida sesión y permiso */}
-      {verificandoAcceso && (
-        <div className="admin-card">
-          <p style={{ color: '#a1a1aa', fontSize: '13px', textAlign: 'center' }}>Verificando acceso...</p>
-        </div>
-      )}
-
-      {!verificandoAcceso && !accesoPermitido && (
-        <div className="admin-card">
-          <h1>Acceso restringido</h1>
-          <p style={{ color: '#a1a1aa', fontSize: '13px', textAlign: 'center' }}>
-            Necesitas iniciar sesión con una cuenta de personal con permiso de administrador o marketing para ver este panel.
-          </p>
-          <div style={{ marginTop: '20px', textAlign: 'center' }}>
-            <a href="/" style={{ color: '#FFD700', fontSize: '13px' }}>Ir a iniciar sesión</a>
-          </div>
-        </div>
-      )}
-
-      {!verificandoAcceso && accesoPermitido && (
-        <>
       <div className="admin-card">
         <h1>Diseño de Portada</h1>
         
@@ -350,36 +234,6 @@ export default function AdminPromo() {
           <a href="/" style={{color: '#71717a', fontSize: '12px'}}>Volver al inicio</a>
         </div>
       </div>
-
-      {/* MODERACIÓN DE RESEÑAS - permite eliminar reseñas de clientes desde el mismo panel */}
-      <div className="admin-card">
-        <h1>Moderar Reseñas</h1>
-
-        {cargandoResenas && <p style={{ color: '#71717a', fontSize: '13px', textAlign: 'center' }}>Cargando reseñas...</p>}
-
-        {!cargandoResenas && resenasAdmin.length === 0 && (
-          <p style={{ color: '#71717a', fontSize: '13px', textAlign: 'center' }}>No hay reseñas publicadas todavía.</p>
-        )}
-
-        {!cargandoResenas && resenasAdmin.map((r) => (
-          <div key={r.id} className="resena-admin-item">
-            <div className="resena-admin-stars">{'★'.repeat(r.estrellas)}{'☆'.repeat(5 - r.estrellas)}</div>
-            <p className="resena-admin-texto">"{r.texto}"</p>
-            <div className="resena-admin-meta">{r.nombre} · carnet {r.carnet || 'N/D'}</div>
-            <button
-              className="btn-eliminar-resena"
-              onClick={() => handleEliminarResenaAdmin(r.id)}
-              disabled={eliminandoResenaId === r.id}
-            >
-              {eliminandoResenaId === r.id ? 'Eliminando...' : '🗑 Eliminar'}
-            </button>
-          </div>
-        ))}
-
-        {mensajeResenas && <p className="msg">{mensajeResenas}</p>}
-      </div>
-        </>
-      )}
     </div>
   )
 }
