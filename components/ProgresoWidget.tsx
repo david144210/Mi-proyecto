@@ -1,8 +1,5 @@
 'use client'
 
-// components/ProgresoWidget.tsx
-// Widget compacto de progresión personal para la página principal del Dashboard (Filtrado al mes en curso)
-
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import Link from 'next/link'
@@ -33,7 +30,6 @@ export default function ProgresoWidget() {
       const carnetStorage = localStorage.getItem('carnet')
       if (!carnetStorage) return
 
-      // 1. Obtener datos del personal por carnet
       const { data: personalData } = await supabase
         .from('personal')
         .select('id')
@@ -42,7 +38,6 @@ export default function ProgresoWidget() {
 
       if (!personalData) return
 
-      // 2. Buscar el registro de vendedor asociado
       const { data: vendedorData } = await supabase
         .from('vendedores')
         .select('*')
@@ -51,7 +46,6 @@ export default function ProgresoWidget() {
 
       const tipoDetectado = vendedorData?.tipo || 'Planta'
 
-      // 3. Obtener escalas activas
       const { data: escalasData } = await supabase
         .from('escalas_vendedor')
         .select('*')
@@ -62,7 +56,7 @@ export default function ProgresoWidget() {
           .filter(e => e.tipo === tipoDetectado)
           .sort((a, b) => a.nivel - b.nivel)
 
-        // 4. Obtener el rango de fechas estrictamente del mes en curso
+        // Rango estricto del mes en curso
         const hoy = new Date()
         const anio = hoy.getFullYear()
         const mes = hoy.getMonth() + 1
@@ -72,7 +66,7 @@ export default function ProgresoWidget() {
 
         let totalVendido = 0
         if (vendedorData) {
-          // Filtrar ventas por vendedor, fecha del mes actual y estado activo (> 0)
+          // Consulta con filtro estricto de fechas y estado activo
           const { data: ventasData } = await supabase
             .from('ventas')
             .select('total_venta')
@@ -88,7 +82,6 @@ export default function ProgresoWidget() {
 
         setVentasReales(totalVendido)
 
-        // Calcular niveles
         let actual = filtradas[0]
         let siguiente = filtradas[1] || null
 
@@ -110,7 +103,7 @@ export default function ProgresoWidget() {
           const pct = span > 0 ? Math.min(Math.max((avance / span) * 100, 0), 100) : 100
           setProgresoPct(pct)
         } else {
-          setProgresoPct(100)
+          setProgresoPct(totalVendido >= actual.venta_min ? 100 : 0)
         }
       }
     } catch (e) {
@@ -149,14 +142,12 @@ export default function ProgresoWidget() {
           borderRadius: '8px', 
           textDecoration: 'none', 
           fontWeight: 'bold',
-          boxShadow: '0 2px 8px rgba(212,175,55,0.4)',
-          transition: 'all 0.2s'
+          boxShadow: '0 2px 8px rgba(212,175,55,0.4)'
         }}>
           Ver Mapa Completo →
         </Link>
       </div>
 
-      {/* Barra compacta */}
       <div style={{ margin: '14px 0 8px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px', color: '#cbd5e1' }}>
           <span>Progreso a: <strong style={{ color: '#fff' }}>{siguienteNivel ? siguienteNivel.categoria : 'Cima alcanzada 🏆'}</strong></span>
