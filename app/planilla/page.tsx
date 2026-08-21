@@ -1,7 +1,7 @@
 'use client'
 
 // app/planilla/page.tsx
-// Planilla mensual: calcular, revisar, cerrar y generar boleta PDF por trabajador
+// Planilla mensual: calcular, revisar, cerrar, generar boleta PDF y corrección de asistencia
 
 import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '../../lib/supabase'
@@ -23,13 +23,13 @@ type Escala   = { nivel: number; venta_min: number; venta_max: number | null; su
 type RegistroAsist = {
   id: number; fecha: string; hora_entrada: string | null; hora_salida: string | null
   tipo: string; minutos_retraso: number; minutos_extra: number; es_sabado: boolean; observacion: string | null
+  validado: boolean; sucursal_id: number
 }
 
 const fmt    = (n: number) => new Intl.NumberFormat('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 const fmtMes = (s: string) => new Date(s + '-02').toLocaleDateString('es-BO', { month: 'long', year: 'numeric' })
 const mesStr = (d: Date)   => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 
-// Rango real [inicio, fin] de un mes "AAAA-MM", calculando el último día real (28/29/30/31)
 const getRangoMes = (m: string) => {
   const [anio, mesNum] = m.split('-').map(Number)
   const inicio = `${m}-01`
@@ -59,10 +59,20 @@ export default function PlanillaMensual() {
   const [config,     setConfig]     = useState<Config | null>(null)
   const [escalas,    setEscalas]    = useState<Escala[]>([])
   const [filtroEstado, setFiltroEstado] = useState('')
-  const [asistDetalle, setAsistDetalle] = useState<Planilla | null>(null)
+  
+  // Asistencia modal states
+  const [asistDetalle, setAsistDetalle]   = useState<Planilla | null>(null)
   const [asistRegistros, setAsistRegistros] = useState<RegistroAsist[]>([])
   const [asistCargando, setAsistCargando] = useState(false)
-  const [asistError, setAsistError] = useState('')
+  const [asistError, setAsistError]       = useState('')
+  const [editandoAsistId, setEditandoAsistId] = useState<number | null>(null)
+  const [editForm, setEditForm] = useState({
+    hora_entrada: '',
+    hora_salida: '',
+    tipo: 'asistencia',
+    minutos_retraso: 0,
+    minutos_extra: 0
+  })
 
   useEffect(() => {
     const carnet = localStorage.getItem('carnet')
@@ -79,7 +89,6 @@ export default function PlanillaMensual() {
 
   useEffect(() => { if (!loading) loadPlanillas(mes) }, [mes])
 
-  // ── Loaders ────────────────────────────────────────────────────────────────
   const loadConfig = async () => {
     const { data } = await supabase.from('configuracion_planilla').select('*').single()
     if (data) setConfig(data)
@@ -99,8 +108,6 @@ export default function PlanillaMensual() {
     setPlanillas((data as any) || [])
   }
 
-  // ── Helpers de fechas ─────────────────────────────────────────────────────
-  // Feriados nacionales Bolivia (formato MM-DD, se evalúan contra el año del mes)
   const FERIADOS_BO = ['01-01','02-02','05-01','06-21','08-06','11-02','12-25']
 
   const esFeriado = (fecha: Date): boolean => {
@@ -108,29 +115,21 @@ export default function PlanillaMensual() {
     return FERIADOS_BO.includes(mmdd)
   }
 
-  // Calcula los días que DEBIÓ trabajar una persona en el mes
-  // según su turno (días laborales) excluyendo feriados y días antes de su ingreso
-  const calcDiasDebio = (
-    turno: number[],           // ej: [1,2,3,4,5]
-    anio: number,
-    mesNum: number,            // 0-based
-    fechaIngreso: string | null
-  ): number => {
+  const calcDiasDebio = (turno: number[], anio: number, mesNum: number, fechaIngreso: string | null): number => {
     const ingreso = fechaIngreso ? new Date(fechaIngreso + 'T00:00:00') : null
     const diasEnMes = new Date(anio, mesNum + 1, 0).getDate()
     let count = 0
     for (let d = 1; d <= diasEnMes; d++) {
       const fecha = new Date(anio, mesNum, d)
-      const diaSemana = fecha.getDay() === 0 ? 7 : fecha.getDay() // 1=Lun, 7=Dom
-      if (!turno.includes(diaSemana)) continue  // no es día laboral
-      if (esFeriado(fecha)) continue             // es feriado nacional
-      if (ingreso && fecha < ingreso) continue   // antes de su ingreso
+      const diaSemana = fecha.getDay() === 0 ? 7 : fecha.getDay()
+      if (!turno.includes(diaSemana)) continue
+      if (esFeriado(fecha)) continue
+      if (ingreso && fecha < ingreso) continue
       count++
     }
     return count
   }
 
-  // ── Calcular planilla del mes ──────────────────────────────────────────────
   const calcularPlanilla = async () => {
     if (!config) return alert('Carga la configuración primero')
     setCalculando(true); setError('')
@@ -139,7 +138,6 @@ export default function PlanillaMensual() {
       const [anio, mesNum] = mes.split('-').map(Number)
       const { inicio: mesInicio, fin: mesFin } = getRangoMes(mes)
 
-      // 1. Personal activo con fecha de ingreso
       const { data: personal, error: errPersonal } = await supabase.from('personal')
         .select('id, usuario, carnet, cargo, sucursal, sucursal_id, cargo_id, tipo_trabajador, haber_basico, fecha_ingreso')
         .eq('estado', true)
@@ -147,28 +145,24 @@ export default function PlanillaMensual() {
       if (errPersonal) throw errPersonal
       if (!personal?.length) throw new Error('Sin personal activo')
 
-      // 2. Todos los turnos activos
       const { data: todosLosTurnos, error: errTurnos } = await supabase.from('turnos')
         .select('cargo_id, sucursal_id, dias_laborales, hora_entrada, hora_salida, tolerancia_min')
         .eq('activo', true)
 
       if (errTurnos) throw errTurnos
 
-      // 3. Registros de asistencia del mes (solo con marca de entrada o tipo falta/permiso)
       const { data: registros, error: errRegistros } = await supabase.from('registros_asistencia')
-        .select('personal_id, tipo, minutos_retraso, minutos_extra, es_sabado, hora_entrada, fecha')
+        .select('personal_id, tipo, minutos_retraso, minutos_extra, es_sabado, hora_entrada, fecha, validado')
         .gte('fecha', mesInicio).lte('fecha', mesFin)
 
       if (errRegistros) throw errRegistros
 
-      // 4. Fechas registradas por persona (Set para búsqueda rápida)
       const fechasRegistradas: Record<number, Set<string>> = {}
       ;(registros || []).forEach(r => {
         if (!fechasRegistradas[r.personal_id]) fechasRegistradas[r.personal_id] = new Set()
         fechasRegistradas[r.personal_id].add(r.fecha)
       })
 
-      // 5. Ventas del mes por vendedor
       const { data: ventasMes, error: errVentas } = await supabase.from('ventas_mes_vendedor')
         .select('cod_vendedor, total_ventas').eq('mes', mesDate)
 
@@ -177,30 +171,18 @@ export default function PlanillaMensual() {
       const ventasMap: Record<number, number> = {}
       ;(ventasMes || []).forEach((v: any) => { ventasMap[v.cod_vendedor] = Number(v.total_ventas) })
 
-      // 6. Calcular por persona
       const upserts: any[] = []
 
       for (const p of personal) {
         const regsPersona = (registros || []).filter(r => r.personal_id === p.id)
-
-        // Turno de esta persona (cargo + sucursal)
-        const turno = (todosLosTurnos || []).find(t =>
-          t.cargo_id === p.cargo_id && t.sucursal_id === p.sucursal_id
-        )
+        const turno = (todosLosTurnos || []).find(t => t.cargo_id === p.cargo_id && t.sucursal_id === p.sucursal_id)
         const diasLaboralesTurno = turno?.dias_laborales || [1,2,3,4,5]
-
-        // Días que DEBIÓ trabajar (turno - feriados - antes de ingreso)
         const diasDebio = calcDiasDebio(diasLaboralesTurno, anio, mesNum - 1, p.fecha_ingreso)
-
-        // Días con registro de entrada real
         const diasConEntrada = regsPersona.filter(r => r.hora_entrada).length
 
-        // Faltas explícitas registradas
         const faltasRegistradas  = regsPersona.filter(r => r.tipo === 'falta').length
         const mediasRegistradas  = regsPersona.filter(r => r.tipo === 'media_falta').length
-        const permisosRegistrados= regsPersona.filter(r => r.tipo === 'permiso').length
 
-        // Días sin ningún registro en días que debió trabajar = falta no marcada
         const diasEnMes = new Date(anio, mesNum, 0).getDate()
         let faltasSinRegistro = 0
         for (let d = 1; d <= diasEnMes; d++) {
@@ -213,19 +195,17 @@ export default function PlanillaMensual() {
           if (!fechasRegistradas[p.id]?.has(fechaStr)) faltasSinRegistro++
         }
 
-        // Total faltas = registradas + sin registro (el admin puede corregir después)
         const diasFaltaTotal  = faltasRegistradas + faltasSinRegistro
         const mediasFaltas    = mediasRegistradas
         const minRetrasoTotal = regsPersona.reduce((s, r) => s + (r.minutos_retraso || 0), 0)
-        const minExtra        = regsPersona.reduce((s, r) => s + (r.minutos_extra || 0), 0)
-        const minExtraSabado  = regsPersona.filter(r => r.es_sabado).reduce((s, r) => s + (r.minutos_extra || 0), 0)
+        
+        const minExtra        = regsPersona.reduce((s, r) => s + (r.validado ? (r.minutos_extra || 0) : 0), 0)
+        const minExtraSabado  = regsPersona.filter(r => r.es_sabado && r.validado).reduce((s, r) => s + (r.minutos_extra || 0), 0)
 
-        // Valor día y minuto (basado en días que debió trabajar, más preciso)
         const sueldoBase  = Number(p.haber_basico || 0)
         const valorDia    = diasDebio > 0 ? sueldoBase / diasDebio : sueldoBase / 26
         const valorMinuto = valorDia / 480
 
-        // Descuentos por faltas y retrasos
         let descFaltas   = 0
         let descRetrasos = 0
         if (p.tipo_trabajador === 'fijo' || p.tipo_trabajador === 'medio_tiempo') {
@@ -234,13 +214,11 @@ export default function PlanillaMensual() {
           if (cantRetrasos >= config.retrasos_descuento) descRetrasos = minRetrasoTotal * valorMinuto
         }
 
-        // Horas extra
         const minExtraNormal = minExtra - minExtraSabado
         const valorHora      = sueldoBase / ((diasDebio || 26) * 8)
         const montoExtra     = (minExtraNormal / 60 * valorHora * config.mult_hora_extra)
                              + (minExtraSabado  / 60 * valorHora * config.mult_hora_sabado)
 
-        // Vendedor: escala + comisión + bono
         let bonoPlanilla   = 0
         let comisiones     = 0
         let totalVentas    = 0
@@ -303,7 +281,6 @@ export default function PlanillaMensual() {
     }
   }
 
-  // ── Cambiar estado ─────────────────────────────────────────────────────────
   const cambiarEstado = async (id: number, estado: string) => {
     setProcesando(id)
     try {
@@ -317,16 +294,16 @@ export default function PlanillaMensual() {
     finally { setProcesando(null) }
   }
 
-  // ── Ver asistencia detallada (retrasos / faltas) de una persona ──────────────
   const abrirAsistencia = async (p: Planilla) => {
     setAsistDetalle(p)
     setAsistRegistros([])
     setAsistError('')
     setAsistCargando(true)
+    setEditandoAsistId(null)
     try {
       const { inicio, fin } = getRangoMes(mes)
       const { data, error: err } = await supabase.from('registros_asistencia')
-        .select('id, fecha, hora_entrada, hora_salida, tipo, minutos_retraso, minutos_extra, es_sabado, observacion')
+        .select('id, fecha, hora_entrada, hora_salida, tipo, minutos_retraso, minutos_extra, es_sabado, observacion, validado, sucursal_id')
         .eq('personal_id', p.personal_id)
         .gte('fecha', inicio).lte('fecha', fin)
         .order('fecha', { ascending: true })
@@ -339,7 +316,75 @@ export default function PlanillaMensual() {
     }
   }
 
-  // ── Cerrar mes completo ────────────────────────────────────────────────────
+  const toggleValidado = async (id: number, estadoActual: boolean) => {
+    try {
+      const { error } = await supabase.from('registros_asistencia').update({ validado: !estadoActual }).eq('id', id)
+      if (error) throw error
+      if (asistDetalle) abrirAsistencia(asistDetalle)
+    } catch (e: any) {
+      alert('Error: ' + e.message)
+    }
+  }
+
+  // Funciones para corregir/editar asistencia (Corregido el desfase de zona horaria)
+  const iniciarEdicionAsist = (r: RegistroAsist) => {
+    setEditandoAsistId(r.id)
+    const extractTime = (isoStr: string | null) => {
+      if (!isoStr) return ''
+      const d = new Date(isoStr)
+      if (isNaN(d.getTime())) return ''
+      const hh = String(d.getHours()).padStart(2, '0')
+      const mm = String(d.getMinutes()).padStart(2, '0')
+      return `${hh}:${mm}`
+    }
+    setEditForm({
+      hora_entrada: extractTime(r.hora_entrada),
+      hora_salida: extractTime(r.hora_salida),
+      tipo: r.tipo || 'asistencia',
+      minutos_retraso: r.minutos_retraso || 0,
+      minutos_extra: r.minutos_extra || 0
+    })
+  }
+
+  const guardarEdicionAsist = async (r: RegistroAsist) => {
+    try {
+      const buildIso = (timeStr: string) => {
+        if (!timeStr) return null
+        const [anio, mesNum, dia] = r.fecha.split('-').map(Number)
+        const [horas, minutos] = timeStr.split(':').map(Number)
+        const localDate = new Date(anio, mesNum - 1, dia, horas, minutos, 0)
+        return localDate.toISOString()
+      }
+
+      const payload = {
+        hora_entrada: buildIso(editForm.hora_entrada),
+        hora_salida: buildIso(editForm.hora_salida),
+        tipo: editForm.tipo,
+        minutos_retraso: Number(editForm.minutos_retraso) || 0,
+        minutos_extra: Number(editForm.minutos_extra) || 0,
+      }
+
+      const { error } = await supabase.from('registros_asistencia').update(payload).eq('id', r.id)
+      if (error) throw error
+
+      setEditandoAsistId(null)
+      if (asistDetalle) abrirAsistencia(asistDetalle)
+    } catch (e: any) {
+      alert('Error al actualizar registro: ' + e.message)
+    }
+  }
+
+  const eliminarAsist = async (id: number) => {
+    if (!confirm('¿Estás seguro de eliminar este registro de asistencia? (Ideal para eliminar duplicados o errores).')) return
+    try {
+      const { error } = await supabase.from('registros_asistencia').delete().eq('id', id)
+      if (error) throw error
+      if (asistDetalle) abrirAsistencia(asistDetalle)
+    } catch (e: any) {
+      alert('Error al eliminar: ' + e.message)
+    }
+  }
+
   const cerrarMesCompleto = async () => {
     if (!confirm('¿Cerrar todas las planillas revisadas? Esta acción no se puede deshacer.')) return
     setProcesando(-1)
@@ -352,7 +397,6 @@ export default function PlanillaMensual() {
     finally { setProcesando(null) }
   }
 
-  // ── Generar boleta PDF ─────────────────────────────────────────────────────
   const generarPDF = (p: Planilla) => {
     const persona  = p.personal
     const mesLabel = fmtMes(mes)
@@ -366,7 +410,7 @@ export default function PlanillaMensual() {
   body { font-family: Arial, sans-serif; color: #1a1a1a; background: white; }
   .page { max-width: 680px; margin: 0 auto; padding: 40px 48px; }
   .header { border-bottom: 3px solid #1a1a1a; padding-bottom: 20px; margin-bottom: 24px; }
-  .empresa { font-size: 22px; font-weight: 900; letter-spacing: -0.5px; text-transform: uppercase; }
+  .empresa { font-size: 22px; font-weight: 900; text-transform: uppercase; }
   .subtitulo { font-size: 12px; color: #888; letter-spacing: 0.15em; text-transform: uppercase; margin-top: 4px; }
   .boleta-titulo { font-size: 14px; font-weight: bold; text-align: right; color: #444; }
   .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 32px; margin-bottom: 24px; padding: 16px; background: #f9f9f9; border-radius: 8px; }
@@ -376,7 +420,6 @@ export default function PlanillaMensual() {
   .seccion { margin-bottom: 20px; }
   .seccion-titulo { font-size: 10px; font-weight: bold; color: #888; text-transform: uppercase; letter-spacing: 0.15em; border-bottom: 1px solid #eee; padding-bottom: 6px; margin-bottom: 10px; }
   .fila { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px dashed #f0f0f0; }
-  .fila:last-child { border-bottom: none; }
   .fila-label { font-size: 13px; color: #444; }
   .fila-val { font-size: 13px; font-weight: bold; }
   .fila-val.positivo { color: #166534; }
@@ -421,7 +464,7 @@ export default function PlanillaMensual() {
     <div class="fila"><span class="fila-label">Sueldo base${p.nivel_vendedor ? ` (Nivel ${p.nivel_vendedor})` : ''}</span><span class="fila-val positivo">Bs. ${fmt(p.sueldo_base)}</span></div>
     ${p.bono > 0 ? `<div class="fila"><span class="fila-label">Bono por nivel</span><span class="fila-val positivo">Bs. ${fmt(p.bono)}</span></div>` : ''}
     ${p.comisiones > 0 ? `<div class="fila"><span class="fila-label">Comisiones<div class="fila-sub">Ventas del mes: Bs. ${fmt(p.total_ventas_mes)}</div></span><span class="fila-val positivo">Bs. ${fmt(p.comisiones)}</span></div>` : ''}
-    ${p.monto_horas_extra > 0 ? `<div class="fila"><span class="fila-label">Horas extra<div class="fila-sub">${Math.floor(p.horas_extra_min/60)}h ${p.horas_extra_min%60}m</div></span><span class="fila-val positivo">Bs. ${fmt(p.monto_horas_extra)}</span></div>` : ''}
+    ${p.monto_horas_extra > 0 ? `<div class="fila"><span class="fila-label">Horas extra validadas<div class="fila-sub">${Math.floor(p.horas_extra_min/60)}h ${p.horas_extra_min%60}m</div></span><span class="fila-val positivo">Bs. ${fmt(p.monto_horas_extra)}</span></div>` : ''}
     <div class="fila" style="border-top:1px solid #ddd;margin-top:4px;padding-top:8px;"><span class="fila-label" style="font-weight:bold;">Total haberes</span><span class="fila-val positivo" style="font-size:15px;">Bs. ${fmt(p.total_haberes)}</span></div>
   </div>
 
@@ -453,7 +496,6 @@ export default function PlanillaMensual() {
     if (win) { win.document.write(html); win.document.close() }
   }
 
-  // ── Filtros ────────────────────────────────────────────────────────────────
   const planillasFiltradas = useMemo(() =>
     planillas.filter(p => !filtroEstado || p.estado === filtroEstado),
     [planillas, filtroEstado]
@@ -486,7 +528,6 @@ export default function PlanillaMensual() {
 
       <div style={{ padding: '28px 40px', maxWidth: '1200px', margin: '0 auto' }}>
 
-        {/* Controles */}
         <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', alignItems: 'center', flexWrap: 'wrap' as const }}>
           <input type="month" value={mes} onChange={e => setMes(e.target.value)}
             style={{ padding: '9px 14px', border: '1px solid #e5e5e5', borderRadius: '10px', fontSize: '14px', outline: 'none', backgroundColor: 'white' }} />
@@ -501,7 +542,6 @@ export default function PlanillaMensual() {
           </button>
         </div>
 
-        {/* Stats */}
         {planillas.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginBottom: '24px' }}>
             {[
@@ -524,7 +564,6 @@ export default function PlanillaMensual() {
 
         {error && <p style={{ color: '#ef4444', fontSize: '13px', marginBottom: '16px' }}>⚠ {error}</p>}
 
-        {/* Tabla */}
         {planillasFiltradas.length === 0
           ? <div style={{ textAlign: 'center', padding: '60px', color: '#bbb' }}><p style={{ fontSize: '40px', margin: '0 0 12px' }}>📋</p><p style={{ fontWeight: 'bold', fontSize: '14px' }}>Sin planillas. Presiona "Calcular planilla" para generar.</p></div>
           : (
@@ -577,14 +616,13 @@ export default function PlanillaMensual() {
         )}
       </div>
 
-      {/* Modal detalle */}
+      {/* Modal detalle planilla */}
       {detalle && (() => {
         const persona   = detalle.personal
         const estadoCfg = ESTADO_CFG[detalle.estado]
         return (
           <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', zIndex: 50, overflowY: 'auto' }}>
             <div style={{ backgroundColor: 'white', borderRadius: '20px', padding: '32px', width: '100%', maxWidth: '520px', boxShadow: '0 20px 60px rgba(0,0,0,0.2)', margin: 'auto' }}>
-              {/* Header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
                 <div>
                   <h3 style={{ margin: '0 0 4px', fontSize: '17px' }}>{persona?.usuario}</h3>
@@ -593,17 +631,15 @@ export default function PlanillaMensual() {
                 <span style={{ backgroundColor: estadoCfg.bg, color: estadoCfg.color, borderRadius: '20px', padding: '4px 14px', fontSize: '11px', fontWeight: 'bold' }}>{estadoCfg.label}</span>
               </div>
 
-              {/* Haberes */}
               <div style={{ backgroundColor: '#f9f9f9', borderRadius: '12px', padding: '16px', marginBottom: '12px' }}>
                 <p style={secTit}>Haberes</p>
                 <FilaD label="Sueldo base" val={`Bs. ${fmt(detalle.sueldo_base)}`} color="#166534" />
                 {detalle.bono > 0       && <FilaD label="Bono de nivel"  val={`Bs. ${fmt(detalle.bono)}`}            color="#166534" />}
                 {detalle.comisiones > 0 && <FilaD label={`Comisiones (ventas Bs. ${fmt(detalle.total_ventas_mes)})`} val={`Bs. ${fmt(detalle.comisiones)}`} color="#166534" />}
-                {detalle.monto_horas_extra > 0 && <FilaD label={`Hrs extra (${Math.floor(detalle.horas_extra_min/60)}h ${detalle.horas_extra_min%60}m)`} val={`Bs. ${fmt(detalle.monto_horas_extra)}`} color="#166534" />}
+                {detalle.monto_horas_extra > 0 && <FilaD label={`Hrs extra validadas (${Math.floor(detalle.horas_extra_min/60)}h ${detalle.horas_extra_min%60}m)`} val={`Bs. ${fmt(detalle.monto_horas_extra)}`} color="#166534" />}
                 <FilaD label="Total haberes" val={`Bs. ${fmt(detalle.total_haberes)}`} color="#166534" bold />
               </div>
 
-              {/* Descuentos */}
               <div style={{ backgroundColor: '#fef2f2', borderRadius: '12px', padding: '16px', marginBottom: '12px' }}>
                 <p style={secTit}>Descuentos</p>
                 {detalle.descuento_faltas > 0    && <FilaD label={`Faltas (${detalle.dias_falta}d · ${detalle.medias_faltas} medias)`} val={`- Bs. ${fmt(detalle.descuento_faltas)}`} color="#991b1b" />}
@@ -612,18 +648,15 @@ export default function PlanillaMensual() {
                 <FilaD label="Total descuentos" val={`- Bs. ${fmt(detalle.total_descuentos)}`} color="#991b1b" bold />
               </div>
 
-              {/* Neto */}
               <div style={{ backgroundColor: '#1a1a1a', borderRadius: '12px', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <span style={{ color: '#aaa', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' as const }}>Sueldo Neto</span>
                 <span style={{ color: 'white', fontSize: '24px', fontWeight: 'bold' }}>Bs. {fmt(detalle.sueldo_neto)}</span>
               </div>
 
-              {/* Observación */}
               <label style={labelSt}>Observación</label>
               <textarea value={obs} onChange={e => setObs(e.target.value)} rows={2} placeholder="Notas para la boleta..." disabled={detalle.estado === 'cerrado' || detalle.estado === 'pagado'}
                 style={{ width: '100%', padding: '10px 14px', border: '1px solid #e5e5e5', borderRadius: '10px', fontSize: '13px', outline: 'none', resize: 'none' as const, boxSizing: 'border-box' as const, marginBottom: '16px', backgroundColor: detalle.estado === 'cerrado' ? '#f9f9f9' : 'white' }} />
 
-              {/* Acciones */}
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' as const }}>
                 <button onClick={() => setDetalle(null)} style={{ flex: 1, padding: '10px', backgroundColor: '#f5f5f5', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', color: '#666', fontSize: '13px' }}>Cerrar</button>
                 <button onClick={() => generarPDF(detalle)} style={{ flex: 1, padding: '10px', backgroundColor: '#eff6ff', color: '#1e40af', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}>📄 PDF</button>
@@ -651,23 +684,21 @@ export default function PlanillaMensual() {
         )
       })()}
 
-      {/* Modal asistencia detallada */}
+      {/* Modal asistencia detallada con corrección */}
       {asistDetalle && (() => {
         const persona = asistDetalle.personal
         const totalRetraso = asistRegistros.reduce((s, r) => s + (Number(r.minutos_retraso) || 0), 0)
-        const totalExtra   = asistRegistros.reduce((s, r) => s + (Number(r.minutos_extra) || 0), 0)
+        const totalExtra   = asistRegistros.reduce((s, r) => s + (r.validado ? (Number(r.minutos_extra) || 0) : 0), 0)
         const diasRetraso  = asistRegistros.filter(r => (Number(r.minutos_retraso) || 0) > 0).length
         const diasFalta    = asistRegistros.filter(r => (r.tipo || '').toLowerCase().includes('falta')).length
-        const porTipo: Record<string, number> = {}
-        asistRegistros.forEach(r => { const t = r.tipo || 'sin dato'; porTipo[t] = (porTipo[t] || 0) + 1 })
 
         return (
           <div onClick={() => setAsistDetalle(null)} style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', zIndex: 50, overflowY: 'auto' }}>
-            <div onClick={e => e.stopPropagation()} style={{ backgroundColor: 'white', borderRadius: '20px', padding: '32px', width: '100%', maxWidth: '620px', maxHeight: '85vh', overflowY: 'auto' as const, boxShadow: '0 20px 60px rgba(0,0,0,0.2)', margin: 'auto' }}>
+            <div onClick={e => e.stopPropagation()} style={{ backgroundColor: 'white', borderRadius: '20px', padding: '32px', width: '100%', maxWidth: '850px', maxHeight: '85vh', overflowY: 'auto' as const, boxShadow: '0 20px 60px rgba(0,0,0,0.2)', margin: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
                 <div>
-                  <h3 style={{ margin: '0 0 4px', fontSize: '17px' }}>📅 Asistencia — {persona?.usuario}</h3>
-                  <p style={{ margin: 0, color: '#888', fontSize: '13px' }}>{persona?.cargo} · {fmtMes(mes)}</p>
+                  <h3 style={{ margin: '0 0 4px', fontSize: '17px' }}>📅 Corrección de Asistencia — {persona?.usuario}</h3>
+                  <p style={{ margin: 0, color: '#888', fontSize: '13px' }}>{persona?.cargo} · {fmtMes(mes)} (Edita entradas, salidas, tipos o elimina duplicados)</p>
                 </div>
                 <button onClick={() => setAsistDetalle(null)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#888', lineHeight: 1 }}>×</button>
               </div>
@@ -694,42 +725,118 @@ export default function PlanillaMensual() {
                       <p style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: 'bold', color: '#991b1b' }}>{diasFalta}</p>
                     </div>
                     <div style={{ backgroundColor: '#f0fdf4', borderRadius: '10px', padding: '10px 14px' }}>
-                      <p style={{ margin: 0, fontSize: '9px', fontWeight: 'bold', color: '#166534', textTransform: 'uppercase' as const }}>Min. extra total</p>
+                      <p style={{ margin: 0, fontSize: '9px', fontWeight: 'bold', color: '#166534', textTransform: 'uppercase' as const }}>Min. extra validados</p>
                       <p style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: 'bold', color: '#166534' }}>{totalExtra} min</p>
                     </div>
                   </div>
 
-                  <p style={{ fontSize: '10px', color: '#aaa', marginTop: '-8px', marginBottom: '14px' }}>
-                    * "Faltas" cuenta registros cuyo tipo contiene la palabra "falta". Tipos encontrados: {Object.entries(porTipo).map(([t, n]) => `${t} (${n})`).join(' · ')}
-                  </p>
-
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                     <thead>
                       <tr style={{ backgroundColor: '#f9f9f9' }}>
-                        {['Fecha','Entrada','Salida','Tipo','Retraso','Obs.'].map(h => (
+                        {['Fecha','Entrada','Salida','Tipo','Retraso','Extra','Validado','Acciones'].map(h => (
                           <th key={h} style={{ padding: '7px 8px', textAlign: 'left' as const, fontSize: '10px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase' as const }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {asistRegistros.map(r => (
-                        <tr key={r.id} style={{ borderTop: '1px solid #f0f0f0' }}>
-                          <td style={{ padding: '6px 8px' }}>{r.fecha}{r.es_sabado ? ' (Sáb)' : ''}</td>
-                          <td style={{ padding: '6px 8px' }}>{r.hora_entrada || '-'}</td>
-                          <td style={{ padding: '6px 8px' }}>{r.hora_salida || '-'}</td>
-                          <td style={{ padding: '6px 8px' }}>
-                            <span style={{
-                              backgroundColor: (r.tipo || '').toLowerCase().includes('falta') ? '#fee2e2' : (Number(r.minutos_retraso) > 0 ? '#fff7ed' : '#f0fdf4'),
-                              color: (r.tipo || '').toLowerCase().includes('falta') ? '#991b1b' : (Number(r.minutos_retraso) > 0 ? '#c2410c' : '#166534'),
-                              borderRadius: '6px', padding: '2px 7px', fontSize: '11px', fontWeight: 'bold'
-                            }}>{r.tipo || '-'}</span>
-                          </td>
-                          <td style={{ padding: '6px 8px', fontWeight: Number(r.minutos_retraso) > 0 ? 'bold' : 'normal', color: Number(r.minutos_retraso) > 0 ? '#c2410c' : '#bbb' }}>{r.minutos_retraso || 0}m</td>
-                          <td style={{ padding: '6px 8px', color: '#888' }}>{r.observacion || '-'}</td>
-                        </tr>
-                      ))}
+                      {asistRegistros.map(r => {
+                        const isEditing = editandoAsistId === r.id
+                        return (
+                          <tr key={r.id} style={{ borderTop: '1px solid #f0f0f0', backgroundColor: isEditing ? '#f8fafc' : 'transparent' }}>
+                            <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>{r.fecha}{r.es_sabado ? ' (Sáb)' : ''}</td>
+
+                            {/* Hora Entrada */}
+                            <td style={{ padding: '6px 8px' }}>
+                              {isEditing ? (
+                                <input type="time" value={editForm.hora_entrada} onChange={e => setEditForm({...editForm, hora_entrada: e.target.value})} style={{ padding: '3px 6px', fontSize: '11px', width: '80px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                              ) : (
+                                r.hora_entrada ? new Date(r.hora_entrada).toLocaleTimeString('es-BO', {hour:'2-digit', minute:'2-digit'}) : '-'
+                              )}
+                            </td>
+
+                            {/* Hora Salida */}
+                            <td style={{ padding: '6px 8px' }}>
+                              {isEditing ? (
+                                <input type="time" value={editForm.hora_salida} onChange={e => setEditForm({...editForm, hora_salida: e.target.value})} style={{ padding: '3px 6px', fontSize: '11px', width: '80px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                              ) : (
+                                r.hora_salida ? new Date(r.hora_salida).toLocaleTimeString('es-BO', {hour:'2-digit', minute:'2-digit'}) : '-'
+                              )}
+                            </td>
+
+                            {/* Tipo */}
+                            <td style={{ padding: '6px 8px' }}>
+                              {isEditing ? (
+                                <select value={editForm.tipo} onChange={e => setEditForm({...editForm, tipo: e.target.value})} style={{ padding: '3px 4px', fontSize: '11px', borderRadius: '4px', border: '1px solid #ccc' }}>
+                                  <option value="asistencia">asistencia</option>
+                                  <option value="falta">falta</option>
+                                  <option value="media_falta">media_falta</option>
+                                  <option value="permiso">permiso</option>
+                                  <option value="retraso">retraso</option>
+                                </select>
+                              ) : (
+                                <span style={{
+                                  backgroundColor: (r.tipo || '').toLowerCase().includes('falta') ? '#fee2e2' : '#f0fdf4',
+                                  color: (r.tipo || '').toLowerCase().includes('falta') ? '#991b1b' : '#166534',
+                                  borderRadius: '6px', padding: '2px 7px', fontSize: '11px', fontWeight: 'bold'
+                                }}>{r.tipo || '-'}</span>
+                              )}
+                            </td>
+
+                            {/* Minutos Retraso */}
+                            <td style={{ padding: '6px 8px' }}>
+                              {isEditing ? (
+                                <input type="number" value={editForm.minutos_retraso} onChange={e => setEditForm({...editForm, minutos_retraso: Number(e.target.value)})} style={{ padding: '3px 4px', fontSize: '11px', width: '50px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                              ) : (
+                                <span style={{ color: Number(r.minutos_retraso) > 0 ? '#c2410c' : '#bbb', fontWeight: Number(r.minutos_retraso) > 0 ? 'bold' : 'normal' }}>{r.minutos_retraso || 0}m</span>
+                              )}
+                            </td>
+
+                            {/* Minutos Extra */}
+                            <td style={{ padding: '6px 8px' }}>
+                              {isEditing ? (
+                                <input type="number" value={editForm.minutos_extra} onChange={e => setEditForm({...editForm, minutos_extra: Number(e.target.value)})} style={{ padding: '3px 4px', fontSize: '11px', width: '50px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                              ) : (
+                                <span style={{ color: Number(r.minutos_extra) > 0 ? '#166534' : '#bbb' }}>{r.minutos_extra || 0}m</span>
+                              )}
+                            </td>
+
+                            {/* Validado Toggle */}
+                            <td style={{ padding: '6px 8px' }}>
+                              <button
+                                onClick={() => toggleValidado(r.id, r.validado)}
+                                style={{
+                                  backgroundColor: r.validado ? '#f0fdf4' : '#fff7ed',
+                                  color: r.validado ? '#166534' : '#c2410c',
+                                  border: `1px solid ${r.validado ? '#bbf7d0' : '#fed7aa'}`,
+                                  borderRadius: '6px', padding: '2px 7px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer'
+                                }}
+                              >
+                                {r.validado ? '✓ Validado' : '⏳ Pendiente'}
+                              </button>
+                            </td>
+
+                            {/* Acciones Editar / Eliminar / Guardar */}
+                            <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
+                              {isEditing ? (
+                                <div style={{ display: 'flex', gap: '4px' }}>
+                                  <button onClick={() => guardarEdicionAsist(r)} style={{ backgroundColor: '#166534', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '10px', cursor: 'pointer', fontWeight: 'bold' }}>Guardar</button>
+                                  <button onClick={() => setEditandoAsistId(null)} style={{ backgroundColor: '#e5e5e5', color: '#333', border: 'none', borderRadius: '4px', padding: '3px 6px', fontSize: '10px', cursor: 'pointer' }}>✕</button>
+                                </div>
+                              ) : (
+                                <div style={{ display: 'flex', gap: '4px' }}>
+                                  <button onClick={() => iniciarEdicionAsist(r)} style={{ backgroundColor: '#eff6ff', color: '#1e40af', border: 'none', borderRadius: '4px', padding: '3px 7px', fontSize: '10px', cursor: 'pointer', fontWeight: 'bold' }}>Editar</button>
+                                  <button onClick={() => eliminarAsist(r.id)} style={{ backgroundColor: '#fef2f2', color: '#991b1b', border: 'none', borderRadius: '4px', padding: '3px 7px', fontSize: '10px', cursor: 'pointer', fontWeight: 'bold' }} title="Eliminar duplicado o error">🗑️</button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
+                  <p style={{ fontSize: '11px', color: '#666', marginTop: '12px', fontStyle: 'italic' }}>
+                    💡 <strong>Consejo:</strong> Si encuentras registros duplicados el mismo día, puedes hacer clic en el botón de basura (🗑️) para borrar el registro incorrecto. Si necesitas ajustar la hora de salida o cambiar si fue asistencia o falta, haz clic en <strong>Editar</strong>, modifica los campos y guarda. Tras corregir, vuelve a presionar <em>⚡ Calcular planilla</em> para actualizar los montos finales.
+                  </p>
                 </>
               )}
             </div>

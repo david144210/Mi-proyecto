@@ -3,7 +3,7 @@
 // app/asistencia/page.tsx
 // Panel de asistencia para admin/RRHH
 // Tabs: Hoy | Mensual | Pendientes
-// Acciones: justificar falta, agregar registro manual, exportar CSV
+// Acciones: justificar falta, editar horas/estado, aprobar horas extra, agregar registro manual, exportar CSV
 
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
@@ -66,15 +66,15 @@ function Modal({ titulo, onClose, children }: { titulo: string; onClose: () => v
   )
 }
 
-function TablaRegistros({ registros, onJustificar, mostrarFecha }: { registros: Registro[]; onJustificar: (r: Registro) => void; mostrarFecha: boolean }) {
+function TablaRegistros({ registros, onEditar, mostrarFecha }: { registros: Registro[]; onEditar: (r: Registro) => void; mostrarFecha: boolean }) {
   if (registros.length === 0)
     return <div style={{ textAlign: 'center', padding: '60px', color: '#bbb', fontSize: '14px' }}>Sin registros</div>
   return (
     <div style={{ backgroundColor: 'white', borderRadius: '16px', boxShadow: '0 2px 12px rgba(0,0,0,0.07)', overflow: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '700px' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '750px' }}>
         <thead>
           <tr style={{ backgroundColor: '#f9f9f9', borderBottom: '2px solid #eee' }}>
-            {[mostrarFecha && 'Fecha', 'Persona', 'Cargo', 'Sucursal', 'Entrada', 'Salida', 'Estado', 'Retraso', ''].filter(Boolean).map(h => (
+            {[mostrarFecha && 'Fecha', 'Persona', 'Cargo', 'Sucursal', 'Entrada', 'Salida', 'Estado', 'Retraso', 'H. Extra', ''].filter(Boolean).map(h => (
               <th key={String(h)} style={thStyle}>{h}</th>
             ))}
           </tr>
@@ -83,7 +83,6 @@ function TablaRegistros({ registros, onJustificar, mostrarFecha }: { registros: 
           {registros.map((r, i) => {
             const p   = r.personal
             const cfg = TIPO_CFG[r.tipo] || TIPO_CFG['puntual']
-            const esFalta = r.tipo === 'falta' || r.tipo === 'media_falta'
             return (
               <tr key={r.id} style={{ borderBottom: '1px solid #f0f0f0', backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
                 {mostrarFecha && <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: '12px', color: '#666' }}>{fmtF(r.fecha)}</td>}
@@ -100,10 +99,13 @@ function TablaRegistros({ registros, onJustificar, mostrarFecha }: { registros: 
                 <td style={{ ...tdStyle, textAlign: 'center', fontFamily: 'monospace', fontSize: '13px', color: r.minutos_retraso > 0 ? '#f59e0b' : '#ccc' }}>
                   {r.minutos_retraso > 0 ? `${r.minutos_retraso}m` : '—'}
                 </td>
+                <td style={{ ...tdStyle, textAlign: 'center', fontFamily: 'monospace', fontSize: '13px', color: r.minutos_extra > 0 ? '#166534' : '#ccc', fontWeight: r.minutos_extra > 0 ? 'bold' : 'normal' }}>
+                  {r.minutos_extra > 0 ? `${Math.floor(r.minutos_extra / 60)}h ${r.minutos_extra % 60}m` : '—'}
+                </td>
                 <td style={tdStyle}>
-                  {esFalta && !r.validado
-                    ? <button onClick={() => onJustificar(r)} style={{ backgroundColor: '#eff6ff', color: '#1e40af', border: 'none', borderRadius: '8px', padding: '6px 12px', fontSize: '11px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' }}>Justificar</button>
-                    : r.validado ? <span style={{ color: '#aaa', fontSize: '11px' }}>✓ Validado</span> : null}
+                  <button onClick={() => onEditar(r)} style={{ backgroundColor: r.validado ? '#f3f4f6' : '#eff6ff', color: r.validado ? '#4b5563' : '#1e40af', border: 'none', borderRadius: '8px', padding: '6px 12px', fontSize: '11px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                    {r.validado ? 'Editar' : 'Revisar / Editar'}
+                  </button>
                 </td>
               </tr>
             )
@@ -126,10 +128,13 @@ export default function PanelAsistencia() {
   const [filtroCargo,setFiltroCargo]= useState<number | ''>('')
   const [filtroPerso,setFiltroPerso]= useState<number | ''>('')
   const [mes,        setMes]        = useState(mesStr(new Date()))
-  const [modalJust,  setModalJust]  = useState<Registro | null>(null)
+  
+  // Modales y formularios
+  const [modalEdit,  setModalEdit]  = useState<Registro | null>(null)
+  const [fEdit,      setFEdit]      = useState({ hora_entrada: '', hora_salida: '', tipo: 'puntual', minutos_extra: 0, observacion: '' })
   const [modalMan,   setModalMan]   = useState(false)
-  const [obsJust,    setObsJust]    = useState('')
   const [fMan,       setFMan]       = useState({ personal_id: '', sucursal_id: '', fecha: new Date().toISOString().split('T')[0], hora_entrada: '', hora_salida: '', tipo: 'puntual', observacion: '' })
+  
   const [procesando, setProcesando] = useState(false)
   const [errModal,   setErrModal]   = useState('')
   const [errTabla,   setErrTabla]   = useState('')
@@ -155,7 +160,6 @@ export default function PanelAsistencia() {
     setErrTabla('')
     const hoy = new Date().toISOString().split('T')[0]
     
-    // Se corrige usando explícitamente la llave foránea para evitar ambigüedad (PGRST201)
     let q = supabase.from('registros_asistencia')
       .select('id,personal_id,sucursal_id,fecha,hora_entrada,hora_salida,tipo,minutos_retraso,minutos_extra,es_sabado,observacion,validado,validado_por,created_at,personal!registros_asistencia_personal_id_fkey(id,usuario,carnet,cargo_id,cargos(nombre)),sucursales(nombre)')
       .order('fecha', { ascending: false }).order('created_at', { ascending: false })
@@ -207,16 +211,44 @@ export default function PanelAsistencia() {
     return Object.values(mapa).sort((a, b) => a.persona.usuario.localeCompare(b.persona.usuario))
   }, [filtrados])
 
-  const justificar = async () => {
-    if (!modalJust) return
+  const abrirEdicion = (r: Registro) => {
+    setModalEdit(r)
+    setFEdit({
+      hora_entrada: r.hora_entrada ? new Date(r.hora_entrada).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '',
+      hora_salida:  r.hora_salida  ? new Date(r.hora_salida).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })  : '',
+      tipo:         r.tipo,
+      minutos_extra:r.minutos_extra || 0,
+      observacion:  r.observacion || ''
+    })
+    setErrModal('')
+  }
+
+  const guardarEdicion = async () => {
+    if (!modalEdit) return
     setProcesando(true); setErrModal('')
     try {
-      const { error } = await supabase.from('registros_asistencia')
-        .update({ tipo: 'permiso', validado: true, validado_por: usuario.id, observacion: obsJust || 'Permiso justificado por admin' })
-        .eq('id', modalJust.id)
+      const buildIso = (timeStr: string) => {
+        if (!timeStr) return null
+        const [anio, mesNum, dia] = modalEdit.fecha.split('-').map(Number)
+        const [horas, minutos] = timeStr.split(':').map(Number)
+        return new Date(anio, mesNum - 1, dia, horas, minutos, 0).toISOString()
+      }
+
+      const payload = {
+        hora_entrada: buildIso(fEdit.hora_entrada),
+        hora_salida:  buildIso(fEdit.hora_salida),
+        tipo:         fEdit.tipo,
+        minutos_extra:Number(fEdit.minutos_extra) || 0,
+        observacion:  fEdit.observacion || 'Modificado por administración',
+        validado:     true,
+        validado_por: usuario.id
+      }
+
+      const { error } = await supabase.from('registros_asistencia').update(payload).eq('id', modalEdit.id)
       if (error) throw error
-      setModalJust(null); setObsJust(''); await loadRegistros()
-    } catch (e: any) { setErrModal('Error: ' + e.message) }
+      setModalEdit(null)
+      await loadRegistros()
+    } catch (e: any) { setErrModal('Error al actualizar: ' + e.message) }
     finally { setProcesando(false) }
   }
 
@@ -224,9 +256,28 @@ export default function PanelAsistencia() {
     if (!fMan.personal_id || !fMan.sucursal_id || !fMan.fecha) return setErrModal('Completa persona, sucursal y fecha')
     setProcesando(true); setErrModal('')
     try {
-      const payload: any = { personal_id: Number(fMan.personal_id), sucursal_id: Number(fMan.sucursal_id), fecha: fMan.fecha, tipo: fMan.tipo, minutos_retraso: 0, minutos_extra: 0, es_sabado: false, validado: true, validado_por: usuario.id, observacion: fMan.observacion || 'Registro manual por admin' }
-      if (fMan.hora_entrada) payload.hora_entrada = `${fMan.fecha}T${fMan.hora_entrada}:00`
-      if (fMan.hora_salida)  payload.hora_salida  = `${fMan.fecha}T${fMan.hora_salida}:00`
+      const buildIso = (timeStr: string) => {
+        if (!timeStr) return null
+        const [anio, mesNum, dia] = fMan.fecha.split('-').map(Number)
+        const [horas, minutos] = timeStr.split(':').map(Number)
+        return new Date(anio, mesNum - 1, dia, horas, minutos, 0).toISOString()
+      }
+
+      const payload: any = { 
+        personal_id: Number(fMan.personal_id), 
+        sucursal_id: Number(fMan.sucursal_id), 
+        fecha: fMan.fecha, 
+        tipo: fMan.tipo, 
+        minutos_retraso: 0, 
+        minutos_extra: 0, 
+        es_sabado: false, 
+        validado: true, 
+        validado_por: usuario.id, 
+        observacion: fMan.observacion || 'Registro manual por admin',
+        hora_entrada: buildIso(fMan.hora_entrada),
+        hora_salida: buildIso(fMan.hora_salida)
+      }
+
       const { error } = await supabase.from('registros_asistencia').upsert(payload, { onConflict: 'personal_id,fecha' })
       if (error) throw error
       setModalMan(false); setFMan({ personal_id: '', sucursal_id: '', fecha: new Date().toISOString().split('T')[0], hora_entrada: '', hora_salida: '', tipo: 'puntual', observacion: '' })
@@ -296,7 +347,7 @@ export default function PanelAsistencia() {
                 </div>
               ))}
             </div>
-            <TablaRegistros registros={filtrados} onJustificar={r => { setModalJust(r); setObsJust('') }} mostrarFecha={false} />
+            <TablaRegistros registros={filtrados} onEditar={abrirEdicion} mostrarFecha={false} />
           </>
         )}
 
@@ -335,23 +386,48 @@ export default function PanelAsistencia() {
         {tab === 'pendientes' && (
           filtrados.length === 0
             ? <div style={{ textAlign: 'center', padding: '60px', color: '#bbb' }}><p style={{ fontSize: '40px', margin: '0 0 12px' }}>✓</p><p style={{ fontSize: '14px', fontWeight: 'bold' }}>Sin faltas pendientes de justificar</p></div>
-            : <TablaRegistros registros={filtrados} onJustificar={r => { setModalJust(r); setObsJust('') }} mostrarFecha />
+            : <TablaRegistros registros={filtrados} onEditar={abrirEdicion} mostrarFecha />
         )}
       </div>
 
-      {/* Modal justificar */}
-      {modalJust && (
-        <Modal titulo="Justificar Falta" onClose={() => setModalJust(null)}>
-          <div style={{ backgroundColor: '#fef2f2', borderRadius: '12px', padding: '14px 18px', marginBottom: '20px' }}>
-            <p style={{ margin: 0, fontWeight: 'bold', fontSize: '14px' }}>{modalJust.personal?.usuario}</p>
-            <p style={{ margin: '4px 0 0', color: '#666', fontSize: '13px' }}>{fmtF(modalJust.fecha)} · {TIPO_CFG[modalJust.tipo]?.label}</p>
+      {/* Modal Editar / Justificar / Aprobar Horas Extra */}
+      {modalEdit && (
+        <Modal titulo="Editar Registro de Asistencia" onClose={() => setModalEdit(null)}>
+          <div style={{ backgroundColor: '#f9f9f9', borderRadius: '12px', padding: '14px 18px', marginBottom: '20px', border: '1px solid #eee' }}>
+            <p style={{ margin: 0, fontWeight: 'bold', fontSize: '14px', color: '#222' }}>{modalEdit.personal?.usuario}</p>
+            <p style={{ margin: '4px 0 0', color: '#666', fontSize: '13px' }}>Fecha: {fmtF(modalEdit.fecha)} · Sucursal: {modalEdit.sucursales?.nombre || '—'}</p>
           </div>
-          <label style={labelStyle}>Motivo del permiso</label>
-          <textarea value={obsJust} onChange={e => setObsJust(e.target.value)} rows={3} placeholder="Ej: Cita médica, trámite personal..." style={{ width: '100%', padding: '10px 14px', border: '1px solid #e5e5e5', borderRadius: '10px', fontSize: '14px', outline: 'none', resize: 'none' as const, boxSizing: 'border-box' as const }} />
-          {errModal && <p style={{ color: '#ef4444', fontSize: '13px', margin: '8px 0' }}>⚠ {errModal}</p>}
-          <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-            <button onClick={() => setModalJust(null)} style={btnS}>Cancelar</button>
-            <button onClick={justificar} disabled={procesando} style={btnP}>{procesando ? 'Guardando...' : 'Convertir a permiso'}</button>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+            <div>
+              <label style={labelStyle}>Hora Entrada</label>
+              <input type="time" value={fEdit.hora_entrada} onChange={e => setFEdit(f => ({ ...f, hora_entrada: e.target.value }))} style={inputSt} />
+            </div>
+            <div>
+              <label style={labelStyle}>Hora Salida</label>
+              <input type="time" value={fEdit.hora_salida} onChange={e => setFEdit(f => ({ ...f, hora_salida: e.target.value }))} style={inputSt} />
+            </div>
+            <div>
+              <label style={labelStyle}>Estado / Tipo</label>
+              <select value={fEdit.tipo} onChange={e => setFEdit(f => ({ ...f, tipo: e.target.value }))} style={inputSt}>
+                {Object.entries(TIPO_CFG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Minutos Extra (Aprobados)</label>
+              <input type="number" value={fEdit.minutos_extra} onChange={e => setFEdit(f => ({ ...f, minutos_extra: Number(e.target.value) }))} style={inputSt} placeholder="Ej: 60" />
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label style={labelStyle}>Observación / Motivo (Permisos / Ajustes)</label>
+              <textarea value={fEdit.observacion} onChange={e => setFEdit(f => ({ ...f, observacion: e.target.value }))} rows={2} placeholder="Detalle de la corrección, permiso o motivo de horas extra..." style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e5e5', borderRadius: '10px', fontSize: '14px', outline: 'none', resize: 'none' as const, boxSizing: 'border-box' as const, backgroundColor: '#fafafa' }} />
+            </div>
+          </div>
+
+          {errModal && <p style={{ color: '#ef4444', fontSize: '13px', margin: '10px 0 0' }}>⚠ {errModal}</p>}
+
+          <div style={{ display: 'flex', gap: '10px', marginTop: '24px' }}>
+            <button onClick={() => setModalEdit(null)} style={btnS}>Cancelar</button>
+            <button onClick={guardarEdicion} disabled={procesando} style={btnP}>{procesando ? 'Guardando...' : 'Guardar Cambios'}</button>
           </div>
         </Modal>
       )}
