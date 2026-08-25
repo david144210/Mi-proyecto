@@ -524,10 +524,83 @@ export default function DisenoCajones() {
   if (checking) return null
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', width: '100vw', height: '100vh', overflow: 'hidden', backgroundColor: '#0b132b', position: 'relative' }}>
+    <div className={`main-app-container ${panelMinimizado ? 'panel-oculto' : ''}`}>
       
+      {/* ESTILOS CSS RESPONSIVE (50/50 MÓVIL Y OCULTAR PANEL) */}
+      <style>{`
+        .main-app-container {
+          position: relative;
+          width: 100vw;
+          height: 100vh;
+          overflow: hidden;
+          background-color: #0b132b;
+          font-family: system-ui, sans-serif;
+        }
+
+        .canvas-view-container {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          z-index: 1;
+        }
+
+        .hud-panel-container {
+          position: fixed;
+          top: 65px;
+          left: 20px;
+          width: 400px;
+          max-height: calc(100vh - 80px);
+          background-color: rgba(15, 23, 42, 0.88);
+          backdrop-filter: blur(12px);
+          border-radius: 14px;
+          border: 1px solid rgba(212, 175, 55, 0.35);
+          box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+          z-index: 900;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+          color: #f8fafc;
+        }
+
+        @media (max-width: 768px) {
+          .main-app-container {
+            display: flex;
+            flex-direction: column;
+          }
+
+          .canvas-view-container {
+            position: relative !important;
+            width: 100% !important;
+            height: 50vh !important;
+            flex: none !important;
+            transition: height 0.3s ease;
+          }
+
+          .hud-panel-container {
+            position: relative !important;
+            top: auto !important;
+            left: auto !important;
+            width: 100% !important;
+            height: 50vh !important;
+            max-height: 50vh !important;
+            border-radius: 0 !important;
+            border-top: 1px solid rgba(212, 175, 55, 0.35) !important;
+            border-left: none !important;
+            flex: 1 !important;
+            box-shadow: none !important;
+            transition: height 0.3s ease;
+          }
+
+          .main-app-container.panel-oculto .canvas-view-container {
+            height: 100vh !important;
+          }
+        }
+      `}</style>
+
       {/* 1. VISOR 3D DE FONDO */}
-      <div ref={mountRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1 }} />
+      <div ref={mountRef} className="canvas-view-container" />
 
       {/* 2. NAVBAR SUPERIOR FLOTANTE CON HAMBURGUESA RESPONSIVE */}
       <nav style={{
@@ -544,7 +617,7 @@ export default function DisenoCajones() {
         </div>
 
         {/* Botones para Escritorio */}
-        <div className="hidden md:flex" style={{ gap: '8px', alignItems: 'center' }}>
+        <div className="hidden md:flex" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <button onClick={() => setPanelMinimizado(!panelMinimizado)} style={{ background: 'rgba(255,255,255,0.1)', color: 'white', border: '1px solid rgba(255,255,255,0.2)', fontSize: '11px', fontWeight: 'bold', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer' }}>
             {panelMinimizado ? '📂 Mostrar Panel' : '📦 Ocultar Panel'}
           </button>
@@ -557,7 +630,7 @@ export default function DisenoCajones() {
         </div>
 
         {/* Botón Hamburguesa para Móvil */}
-        <div className="flex md:hidden" style={{ alignItems: 'center' }}>
+        <div className="flex md:hidden" style={{ display: 'flex', alignItems: 'center' }}>
           <button 
             onClick={() => setMenuMovilAbierto(!menuMovilAbierto)} 
             style={{ background: 'none', border: '1px solid rgba(255,255,255,0.2)', color: 'white', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '16px' }}
@@ -742,13 +815,7 @@ export default function DisenoCajones() {
 
       {/* 3. HUD FLOTANTE PRINCIPAL */}
       {!panelMinimizado && (
-        <div style={{
-          position: 'fixed', top: '65px', left: '20px', width: '400px', maxHeight: 'calc(100vh - 80px)',
-          backgroundColor: 'rgba(15, 23, 42, 0.88)', backdropFilter: 'blur(12px)',
-          borderRadius: '14px', border: '1px solid rgba(212, 175, 55, 0.35)',
-          boxShadow: '0 10px 30px rgba(0,0,0,0.6)', zIndex: 900, display: 'flex', flexDirection: 'column',
-          overflow: 'hidden', color: '#f8fafc'
-        }}>
+        <div className="hud-panel-container">
           
           <div style={{ display: 'flex', gap: '6px', padding: '12px 12px 0 12px', backgroundColor: 'rgba(11, 19, 43, 0.5)' }}>
             <button 
@@ -765,7 +832,7 @@ export default function DisenoCajones() {
             </button>
           </div>
 
-          <div style={{ padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: 'calc(100vh - 150px)' }}>
+          <div style={{ padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', flex: 1 }}>
 
             {activeTab === 'diseno' ? (
               <>
