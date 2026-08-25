@@ -219,7 +219,7 @@ export default function Home() {
     { nombre: 'Recibidor para sala', descripcion: 'Mueble ideal para tu sala', precio: 'Bs. 990', imagen: '/productos/recibidor.jpg' },
   ] satisfies ProductoDestacado[]
 
-  const whatsappPrincipal = sucursales[1].wa
+  const whatsappPrincipal = sucursales[0].wa
 
   return (
     <div className="app-shell">
@@ -420,6 +420,22 @@ export default function Home() {
           transition: transform 0.3s ease;
         }
         .whatsapp-float:hover { transform: scale(1.1) rotate(-5deg); }
+
+        /* BOTÓN FLOTANTE DISEÑO 3D */
+        .diseno-3d-float {
+          position: fixed; bottom: 100px; right: 30px; z-index: 1200;
+          background: var(--bg-secondary); color: var(--gold-primary); 
+          width: 60px; height: 60px; border-radius: 50%;
+          display: flex; align-items: center; justify-content: center; 
+          text-decoration: none; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+          border: 1px solid var(--gold-primary);
+          transition: transform 0.3s ease, background 0.3s ease, color 0.3s ease;
+        }
+        .diseno-3d-float:hover { 
+          transform: scale(1.1); 
+          background: var(--gold-primary); 
+          color: var(--bg-primary); 
+        }
 
         @media (max-width: 768px) {
           .hero-section { flex-direction: column; text-align: center; padding-top: 120px; }
@@ -761,6 +777,15 @@ export default function Home() {
         </div>
         <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '13px' }}>© 2026 MuebLess is Better Bolivia. Diseñado para espacios excepcionales.</p>
       </footer>
+
+      {/* BOTÓN FLOTANTE DISEÑO 3D */}
+      <a href="/clientes/3d" className="diseno-3d-float" aria-label="Abrir diseñador 3D" title="Creador y Diseñador 3D">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+          <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+          <line x1="12" y1="22.08" x2="12" y2="12"></line>
+        </svg>
+      </a>
 
       {/* BOTÓN FLOTANTE WHATSAPP */}
       <a href={whatsappPrincipal} target="_blank" rel="noopener noreferrer" className="whatsapp-float" aria-label="Atención inmediata por WhatsApp" title="Escríbenos por WhatsApp">
