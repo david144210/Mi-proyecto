@@ -318,6 +318,7 @@ export default function Sistema() {
               <a href="/produccion" style={cardStyle}><div style={{ fontSize: '38px', marginBottom: '10px' }}>🏭</div><h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Producción</h3></a>
               <a href="/presupuestos_prod" style={cardStyle}><div style={{ fontSize: '38px', marginBottom: '10px' }}>🧮</div><h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Presupuestos de Producción</h3></a>
               <a href="/construccion" style={cardStyle}><div style={{ fontSize: '38px', marginBottom: '10px' }}>🚧</div><h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Construcción</h3></a>
+              <a href="/almacenes" style={cardStyle}><div style={{ fontSize: '38px', marginBottom: '10px' }}>🏷</div><h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Almacenes</h3></a>
             </>
           )}
           {(esAdmin || !!usuario) && (
