@@ -19,7 +19,7 @@ interface Pedido {
   cliente: string
   fecha_entrega: string
   estado: number
-  taller_destino?: string // ➔ Nuevo: Taller o ciudad asignada
+  taller_destino?: string
   detalles: DetalleVenta[]
 }
 
@@ -34,7 +34,7 @@ interface MaterialPresupuesto {
   precioUnitario: number
   gastoReal: number
   tipo: 'variante' | 'manual'
-  taller_destino?: string // ➔ Nuevo: Asociado al taller correspondiente
+  taller_destino?: string
 }
 
 type EstadoWorkflow = 'creado' | 'revision_taller' | 'en_compras' | 'aprobado'
@@ -53,9 +53,9 @@ export default function GestorPresupuestosWorkflow() {
   const [pedidosSeleccionados, setPedidosSeleccionados] = useState<Pedido[]>([])
   const [materialesLote, setMaterialesLote] = useState<MaterialPresupuesto[]>([])
 
-  // ➔ Nuevo: Estado para filtrar la vista por taller/ciudad ('TODOS' o el nombre del taller)
+  const [talleresDisponibles, setTalleresDisponibles] = useState<string[]>([])
   const [tallerFiltroActivo, setTallerFiltroActivo] = useState<string>('TODOS')
-  const [tallerAsignacionTemp, setTallerAsignacionTemp] = useState<string>('Taller La Paz')
+  const [tallerAsignacionTemp, setTallerAsignacionTemp] = useState<string>('')
 
   // Catálogo y adición manual
   const [manualTipo, setManualTipo] = useState<'acero' | 'melamina' | 'accesorio' | 'insumo'>('acero')
@@ -65,8 +65,6 @@ export default function GestorPresupuestosWorkflow() {
   const [manualCantidad, setManualCantidad] = useState('')
   const [manualPrecio, setManualPrecio] = useState('')
 
-  const talleresDisponibles = ['Taller El Alto', 'Taller Santa Cruz', 'Taller Cochabamba']
-
   useEffect(() => {
     const carnetGuardado = localStorage.getItem('carnet')
     if (!carnetGuardado) {
@@ -74,26 +72,38 @@ export default function GestorPresupuestosWorkflow() {
       return
     }
 
-    supabase
-      .from('personal')
-      .select('*, cargos(*)')
-      .eq('carnet', carnetGuardado)
-      .eq('estado', true)
-      .single()
-      .then(({ data }) => {
-        if (!data) {
-          window.location.replace('/')
-          return
-        }
-        setUsuario(data)
-      })
+    const inicializarDatos = async () => {
+      // 1. Cargar sucursales reales de la BD
+      const { data: sucData } = await supabase.from('sucursales').select('nombre')
+      if (sucData && sucData.length > 0) {
+        const nombres = sucData.map(s => s.nombre)
+        setTalleresDisponibles(nombres)
+        setTallerAsignacionTemp(nombres[0])
+      }
+
+      // 2. Cargar usuario
+      const { data: userData } = await supabase
+        .from('personal')
+        .select('*, cargos(*)')
+        .eq('carnet', carnetGuardado)
+        .eq('estado', true)
+        .single()
+
+      if (!userData) {
+        window.location.replace('/')
+        return
+      }
+      setUsuario(userData)
+    }
+
+    inicializarDatos()
   }, [])
 
   useEffect(() => {
-    if (usuario) {
+    if (usuario && talleresDisponibles.length > 0) {
       cargarDatosLoteYPedidos()
     }
-  }, [fecha, nombreLote, usuario])
+  }, [fecha, nombreLote, usuario, talleresDisponibles])
 
   useEffect(() => {
     const cargarCatalogo = async () => {
@@ -141,6 +151,83 @@ export default function GestorPresupuestosWorkflow() {
       )
     } catch {
       return 0
+    }
+  }
+
+  // Consulta el stock real de la sucursal/taller específica en Supabase
+  const obtenerStockRealSucursal = async (codigo: string, tallerDestino: string): Promise<number> => {
+    try {
+      const { data: sucursalData } = await supabase
+        .from('sucursales')
+        .select('id')
+        .eq('nombre', tallerDestino)
+        .maybeSingle()
+
+      if (!sucursalData) return 0
+      const sucursalId = sucursalData.id
+
+      const [stockMel, stockAcc, stockAce, stockIns] = await Promise.all([
+        supabase.from('stock_melaminas').select('cantidad').eq('sucursal_id', sucursalId).eq('codigo_melamina', codigo).maybeSingle(),
+        supabase.from('stock_accesorios').select('cantidad').eq('sucursal_id', sucursalId).eq('codigo_accesorio', codigo).maybeSingle(),
+        supabase.from('stock_aceros').select('cantidad').eq('sucursal_id', sucursalId).eq('codigo_acero', codigo).maybeSingle(),
+        supabase.from('stock_insumos').select('cantidad').eq('sucursal_id', sucursalId).eq('codigo_insumos', codigo).maybeSingle(),
+      ])
+
+      return Number(
+        stockMel.data?.cantidad ||
+        stockAcc.data?.cantidad ||
+        stockAce.data?.cantidad ||
+        stockIns.data?.cantidad || 0
+      )
+    } catch (error) {
+      console.error("Error consultando stock de sucursal:", error)
+      return 0
+    }
+  }
+
+  // ➔ DESCUENTO AUTOMÁTICO DE INVENTARIO EN ALMACENES AL APROBAR
+  const descontarStockAlmacenes = async () => {
+    try {
+      for (const m of materialesLote) {
+        if (m.stockActual <= 0) continue
+
+        const { data: sucData } = await supabase
+          .from('sucursales')
+          .select('id')
+          .eq('nombre', m.taller_destino || talleresDisponibles[0])
+          .maybeSingle()
+
+        if (!sucData) continue
+        const sucursalId = sucData.id
+        const cantidadADescontar = m.stockActual
+
+        const tablasStock = [
+          { tabla: 'stock_melaminas', col: 'codigo_melamina' },
+          { tabla: 'stock_accesorios', col: 'codigo_accesorio' },
+          { tabla: 'stock_aceros', col: 'codigo_acero' },
+          { tabla: 'stock_insumos', col: 'codigo_insumos' }
+        ]
+
+        for (const t of tablasStock) {
+          const { data: registro } = await supabase
+            .from(t.tabla)
+            .select('id, cantidad')
+            .eq('sucursal_id', sucursalId)
+            .eq(t.col, m.codigo)
+            .maybeSingle()
+
+          if (registro) {
+            const nuevaCantidad = Math.max(0, Number(registro.cantidad) - Number(cantidadADescontar))
+            await supabase
+              .from(t.tabla)
+              .update({ cantidad: nuevaCantidad })
+              .eq('id', registro.id)
+            break
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error al descontar stock de almacenes:', error)
     }
   }
 
@@ -208,7 +295,7 @@ export default function GestorPresupuestosWorkflow() {
           cliente: clientesMap[v.cod_cliente] || 'Sin cliente',
           fecha_entrega: v.fecha_entrega,
           estado: v.estado,
-          taller_destino: talleresDisponibles[0],
+          taller_destino: talleresDisponibles[0] || '',
           detalles
         }
       })
@@ -542,11 +629,39 @@ export default function GestorPresupuestosWorkflow() {
   }
 
   const cambiarEstadoWorkflow = async (nuevoEstado: EstadoWorkflow) => {
+    if (nuevoEstado === 'revision_taller') {
+      setLoading(true)
+      const materialesActualizados = await Promise.all(
+        materialesLote.map(async (m) => {
+          const stockReal = await obtenerStockRealSucursal(m.codigo, m.taller_destino || talleresDisponibles[0])
+          const cantidadComprar = Math.max(0, Number((m.cantidadReq - stockReal).toFixed(2)))
+          const gastoReal = Number((cantidadComprar * m.precioUnitario).toFixed(2))
+          return {
+            ...m,
+            stockActual: stockReal,
+            cantidadComprar,
+            gastoReal
+          }
+        })
+      )
+      setMaterialesLote(materialesActualizados)
+      setLoading(false)
+      setEstadoWorkflow(nuevoEstado)
+      await persistirLoteEnBD(nuevoEstado, pedidosSeleccionados, materialesActualizados)
+      return
+    }
+
+    // ➔ DESCUENTO AUTOMÁTICO EN SUPABASE AL APROBAR
+    if (nuevoEstado === 'aprobado') {
+      setLoading(true)
+      await descontarStockAlmacenes()
+      setLoading(false)
+    }
+
     setEstadoWorkflow(nuevoEstado)
     await persistirLoteEnBD(nuevoEstado, pedidosSeleccionados, materialesLote)
   }
 
-  // Filtrar materiales según la pestaña de taller seleccionada
   const materialesFiltrados = tallerFiltroActivo === 'TODOS' 
     ? materialesLote 
     : materialesLote.filter(m => m.taller_destino === tallerFiltroActivo)
@@ -642,7 +757,7 @@ export default function GestorPresupuestosWorkflow() {
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 40px', backgroundColor: '#222', color: 'white' }}>
         <a href="/sistema" style={{ color: 'white', textDecoration: 'none', fontWeight: 'bold' }}>← Sistema</a>
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-          <span style={{ color: '#C5A059', fontWeight: 'bold' }}>Gestión Multi-Taller por Ciudad</span>
+          <span style={{ color: '#C5A059', fontWeight: 'bold' }}>Gestión Multi-Taller por Sucursal</span>
           {sincronizando && <span style={{ fontSize: '11px', color: '#10b981' }}>Sincronizando... 🔄</span>}
         </div>
         <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
@@ -682,7 +797,7 @@ export default function GestorPresupuestosWorkflow() {
             
             {estadoWorkflow === 'creado' && (
               <div style={{ margin: '15px 0', padding: '10px', backgroundColor: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#0B1E36', marginBottom: '5px' }}>Asignar Taller de Destino al Consolidar:</label>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#0B1E36', marginBottom: '5px' }}>Asignar Sucursal / Taller de Destino:</label>
                 <select 
                   value={tallerAsignacionTemp} 
                   onChange={(e) => setTallerAsignacionTemp(e.target.value)}
@@ -720,8 +835,8 @@ export default function GestorPresupuestosWorkflow() {
           {/* DERECHA: Gestión de Lote y Lista Centralizada */}
           <div style={{ flex: '1.7', display: 'flex', flexDirection: 'column', gap: '20px' }}>
             
-            {/* Pestañas de Filtro por Taller */}
-            <div style={{ display: 'flex', gap: '8px', backgroundColor: 'white', padding: '12px', borderRadius: '12px', boxShadow: '0 2px 12px rgba(0,0,0,0.05)', alignItems: 'center' }}>
+            {/* Pestañas de Filtro por Sucursal / Taller */}
+            <div style={{ display: 'flex', gap: '8px', backgroundColor: 'white', padding: '12px', borderRadius: '12px', boxShadow: '0 2px 12px rgba(0,0,0,0.05)', alignItems: 'center', flexWrap: 'wrap' }}>
               <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#0B1E36', marginRight: '10px' }}>Ver lista de:</span>
               <button 
                 onClick={() => setTallerFiltroActivo('TODOS')}
@@ -968,7 +1083,7 @@ export default function GestorPresupuestosWorkflow() {
                     <button onClick={() => cambiarEstadoWorkflow('en_compras')} style={{ backgroundColor: '#d97706', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>➔ Enviar a Compras</button>
                   )}
                   {estadoWorkflow === 'en_compras' && (
-                    <button onClick={() => cambiarEstadoWorkflow('aprobado')} style={{ backgroundColor: '#16a34a', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>💰 Aprobar Lote</button>
+                    <button onClick={() => cambiarEstadoWorkflow('aprobado')} style={{ backgroundColor: '#16a34a', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>💰 Aprobar Lote (Descontar Stock)</button>
                   )}
                 </div>
               </div>
