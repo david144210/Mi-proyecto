@@ -62,7 +62,7 @@ export default function PaletasAutomaticas() {
     if (resProveedores.data) setProveedores(resProveedores.data)
   }
 
-  const nombreMostrar = usuario?.usuario || usuario?.nombre || usuario?.carnet | 'Usuario'
+  const nombreMostrar = usuario?.usuario || usuario?.nombre || usuario?.carnet || 'Usuario'
 
   if (loading) return (
     <div className="flex h-screen items-center justify-center bg-[#f4f6f9]">
@@ -105,7 +105,7 @@ export default function PaletasAutomaticas() {
 
       <div className="max-w-7xl mx-auto p-4 md:p-8">
         
-        {/* ENCABEZADO Y MÉTRICAS (Neuromarketing: Recompensa visual inmediata) */}
+        {/* ENCABEZADO Y MÉTRICAS */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 bg-white p-6 rounded-3xl shadow-xs border border-gray-100">
           <div>
             <div className="flex items-center gap-2 text-[#D4AF37] font-bold text-xs uppercase tracking-wider mb-1">
@@ -127,7 +127,7 @@ export default function PaletasAutomaticas() {
           </div>
         </div>
 
-        {/* BARRA DE BÚSQUEDA INTERACTIVA (Fricción cero) */}
+        {/* BARRA DE BÚSQUEDA INTERACTIVA */}
         <div className="relative mb-8">
           <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400">
             <Search size={18} />
@@ -152,12 +152,10 @@ export default function PaletasAutomaticas() {
         {/* CONTENEDOR DE LAS 3 CIUDADES */}
         <div className="space-y-8">
           {ciudadesGeograficas.map((ciudad) => {
-            // 1. Filtrar proveedores que pertenecen a esta ciudad
             const proveedoresDeCiudad = proveedores
               .filter(p => p.ciudad?.toLowerCase().trim() === ciudad.toLowerCase().trim())
               .map(p => p.nombre?.toLowerCase().trim())
 
-            // 2. Filtrar melaminas de la ciudad y aplicar el buscador global si existe
             const melaminasDeCiudad = melaminas.filter(m => {
               const perteneceCiudad = m.proveedor && proveedoresDeCiudad.includes(m.proveedor.toLowerCase().trim())
               if (!perteneceCiudad) return false
@@ -172,7 +170,6 @@ export default function PaletasAutomaticas() {
             return (
               <div key={ciudad} className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden transition-all duration-300 hover:shadow-md">
                 
-                {/* Cabecera de la Sucursal / Ciudad */}
                 <div className="bg-gradient-to-r from-gray-50 to-white px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                   <div className="flex items-center gap-3">
                     <div className="p-3 bg-[#001f3f] text-[#D4AF37] rounded-2xl shadow-xs">
@@ -190,7 +187,6 @@ export default function PaletasAutomaticas() {
                   </span>
                 </div>
 
-                {/* Grilla de Melaminas de esta Ciudad */}
                 <div className="p-6">
                   {melaminasDeCiudad.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
