@@ -1,7 +1,7 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
-import { Trash2, Edit, Plus, Search, Loader2, Package, Image as ImageIcon } from 'lucide-react'
+import { Trash2, Edit, Plus, Search, Loader2, Package, Image as ImageIcon, Camera, Upload } from 'lucide-react'
 
 interface Melamina {
   id: number
@@ -30,6 +30,10 @@ export default function MelaminasGestion() {
   const [modalOpen, setModalOpen] = useState(false)
   const [guardando, setGuardando] = useState(false)
   const [imagenFile, setImagenFile] = useState<File | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+
+  const cameraInputRef = useRef<HTMLInputElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [form, setForm] = useState({
     id: null as number | null,
@@ -85,7 +89,57 @@ export default function MelaminasGestion() {
       foto_url: ''
     })
     setImagenFile(null)
+    setPreviewUrl(null)
     setModalOpen(true)
+  }
+
+  const procesarImagenCuadrada = (file: File) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const img = new window.Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const size = 600 
+        canvas.width = size
+        canvas.height = size
+        const ctx = canvas.getContext('2d')
+
+        if (!ctx) return
+
+        let sourceWidth = img.width
+        let sourceHeight = img.height
+        let sourceX = 0
+        let sourceY = 0
+
+        if (sourceWidth > sourceHeight) {
+          sourceX = (sourceWidth - sourceHeight) / 2
+          sourceWidth = sourceHeight
+        } else {
+          sourceY = (sourceHeight - sourceWidth) / 2
+          sourceHeight = sourceWidth
+        }
+
+        ctx.drawImage(img, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, size, size)
+
+        canvas.toBlob((blob) => {
+          if (blob) {
+            const croppedFile = new File([blob], `cropped_${Date.now()}.jpg`, { type: 'image/jpeg' })
+            setImagenFile(croppedFile)
+            setPreviewUrl(URL.createObjectURL(croppedFile))
+          }
+        }, 'image/jpeg', 0.9)
+      }
+      if (e.target?.result) {
+        img.src = e.target.result as string
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      procesarImagenCuadrada(e.target.files[0])
+    }
   }
 
   const guardarMelamina = async () => {
@@ -166,7 +220,6 @@ export default function MelaminasGestion() {
   return (
     <div className="min-h-screen bg-[#f4f6f9]" style={{ fontFamily: 'Arial, sans-serif' }}>
       
-      {/* NAVBAR */}
       <nav className="flex justify-between items-center px-6 md:px-10 py-4 bg-[#001f3f] text-white sticky top-0 z-50 shadow-md border-b border-[#D4AF37]/30">
         <div className="flex items-center gap-4">
           <a href="/sistema" className="font-bold text-xl text-white tracking-wide">Muebless is Better</a>
@@ -179,7 +232,6 @@ export default function MelaminasGestion() {
 
       <div className="max-w-7xl mx-auto p-4 md:p-8">
         
-        {/* ENCABEZADO Y CONTROLES */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 bg-white p-6 rounded-3xl shadow-xs border border-gray-100">
           <div>
             <h1 className="text-2xl font-bold text-[#001f3f]">Inventario de Melaminas</h1>
@@ -189,7 +241,7 @@ export default function MelaminasGestion() {
             <div className="relative flex-grow sm:w-72">
               <Search className="absolute left-3.5 top-3 h-4 w-4 text-gray-400" />
               <input 
-                placeholder="Buscar código, detalle..." 
+                placeholder="Buscar código, detalle..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10 pr-4 py-2.5 w-full bg-[#f4f6f9] border border-gray-200 rounded-2xl text-xs md:text-sm focus:ring-2 focus:ring-[#D4AF37]/20 focus:border-[#D4AF37] outline-none transition"
@@ -201,10 +253,8 @@ export default function MelaminasGestion() {
           </div>
         </div>
 
-        {/* CONTENEDOR ADAPTABLE (TABLA EN ESCRITORIO / TARJETAS EN MÓVIL) */}
         <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden">
           
-          {/* Vista de Tabla para Escritorio */}
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
@@ -244,7 +294,7 @@ export default function MelaminasGestion() {
                       <td className="p-4 text-right text-xs font-extrabold text-emerald-600">Bs. {item.precio_cotizador?.toFixed(2) || '0.00'}</td>
                       <td className="p-4">
                         <div className="flex justify-center gap-1.5">
-                          <button onClick={() => { setForm({...item, precio_compra: item.precio_compra?.toString() || '', precio_cotizador: item.precio_cotizador?.toString() || '', foto_url: item.foto_url || ''} as any); setImagenFile(null); setModalOpen(true); }} className="p-2 text-amber-600 hover:bg-amber-50 rounded-xl transition"><Edit size={16} /></button>
+                          <button onClick={() => { setForm({...item, precio_compra: item.precio_compra?.toString() || '', precio_cotizador: item.precio_cotizador?.toString() || '', foto_url: item.foto_url || ''} as any); setImagenFile(null); setPreviewUrl(null); setModalOpen(true); }} className="p-2 text-amber-600 hover:bg-amber-50 rounded-xl transition"><Edit size={16} /></button>
                           <button onClick={() => eliminarMelamina(item.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition"><Trash2 size={16} /></button>
                         </div>
                       </td>
@@ -255,7 +305,6 @@ export default function MelaminasGestion() {
             </table>
           </div>
 
-          {/* Vista de Tarjetas para Móvil (Optimizado y Responsivo) */}
           <div className="block md:hidden divide-y divide-gray-100">
             {filtrados.length > 0 ? (
               filtrados.map((item) => {
@@ -282,7 +331,7 @@ export default function MelaminasGestion() {
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <button 
-                          onClick={() => { setForm({...item, precio_compra: item.precio_compra?.toString() || '', precio_cotizador: item.precio_cotizador?.toString() || '', foto_url: item.foto_url || ''} as any); setImagenFile(null); setModalOpen(true); }} 
+                          onClick={() => { setForm({...item, precio_compra: item.precio_compra?.toString() || '', precio_cotizador: item.precio_cotizador?.toString() || '', foto_url: item.foto_url || ''} as any); setImagenFile(null); setPreviewUrl(null); setModalOpen(true); }} 
                           className="p-2 text-amber-600 hover:bg-amber-50 rounded-xl transition"
                         >
                           <Edit size={16} />
@@ -328,8 +377,8 @@ export default function MelaminasGestion() {
 
       {modalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl border border-gray-100">
-            <div className="p-6 border-b bg-gradient-to-r from-gray-50 to-white flex justify-between items-center">
+          <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl border border-gray-100 max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b bg-gradient-to-r from-gray-50 to-white flex justify-between items-center sticky top-0 z-10">
               <h3 className="text-base font-bold text-[#001f3f]">{form.id ? 'Editar Melamina' : 'Nueva Melamina'}</h3>
               <button onClick={() => setModalOpen(false)} className="text-gray-400 hover:text-gray-600 text-2xl font-bold">&times;</button>
             </div>
@@ -372,19 +421,57 @@ export default function MelaminasGestion() {
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-[11px] font-bold text-gray-400 uppercase mb-1">Imagen del Color</label>
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                  {form.foto_url && !imagenFile && (
-                    <img src={form.foto_url} alt="Vista previa" className="w-16 h-16 object-cover rounded-2xl border shadow-xs shrink-0" />
-                  )}
-                  <div className="w-full">
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      onChange={e => e.target.files && setImagenFile(e.target.files[0])} 
-                      className="w-full text-xs text-gray-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-[#001f3f]/5 file:text-[#001f3f] hover:file:bg-[#001f3f]/10 cursor-pointer" 
-                    />
-                    <p className="text-[10px] text-gray-400 mt-1">Puedes elegir una imagen de tus archivos/galería o tomar una foto directamente con la cámara.</p>
+                <label className="block text-[11px] font-bold text-gray-400 uppercase mb-1">Imagen del Color (Recorte Cuadrado)</label>
+                
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  capture="environment" 
+                  ref={cameraInputRef} 
+                  onChange={handleFileChange} 
+                  className="hidden" 
+                />
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  ref={fileInputRef} 
+                  onChange={handleFileChange} 
+                  className="hidden" 
+                />
+
+                <div className="flex flex-col sm:flex-row items-center gap-4 bg-gray-50 p-4 rounded-2xl border border-gray-200">
+                  <div className="shrink-0">
+                    {previewUrl ? (
+                      <img src={previewUrl} alt="Vista previa recortada" className="w-20 h-20 object-cover rounded-xl border-2 border-[#D4AF37] shadow-sm" />
+                    ) : form.foto_url ? (
+                      <img src={form.foto_url} alt="Actual" className="w-20 h-20 object-cover rounded-xl border border-gray-300 shadow-sm" />
+                    ) : (
+                      <div className="w-20 h-20 bg-white rounded-xl flex items-center justify-center text-gray-300 border border-dashed border-gray-300">
+                        <ImageIcon size={28}/>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col gap-2 w-full">
+                    <div className="flex gap-2">
+                      <button 
+                        type="button" 
+                        onClick={() => cameraInputRef.current?.click()}
+                        className="flex-1 bg-[#001f3f] text-[#D4AF37] py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs hover:bg-opacity-90 transition"
+                      >
+                        <Camera size={14} /> Tomar Foto
+                      </button>
+                      <button 
+                        type="button" 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex-1 bg-white border border-gray-300 text-[#001f3f] py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs hover:bg-gray-100 transition"
+                      >
+                        <Upload size={14} /> Subir Archivo
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-gray-500 text-center sm:text-left">
+                      La imagen se ajustará automáticamente a formato cuadrado para mantener el orden en el inventario.
+                    </p>
                   </div>
                 </div>
               </div>
