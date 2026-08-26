@@ -29,7 +29,7 @@ export default function Sistema() {
     const carnetGuardado = localStorage.getItem('carnet')
     if (!carnetGuardado) { window.location.replace('/'); return }
 
-    // 1. Cargar datos del usuario actual
+    // 1. Cargar datos del usuario actual[cite: 3]
     supabase.from('personal').select('*, cargos(*)')
       .eq('carnet', carnetGuardado)
       .eq('estado', true)
@@ -43,7 +43,7 @@ export default function Sistema() {
 
         const esAdminUser = userData?.cargos?.es_admin === true
 
-        // 2. Verificar si el usuario es un vendedor activo asignado
+        // 2. Verificar si el usuario es un vendedor activo asignado[cite: 3]
         const { data: vendedorData } = await supabase.from('vendedores')
           .select('id')
           .or(`personal_id.eq.${userData.id},ci.eq.${userData.carnet}`)
@@ -54,7 +54,7 @@ export default function Sistema() {
         setEsVendedorAsignado(tieneVentasAsignadas)
         setLoading(false)
 
-        // 3. Si tiene permisos o ventas asignadas, calcular métricas y podio
+        // 3. Si tiene permisos o ventas asignadas, calcular métricas y podio[cite: 3]
         if (tieneVentasAsignadas) {
           calcularMetricasYPodio()
         }
@@ -67,7 +67,7 @@ export default function Sistema() {
         const mesAnteriorStr = getMesAnterior(mesActualStr)
         const { inicio: iniAnt, fin: finAnt } = getRangoFechas(mesAnteriorStr)
 
-        // Cargar vendedores activos y registros de personal en paralelo
+        // Cargar vendedores activos y registros de personal en paralelo[cite: 3]
         const [{ data: vends }, { data: personalList }] = await Promise.all([
           supabase.from('vendedores').select('id, nombre, personal_id, ci').eq('activo', true),
           supabase.from('personal').select('id, carnet, foto_url')
@@ -87,14 +87,14 @@ export default function Sistema() {
           mapaVendedores[v.id] = { id: v.id, nombre: v.nombre, foto, vendido: 0, cobrado: 0, pedidos: 0 }
         })
 
-        // Obtener ventas del mes anterior con estado activo (> 0)
+        // Obtener ventas del mes anterior con estado activo (> 0)[cite: 3]
         const { data: ventasAnterior } = await supabase.from('ventas')
           .select('id, cod_venta, cod_vendedor, total_venta, anticipo, fecha_pedido')
           .gte('fecha_pedido', iniAnt)
           .lte('fecha_pedido', finAnt)
           .gt('estado', 0)
 
-        // Obtener cobranzas del mes anterior vinculadas a los vendedores
+        // Obtener cobranzas del mes anterior vinculadas a los vendedores[cite: 3]
         const { data: cobrosAnterior } = await supabase.from('cobranzas')
           .select('cod_venta, total_cobrado, ventas!inner(cod_vendedor)')
           .gte('created_at', `${iniAnt}T00:00:00`)
@@ -132,7 +132,7 @@ export default function Sistema() {
     }
   }, [])
 
-  // Estilo mejorado para las tarjetas de opciones con bordes dorados sutiles y fondo traslúcido
+  // Estilo mejorado para las tarjetas de opciones con bordes dorados sutiles y fondo traslúcido[cite: 3]
   const cardStyle: React.CSSProperties = { 
     backgroundColor: 'rgba(255, 255, 255, 0.95)', 
     borderRadius: '16px', 
@@ -180,11 +180,12 @@ export default function Sistema() {
         </div>
       </nav>
 
-      {/* MENÚ HAMBURGUESA LATERAL */}
+      {/* MENÚ HAMBURGUESA LATERAL (Con acceso añadido a Paletas Automáticas) */}
       <div style={{ position: 'fixed', top: 0, left: isMenuOpen ? 0 : '-250px', height: '100%', width: '250px', backgroundColor: '#001f3f', transition: '0.3s', padding: '80px 20px', zIndex: 900, boxShadow: '2px 0 10px rgba(0,0,0,0.3)' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <a href="/cotizador" style={{ color: '#D4AF37', textDecoration: 'none', fontSize: '18px', borderBottom: '1px solid rgba(212, 175, 55, 0.3)', paddingBottom: '10px' }}>⚡ Cotizador</a>
           <a href="/productos" style={{ color: '#D4AF37', textDecoration: 'none', fontSize: '18px', borderBottom: '1px solid rgba(212, 175, 55, 0.3)', paddingBottom: '10px' }}>📦 Productos</a>
+          <a href="/paletas" style={{ color: '#D4AF37', textDecoration: 'none', fontSize: '18px', borderBottom: '1px solid rgba(212, 175, 55, 0.3)', paddingBottom: '10px' }}>🎨 Paletas</a>
           {(esAdmin || !!usuario?.cargos?.puede_ver_entregas || !!usuario?.cargos?.puede_gestionar_encargado_delivery) && (
             <a href="/deliverys" style={{ color: '#D4AF37', textDecoration: 'none', fontSize: '18px', borderBottom: '1px solid rgba(212, 175, 55, 0.3)', paddingBottom: '10px' }}>🚚 Deliverys</a>
           )}
@@ -195,14 +196,14 @@ export default function Sistema() {
         <h1 style={{ marginBottom: '8px', color: '#001f3f', fontWeight: '700' }}>Bienvenido de vuelta, {nombreMostrar.split(' ')[0]} 👋</h1>
         <p style={{ color: '#555', marginBottom: '30px', fontWeight: '500' }}>{usuario?.cargos?.nombre}</p>
 
-        {/* WIDGET DE PROGRESIÓN PERSONAL */}
+        {/* WIDGET DE PROGRESIÓN PERSONAL[cite: 3] */}
         {esVendedorAsignado && <ProgresoWidget />}
 
         {/* ── SECCIÓN PODIO COMERCIAL ── */}
         {esVendedorAsignado && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '40px' }}>
             
-            {/* 1ER LUGAR (ORO) */}
+            {/* 1ER LUGAR (ORO)[cite: 3] */}
             <div style={{
               background: 'linear-gradient(135deg, #001f3f 0%, #003366 100%)',
               borderRadius: '16px',
@@ -239,7 +240,7 @@ export default function Sistema() {
               </div>
             </div>
 
-            {/* 2DO LUGAR (PLATA) */}
+            {/* 2DO LUGAR (PLATA)[cite: 3] */}
             <div style={{
               background: 'linear-gradient(135deg, #001f3f 0%, #1c2a38 100%)',
               borderRadius: '16px',
@@ -279,7 +280,7 @@ export default function Sistema() {
           </div>
         )}
 
-        {/* GRILLA DE OPCIONES DEL SISTEMA (Botones estilizados) */}
+        {/* GRILLA DE OPCIONES DEL SISTEMA[cite: 3] */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
           <a href="/perfil" style={cardStyle}><div style={{ fontSize: '38px', marginBottom: '10px' }}>👤</div><h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Mi Perfil</h3></a>
           <a href="/clientes" style={cardStyle}><div style={{ fontSize: '38px', marginBottom: '10px' }}>👥</div><h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Clientes</h3></a>
@@ -356,6 +357,35 @@ export default function Sistema() {
           )}
         </div>
       </div>
+
+      {/* BOTÓN FLOTANTE PARA ACCEDER RÁPIDAMENTE A LAS PALETAS */}
+      <a 
+        href="/paletas" 
+        style={{
+          position: 'fixed',
+          bottom: '25px',
+          right: '25px',
+          backgroundColor: '#001f3f',
+          color: '#D4AF37',
+          borderRadius: '50px',
+          padding: '12px 22px',
+          boxShadow: '0 6px 20px rgba(0,0,0,0.3)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          textDecoration: 'none',
+          fontWeight: 'bold',
+          fontSize: '14px',
+          zIndex: 999,
+          border: '2px solid #D4AF37',
+          transition: 'transform 0.2s ease'
+        }}
+        onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+      >
+        <span style={{ fontSize: '18px' }}>🎨</span> Paletas de colores
+      </a>
+
     </div>
   )
 }
