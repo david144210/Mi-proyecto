@@ -15,6 +15,7 @@ interface ItemStock {
   detalle: string
   cantidad: number
   categoria: 'melamina' | 'accesorio' | 'acero' | 'insumo'
+  created_at?: string
 }
 
 interface RetazoMelamina {
@@ -25,6 +26,7 @@ interface RetazoMelamina {
   largo_cm: number
   ancho_cm: number
   cantidad: number
+  created_at?: string
 }
 
 interface ItemCatalogo {
@@ -147,7 +149,8 @@ export default function GestorAlmacenes() {
           codigo,
           detalle: catalogoMap[String(codigo)] || 'Sin descripción',
           cantidad: Number(item.cantidad) || 0,
-          categoria: categoria as any
+          categoria: categoria as any,
+          created_at: item.created_at
         }
       })
 
@@ -163,7 +166,6 @@ export default function GestorAlmacenes() {
   const cargarRetazosSucursal = async (sucursalId: number) => {
     setLoading(true)
     try {
-      // Cargamos catálogo de melaminas para mapear el nombre/detalle del color
       const { data: catData } = await supabase.from('melaminas').select('*')
       const catalogoMap = Object.fromEntries(
         (catData || []).map(item => [
@@ -192,7 +194,8 @@ export default function GestorAlmacenes() {
         detalle: catalogoMap[String(r.codigo_melamina)] || 'Sin descripción',
         largo_cm: Number(r.largo_cm) || 0,
         ancho_cm: Number(r.ancho_cm) || 0,
-        cantidad: Number(r.cantidad) || 0
+        cantidad: Number(r.cantidad) || 0,
+        created_at: r.created_at
       }))
 
       setRetazos(retazosMapeados)
@@ -337,7 +340,7 @@ export default function GestorAlmacenes() {
 
   // ELIMINAR RETAZO
   const eliminarRetazo = async (retazo: RetazoMelamina) => {
-    if (!confirm(`¿Eliminar este retazo de ${retazo.largo_cm}x${retazo.ancho_cm} cm?`)) return
+    if (!confirm(`¿Eliminar este retazo de ${retazo.largo_cm}x{retazo.ancho_cm} cm?`)) return
     await supabase.from('retazos_melaminas').delete().eq('id', retazo.id)
     setRetazos(retazos.filter(r => r.id !== retazo.id))
   }
@@ -497,13 +500,14 @@ export default function GestorAlmacenes() {
                     <th style={{ padding: '10px', textAlign: 'center' }}>Largo (cm)</th>
                     <th style={{ padding: '10px', textAlign: 'center' }}>Ancho (cm)</th>
                     <th style={{ padding: '10px', textAlign: 'center' }}>Piezas Disponibles</th>
+                    <th style={{ padding: '10px', textAlign: 'center' }}>Fecha de Ingreso</th>
                     <th style={{ padding: '10px', textAlign: 'center' }}>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
                   {retazosFiltrados.length === 0 ? (
                     <tr>
-                      <td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: '#94a3b8' }}>
+                      <td colSpan={7} style={{ textAlign: 'center', padding: '30px', color: '#94a3b8' }}>
                         No hay retazos registrados con medidas para esta sucursal.
                       </td>
                     </tr>
@@ -515,6 +519,9 @@ export default function GestorAlmacenes() {
                         <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold' }}>{r.largo_cm} cm</td>
                         <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold' }}>{r.ancho_cm} cm</td>
                         <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold', color: '#16a34a', fontSize: '14px' }}>{r.cantidad}</td>
+                        <td style={{ padding: '10px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
+                          {r.created_at ? new Date(r.created_at).toLocaleDateString() : '-'}
+                        </td>
                         <td style={{ padding: '10px', textAlign: 'center', display: 'flex', justifyContent: 'center', gap: '8px' }}>
                           <button
                             onClick={() => {
@@ -547,13 +554,14 @@ export default function GestorAlmacenes() {
                     <th style={{ padding: '10px', textAlign: 'left' }}>Código</th>
                     <th style={{ padding: '10px', textAlign: 'left' }}>Detalle / Descripción</th>
                     <th style={{ padding: '10px', textAlign: 'center' }}>Stock Actual</th>
+                    <th style={{ padding: '10px', textAlign: 'center' }}>Fecha de Ingreso</th>
                     <th style={{ padding: '10px', textAlign: 'center' }}>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
                   {inventarioFiltrado.length === 0 ? (
                     <tr>
-                      <td colSpan={4} style={{ textAlign: 'center', padding: '30px', color: '#94a3b8' }}>
+                      <td colSpan={5} style={{ textAlign: 'center', padding: '30px', color: '#94a3b8' }}>
                         No hay registros de inventario en esta categoría.
                       </td>
                     </tr>
@@ -564,6 +572,9 @@ export default function GestorAlmacenes() {
                         <td style={{ padding: '10px', color: '#334155' }}>{item.detalle}</td>
                         <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold', color: item.cantidad > 0 ? '#16a34a' : '#dc2626', fontSize: '14px' }}>
                           {item.cantidad}
+                        </td>
+                        <td style={{ padding: '10px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
+                          {item.created_at ? new Date(item.created_at).toLocaleDateString() : '-'}
                         </td>
                         <td style={{ padding: '10px', textAlign: 'center', display: 'flex', justifyContent: 'center', gap: '8px' }}>
                           <button

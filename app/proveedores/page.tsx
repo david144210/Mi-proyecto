@@ -11,6 +11,7 @@ interface Proveedor {
   email: string
   direccion: string
   categoria: string
+  ciudad: string | null
 }
 
 export default function GestorProveedores() {
@@ -25,6 +26,7 @@ export default function GestorProveedores() {
   const [email, setEmail] = useState('')
   const [direccion, setDireccion] = useState('')
   const [categoria, setCategoria] = useState('Melamina y Tableros')
+  const [ciudad, setCiudad] = useState('Cochabamba')
 
   const [busqueda, setBusqueda] = useState('')
 
@@ -62,7 +64,8 @@ export default function GestorProveedores() {
         telefono,
         email,
         direccion,
-        categoria
+        categoria,
+        ciudad
       }
     ])
 
@@ -77,6 +80,7 @@ export default function GestorProveedores() {
       setEmail('')
       setDireccion('')
       setCategoria('Melamina y Tableros')
+      setCiudad('Cochabamba')
       cargarProveedores()
     }
     setGuardando(false)
@@ -97,7 +101,8 @@ export default function GestorProveedores() {
   const proveedoresFiltrados = proveedores.filter(p =>
     p.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
     (p.nit && p.nit.includes(busqueda)) ||
-    (p.categoria && p.categoria.toLowerCase().includes(busqueda.toLowerCase()))
+    (p.categoria && p.categoria.toLowerCase().includes(busqueda.toLowerCase())) ||
+    (p.ciudad && p.ciudad.toLowerCase().includes(busqueda.toLowerCase()))
   )
 
   return (
@@ -129,6 +134,19 @@ export default function GestorProveedores() {
                 style={{ width: '100%', padding: '10px', border: '1px solid #ccc', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
                 required 
               />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#333', marginBottom: '5px' }}>Ciudad / Sucursal Geográfica *</label>
+              <select 
+                value={ciudad} 
+                onChange={(e) => setCiudad(e.target.value)}
+                style={{ width: '100%', padding: '10px', border: '1px solid #ccc', borderRadius: '6px', fontSize: '13px', backgroundColor: 'white', boxSizing: 'border-box' }}
+              >
+                <option value="Cochabamba">Cochabamba</option>
+                <option value="Santa Cruz">Santa Cruz</option>
+                <option value="El Alto - La Paz">El Alto - La Paz</option>
+              </select>
             </div>
 
             <div>
@@ -181,12 +199,12 @@ export default function GestorProveedores() {
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#333', marginBottom: '5px' }}>Dirección / Ubicación</label>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#333', marginBottom: '5px' }}>Dirección / Ubicación específica</label>
               <input 
                 type="text" 
                 value={direccion} 
                 onChange={(e) => setDireccion(e.target.value)} 
-                placeholder="Ej. Av. 6 de Marzo #123"
+                placeholder="Ej. Av. Blanco Galindo km 4"
                 style={{ width: '100%', padding: '10px', border: '1px solid #ccc', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
               />
             </div>
@@ -217,10 +235,10 @@ export default function GestorProveedores() {
             <h2 style={{ fontSize: '18px', color: '#0B1E36', margin: 0 }}>Directorio de Proveedores ({proveedores.length})</h2>
             <input 
               type="text" 
-              placeholder="Buscar por nombre, NIT o categoría..." 
+              placeholder="Buscar por nombre, NIT, categoría o ciudad..." 
               value={busqueda} 
               onChange={(e) => setBusqueda(e.target.value)}
-              style={{ padding: '8px 12px', border: '1px solid #ccc', borderRadius: '6px', fontSize: '13px', width: '250px' }}
+              style={{ padding: '8px 12px', border: '1px solid #ccc', borderRadius: '6px', fontSize: '13px', width: '280px' }}
             />
           </div>
 
@@ -235,6 +253,7 @@ export default function GestorProveedores() {
               <thead>
                 <tr style={{ backgroundColor: '#f1f5f9', color: '#0B1E36' }}>
                   <th style={{ padding: '10px', textAlign: 'left' }}>Proveedor / Razón Social</th>
+                  <th style={{ padding: '10px', textAlign: 'left' }}>Ubicación (Ciudad)</th>
                   <th style={{ padding: '10px', textAlign: 'left' }}>NIT</th>
                   <th style={{ padding: '10px', textAlign: 'left' }}>Contacto</th>
                   <th style={{ padding: '10px', textAlign: 'left' }}>Categoría</th>
@@ -246,7 +265,12 @@ export default function GestorProveedores() {
                   <tr key={prov.id} style={{ borderBottom: '1px solid #eee' }}>
                     <td style={{ padding: '10px' }}>
                       <strong style={{ fontSize: '13px', color: '#0B1E36' }}>{prov.nombre}</strong><br/>
-                      <span style={{ color: '#555' }}>{prov.direccion || 'Sin dirección'}</span>
+                      <span style={{ color: '#555' }}>{prov.direccion || 'Sin dirección específica'}</span>
+                    </td>
+                    <td style={{ padding: '10px' }}>
+                      <span style={{ backgroundColor: '#eff6ff', color: '#1d4ed8', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}>
+                        📍 {prov.ciudad || 'No definida'}
+                      </span>
                     </td>
                     <td style={{ padding: '10px' }}>{prov.nit || 'S/N'}</td>
                     <td style={{ padding: '10px' }}>
