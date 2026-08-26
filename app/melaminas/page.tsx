@@ -371,24 +371,23 @@ export default function MelaminasGestion() {
                 <input type="number" value={form.precio_cotizador} onChange={e => setForm({...form, precio_cotizador: e.target.value})} className="w-full p-3 border border-gray-200 rounded-2xl font-bold text-emerald-600 text-xs md:text-sm focus:border-[#D4AF37]" />
               </div>
 
-<div className="md:col-span-2">
-  <label className="block text-[11px] font-bold text-gray-400 uppercase mb-1">Imagen del Color</label>
-  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-    {form.foto_url && !imagenFile && (
-      <img src={form.foto_url} alt="Vista previa" className="w-16 h-16 object-cover rounded-2xl border shadow-xs shrink-0" />
-    )}
-    <div className="w-full">
-      <input 
-        type="file" 
-        accept="image/*" 
-        capture="environment" // 👈 Esto abre la cámara directamente en dispositivos móviles
-        onChange={e => e.target.files && setImagenFile(e.target.files[0])} 
-        className="w-full text-xs text-gray-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-[#001f3f]/5 file:text-[#001f3f] hover:file:bg-[#001f3f]/10 cursor-pointer" 
-      />
-      <p className="text-[10px] text-gray-400 mt-1">Puedes tomar una fotografía directa del material o seleccionar una imagen guardada.</p>
-    </div>
-  </div>
-</div>
+              <div className="md:col-span-2">
+                <label className="block text-[11px] font-bold text-gray-400 uppercase mb-1">Imagen del Color</label>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                  {form.foto_url && !imagenFile && (
+                    <img src={form.foto_url} alt="Vista previa" className="w-16 h-16 object-cover rounded-2xl border shadow-xs shrink-0" />
+                  )}
+                  <div className="w-full">
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      onChange={e => e.target.files && setImagenFile(e.target.files[0])} 
+                      className="w-full text-xs text-gray-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-[#001f3f]/5 file:text-[#001f3f] hover:file:bg-[#001f3f]/10 cursor-pointer" 
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">Puedes elegir una imagen de tus archivos/galería o tomar una foto directamente con la cámara.</p>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="p-6 bg-gray-50 flex gap-3 justify-end border-t border-gray-100">
