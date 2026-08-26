@@ -73,7 +73,6 @@ export default function GestorPresupuestosWorkflow() {
     }
 
     const inicializarDatos = async () => {
-      // 1. Cargar sucursales reales de la BD
       const { data: sucData } = await supabase.from('sucursales').select('nombre')
       if (sucData && sucData.length > 0) {
         const nombres = sucData.map(s => s.nombre)
@@ -81,7 +80,6 @@ export default function GestorPresupuestosWorkflow() {
         setTallerAsignacionTemp(nombres[0])
       }
 
-      // 2. Cargar usuario
       const { data: userData } = await supabase
         .from('personal')
         .select('*, cargos(*)')
@@ -154,43 +152,10 @@ export default function GestorPresupuestosWorkflow() {
     }
   }
 
-  // Consulta el stock real de la sucursal/taller específica en Supabase
-  const obtenerStockRealSucursal = async (codigo: string, tallerDestino: string): Promise<number> => {
-    try {
-      const { data: sucursalData } = await supabase
-        .from('sucursales')
-        .select('id')
-        .eq('nombre', tallerDestino)
-        .maybeSingle()
-
-      if (!sucursalData) return 0
-      const sucursalId = sucursalData.id
-
-      const [stockMel, stockAcc, stockAce, stockIns] = await Promise.all([
-        supabase.from('stock_melaminas').select('cantidad').eq('sucursal_id', sucursalId).eq('codigo_melamina', codigo).maybeSingle(),
-        supabase.from('stock_accesorios').select('cantidad').eq('sucursal_id', sucursalId).eq('codigo_accesorio', codigo).maybeSingle(),
-        supabase.from('stock_aceros').select('cantidad').eq('sucursal_id', sucursalId).eq('codigo_acero', codigo).maybeSingle(),
-        supabase.from('stock_insumos').select('cantidad').eq('sucursal_id', sucursalId).eq('codigo_insumos', codigo).maybeSingle(),
-      ])
-
-      return Number(
-        stockMel.data?.cantidad ||
-        stockAcc.data?.cantidad ||
-        stockAce.data?.cantidad ||
-        stockIns.data?.cantidad || 0
-      )
-    } catch (error) {
-      console.error("Error consultando stock de sucursal:", error)
-      return 0
-    }
-  }
-
-  // ➔ DESCUENTO AUTOMÁTICO DE INVENTARIO EN ALMACENES AL APROBAR
+  // ➔ DESCUENTO AUTOMÁTICO DE INVENTARIO Y RETAZOS EN ALMACENES AL APROBAR
   const descontarStockAlmacenes = async () => {
     try {
       for (const m of materialesLote) {
-        if (m.stockActual <= 0) continue
-
         const { data: sucData } = await supabase
           .from('sucursales')
           .select('id')
@@ -199,30 +164,69 @@ export default function GestorPresupuestosWorkflow() {
 
         if (!sucData) continue
         const sucursalId = sucData.id
-        const cantidadADescontar = m.stockActual
 
-        const tablasStock = [
-          { tabla: 'stock_melaminas', col: 'codigo_melamina' },
-          { tabla: 'stock_accesorios', col: 'codigo_accesorio' },
-          { tabla: 'stock_aceros', col: 'codigo_acero' },
-          { tabla: 'stock_insumos', col: 'codigo_insumos' }
-        ]
+        // Si es melamina, descontar de retazos_melaminas basándose en stockActual
+        if (m.detalle.startsWith('[Melamina]')) {
+          let cantidadADescontar = m.stockActual
+          if (cantidadADescontar > 0) {
+            const matchMedidas = m.detalle.match(/Medidas:\s*([\d.]+)\s*x\s*([\d.]+)\s*cm/)
+            if (matchMedidas) {
+              const largoReq = parseFloat(matchMedidas[1])
+              const anchoReq = parseFloat(matchMedidas[2])
 
-        for (const t of tablasStock) {
-          const { data: registro } = await supabase
-            .from(t.tabla)
-            .select('id, cantidad')
-            .eq('sucursal_id', sucursalId)
-            .eq(t.col, m.codigo)
-            .maybeSingle()
+              const { data: retazos } = await supabase
+                .from('retazos_melaminas')
+                .select('id, cantidad')
+                .eq('sucursal_id', sucursalId)
+                .eq('codigo_melamina', m.codigo)
+                .gte('largo_cm', largoReq)
+                .gte('ancho_cm', anchoReq)
+                .order('largo_cm', { ascending: true })
 
-          if (registro) {
-            const nuevaCantidad = Math.max(0, Number(registro.cantidad) - Number(cantidadADescontar))
-            await supabase
+              if (retazos) {
+                let restanteADescontar = cantidadADescontar
+                for (const ret of retazos) {
+                  if (restanteADescontar <= 0) break
+                  const tomar = Math.min(ret.cantidad, restanteADescontar)
+                  const nuevaCantidad = ret.cantidad - tomar
+                  restanteADescontar -= tomar
+
+                  if (nuevaCantidad <= 0) {
+                    await supabase.from('retazos_melaminas').delete().eq('id', ret.id)
+                  } else {
+                    await supabase.from('retazos_melaminas').update({ cantidad: nuevaCantidad }).eq('id', ret.id)
+                  }
+                }
+              }
+            }
+          }
+        } else {
+          // Para aceros, accesorios, insumos, etc.
+          const cantidadADescontar = m.stockActual
+          if (cantidadADescontar <= 0) continue
+
+          const tablasStock = [
+            { tabla: 'stock_accesorios', col: 'codigo_accesorio' },
+            { tabla: 'stock_aceros', col: 'codigo_acero' },
+            { tabla: 'stock_insumos', col: 'codigo_insumos' }
+          ]
+
+          for (const t of tablasStock) {
+            const { data: registro } = await supabase
               .from(t.tabla)
-              .update({ cantidad: nuevaCantidad })
-              .eq('id', registro.id)
-            break
+              .select('id, cantidad')
+              .eq('sucursal_id', sucursalId)
+              .eq(t.col, m.codigo)
+              .maybeSingle()
+
+            if (registro) {
+              const nuevaCantidad = Math.max(0, Number(registro.cantidad) - Number(cantidadADescontar))
+              await supabase
+                .from(t.tabla)
+                .update({ cantidad: nuevaCantidad })
+                .eq('id', registro.id)
+              break
+            }
           }
         }
       }
@@ -357,6 +361,14 @@ export default function GestorPresupuestosWorkflow() {
 
     const materiales: MaterialPresupuesto[] = []
 
+    // Obtener id de la sucursal/taller destino
+    const { data: sucursalData } = await supabase
+      .from('sucursales')
+      .select('id')
+      .eq('nombre', tallerDestino)
+      .maybeSingle()
+    const sucursalId = sucursalData?.id
+
     if (resAceros.data) {
       for (const item of resAceros.data) {
         const codigo = item.codigo_acero
@@ -384,6 +396,7 @@ export default function GestorPresupuestosWorkflow() {
       }
     }
 
+    // ➔ BUSCAR RETAZOS DE MELAMINA EN ALMACÉN AUTOMÁTICAMENTE
     if (resMelaminas.data) {
       for (const item of resMelaminas.data) {
         const codigo = item.codigo_melamina
@@ -393,8 +406,32 @@ export default function GestorPresupuestosWorkflow() {
         const ancho = Number(item.ancho_cm || 0)
         const precioCotizador = Number(item.melaminas?.precio_cotizador || 0)
 
+        let stockEnAlmacen = 0
+        if (sucursalId) {
+          const { data: retazos } = await supabase
+            .from('retazos_melaminas')
+            .select('id, cantidad, largo_cm, ancho_cm')
+            .eq('sucursal_id', sucursalId)
+            .eq('codigo_melamina', codigo)
+            .gte('largo_cm', largo)
+            .gte('ancho_cm', ancho)
+            .order('largo_cm', { ascending: true })
+
+          if (retazos) {
+            let acumuladoStock = 0
+            for (const ret of retazos) {
+              if (acumuladoStock < reqTotal) {
+                const tomar = Math.min(ret.cantidad, reqTotal - acumuladoStock)
+                acumuladoStock += tomar
+              }
+            }
+            stockEnAlmacen = acumuladoStock
+          }
+        }
+
+        const cantidadComprar = Math.max(0, reqTotal - stockEnAlmacen)
         const precioUnitarioMelamina = Number(((largo / 100) * (ancho / 100) * precioCotizador).toFixed(2))
-        const subtotalEst = Number((reqTotal * precioUnitarioMelamina).toFixed(2))
+        const subtotalEst = Number((cantidadComprar * precioUnitarioMelamina).toFixed(2))
 
         materiales.push({
           id_fila: Math.random().toString(36).substr(2, 9),
@@ -402,8 +439,8 @@ export default function GestorPresupuestosWorkflow() {
           codigo,
           detalle: `[Melamina] ${item.melaminas?.detalle || item.descripcion || codigo} - Medidas: ${largo} x ${ancho} cm`,
           cantidadReq: reqTotal,
-          stockActual: 0,
-          cantidadComprar: reqTotal,
+          stockActual: stockEnAlmacen,
+          cantidadComprar,
           precioUnitario: precioUnitarioMelamina,
           gastoReal: subtotalEst,
           tipo: 'variante',
@@ -629,29 +666,6 @@ export default function GestorPresupuestosWorkflow() {
   }
 
   const cambiarEstadoWorkflow = async (nuevoEstado: EstadoWorkflow) => {
-    if (nuevoEstado === 'revision_taller') {
-      setLoading(true)
-      const materialesActualizados = await Promise.all(
-        materialesLote.map(async (m) => {
-          const stockReal = await obtenerStockRealSucursal(m.codigo, m.taller_destino || talleresDisponibles[0])
-          const cantidadComprar = Math.max(0, Number((m.cantidadReq - stockReal).toFixed(2)))
-          const gastoReal = Number((cantidadComprar * m.precioUnitario).toFixed(2))
-          return {
-            ...m,
-            stockActual: stockReal,
-            cantidadComprar,
-            gastoReal
-          }
-        })
-      )
-      setMaterialesLote(materialesActualizados)
-      setLoading(false)
-      setEstadoWorkflow(nuevoEstado)
-      await persistirLoteEnBD(nuevoEstado, pedidosSeleccionados, materialesActualizados)
-      return
-    }
-
-    // ➔ DESCUENTO AUTOMÁTICO EN SUPABASE AL APROBAR
     if (nuevoEstado === 'aprobado') {
       setLoading(true)
       await descontarStockAlmacenes()
@@ -710,7 +724,7 @@ export default function GestorPresupuestosWorkflow() {
                 <th>Código</th>
                 <th>Componente y Medidas</th>
                 <th class="text-center">Cant. Req.</th>
-                <th class="text-center">Stock</th>
+                <th class="text-center">Stock Retazos (-)</th>
                 <th class="text-center">A Comprar</th>
                 <th class="text-right">P. Unit. (Bs)</th>
                 <th class="text-right">Subtotal (Bs)</th>
@@ -949,7 +963,7 @@ export default function GestorPresupuestosWorkflow() {
                     <tr style={{ backgroundColor: '#f1f5f9', color: '#0B1E36' }}>
                       <th style={{ padding: '8px', textAlign: 'left' }}>Taller / Código y Detalle</th>
                       <th style={{ padding: '8px', textAlign: 'center' }}>Cant. Req.</th>
-                      <th style={{ padding: '8px', textAlign: 'center', color: '#2563eb' }}>Stock (-)</th>
+                      <th style={{ padding: '8px', textAlign: 'center', color: '#2563eb' }}>Stock / Retazos (-)</th>
                       <th style={{ padding: '8px', textAlign: 'center', color: '#16a34a' }}>A Comprar</th>
                       <th style={{ padding: '8px', textAlign: 'right' }}>P. Unit. (Bs)</th>
                       <th style={{ padding: '8px', textAlign: 'right' }}>Subtotal</th>
@@ -1083,7 +1097,7 @@ export default function GestorPresupuestosWorkflow() {
                     <button onClick={() => cambiarEstadoWorkflow('en_compras')} style={{ backgroundColor: '#d97706', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>➔ Enviar a Compras</button>
                   )}
                   {estadoWorkflow === 'en_compras' && (
-                    <button onClick={() => cambiarEstadoWorkflow('aprobado')} style={{ backgroundColor: '#16a34a', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>💰 Aprobar Lote (Descontar Stock)</button>
+                    <button onClick={() => cambiarEstadoWorkflow('aprobado')} style={{ backgroundColor: '#16a34a', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>💰 Aprobar Lote (Descontar Retazos y Stock)</button>
                   )}
                 </div>
               </div>
