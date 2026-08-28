@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
-import { Loader2, MapPin, Package, Image as ImageIcon, Search, Sparkles, Info, RotateCw } from 'lucide-react'
+import { Loader2, MapPin, Package, Image as ImageIcon, Search, Sparkles, Info, RotateCw, Download } from 'lucide-react'
 
 interface Melamina {
   id: number
@@ -22,7 +22,6 @@ interface Proveedor {
 export default function PaletasAutomaticas() {
   const [usuario, setUsuario] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [accesoDenegado, setAccesoDenegado] = useState(false)
   
   const [melaminas, setMelaminas] = useState<Melamina[]>([])
   const [proveedores, setProveedores] = useState<Proveedor[]>([])
@@ -41,17 +40,15 @@ export default function PaletasAutomaticas() {
       .then(({ data }) => {
         if (!data) { window.location.replace('/'); return }
         setUsuario(data)
-        const puedeVer = data?.cargos?.puede_ver_produccion || data?.cargos?.es_admin
-        if (!puedeVer) setAccesoDenegado(true)
         setLoading(false)
       })
   }, [])
 
   useEffect(() => {
-    if (!loading && !accesoDenegado) {
+    if (!loading) {
       fetchDatosAutomaticos()
     }
-  }, [loading, accesoDenegado])
+  }, [loading])
 
   const fetchDatosAutomaticos = async () => {
     const [resMelaminas, resProveedores] = await Promise.all([
@@ -67,27 +64,36 @@ export default function PaletasAutomaticas() {
     setTarjetasVolteadas(prev => ({ ...prev, [id]: !prev[id] }))
   }
 
-  const nombreMostrar = usuario?.usuario || usuario?.nombre || usuario?.carnet || 'Usuario'
+  const descargarFoto = async (e: React.MouseEvent, url: string | null, detalle: string | null, codigo: string | null) => {
+    e.stopPropagation()
+    if (!url) return
 
-  // Validación para mostrar precios según rol
-  const puedeVerPrecios = usuario?.cargos?.es_admin || usuario?.cargos?.puede_ver_compras
+    try {
+      const response = await fetch(url)
+      const blob = await response.blob()
+      const blobUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = blobUrl
+      const nombreLimpio = (detalle || 'melamina').replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s-_]/g, '').trim()
+      const codigoLimpio = (codigo || 'codigo').replace(/[^a-zA-Z0-9-_]/g, '').trim()
+      link.download = `${nombreLimpio}_${codigoLimpio}.jpg`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(blobUrl)
+    } catch {
+      window.open(url, '_blank')
+    }
+  }
+
+  const nombreMostrar = usuario?.usuario || usuario?.nombre || usuario?.carnet || 'Usuario'
+  const puedeVerPrivado = usuario?.cargos?.es_admin || usuario?.cargos?.puede_ver_compras
 
   if (loading) return (
     <div className="flex h-screen items-center justify-center bg-[#f4f6f9]">
       <div className="flex flex-col items-center gap-3">
         <Loader2 className="animate-spin text-[#D4AF37]" size={48} />
         <p className="text-[#001f3f] font-bold text-sm tracking-wide">Cargando catálogo digital...</p>
-      </div>
-    </div>
-  )
-
-  if (accesoDenegado) return (
-    <div className="flex h-screen items-center justify-center bg-[#f4f6f9]">
-      <div className="text-center p-10 bg-white rounded-3xl shadow-xl border border-red-100 max-w-md">
-        <div className="w-16 h-16 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mx-auto mb-4 text-2xl font-bold">🔒</div>
-        <h2 className="text-2xl font-bold text-[#001f3f] mb-2">Acceso Restringido</h2>
-        <p className="text-sm text-gray-500">No cuentas con los permisos necesarios para visualizar las paletas de producción.</p>
-        <a href="/sistema" className="mt-6 inline-block bg-[#001f3f] text-[#D4AF37] px-6 py-2.5 rounded-xl font-bold text-xs tracking-wider uppercase transition hover:bg-opacity-90">Volver al Sistema</a>
       </div>
     </div>
   )
@@ -117,7 +123,7 @@ export default function PaletasAutomaticas() {
               <Sparkles size={14} /> Exhibición Interactiva
             </div>
             <h1 className="text-2xl font-bold text-[#001f3f]">Catálogo Visual por Sucursal</h1>
-            <p className="text-xs text-gray-500 mt-0.5">Toca cualquier muestra para revelar sus detalles y proveedor.</p>
+            <p className="text-xs text-gray-500 mt-0.5">Toca cualquier muestra para ver detalles o descargar su imagen.</p>
           </div>
           
           <div className="flex items-center gap-4 bg-[#f4f6f9] px-5 py-3 rounded-2xl border border-gray-200">
@@ -223,12 +229,22 @@ export default function PaletasAutomaticas() {
                                 </div>
 
                                 <div className="p-4 flex flex-col justify-between flex-grow bg-white">
-                                  <h3 className="text-sm font-bold text-[#001f3f] line-clamp-2" title={mel.detalle || ''}>
-                                    {mel.detalle || 'Color sin nombre'}
-                                  </h3>
-                                  
-                                  {/* PRECIO SOLO SI TIENE PERMISO */}
-                                  {puedeVerPrecios && (
+                                  <div className="flex items-start justify-between gap-2">
+                                    <h3 className="text-sm font-bold text-[#001f3f] line-clamp-2" title={mel.detalle || ''}>
+                                      {mel.detalle || 'Color sin nombre'}
+                                    </h3>
+                                    {mel.foto_url && (
+                                      <button 
+                                        onClick={(e) => descargarFoto(e, mel.foto_url, mel.detalle, mel.codigo_melamina)} 
+                                        title="Descargar foto"
+                                        className="p-1.5 text-gray-400 hover:text-[#D4AF37] hover:bg-gray-100 rounded-lg transition shrink-0"
+                                      >
+                                        <Download size={16} />
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {puedeVerPrivado && (
                                     <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
                                       <span className="text-[11px] text-gray-400 font-bold uppercase">Cotizador</span>
                                       <span className="text-sm font-extrabold text-emerald-600">
@@ -251,30 +267,43 @@ export default function PaletasAutomaticas() {
                                     {mel.detalle}
                                   </h3>
                                   <div className="space-y-2 text-xs border-t border-white/10 pt-3">
-                                    <div>
-                                      <span className="text-gray-400 text-[10px] block uppercase font-bold">Proveedor</span>
-                                      <span className="text-white font-medium">{mel.proveedor || 'No asignado'}</span>
-                                    </div>
-                                    
-                                    {/* PRECIO DE COMPRA SOLO SI TIENE PERMISO */}
-                                    {puedeVerPrecios && (
-                                      <div>
-                                        <span className="text-gray-400 text-[10px] block uppercase font-bold">Precio Compra</span>
-                                        <span className="text-gray-200 font-medium">Bs. {mel.precio_compra?.toFixed(2) || '0.00'}</span>
+                                    {puedeVerPrivado && (
+                                      <>
+                                        <div>
+                                          <span className="text-gray-400 text-[10px] block uppercase font-bold">Proveedor</span>
+                                          <span className="text-white font-medium">{mel.proveedor || 'No asignado'}</span>
+                                        </div>
+                                        <div>
+                                          <span className="text-gray-400 text-[10px] block uppercase font-bold">Precio Compra</span>
+                                          <span className="text-gray-200 font-medium">Bs. {mel.precio_compra?.toFixed(2) || '0.00'}</span>
+                                        </div>
+                                      </>
+                                    )}
+                                    {!puedeVerPrivado && (
+                                      <div className="text-gray-300 text-xs italic py-2">
+                                        Muestra disponible en stock digital para proyectos de diseño.
                                       </div>
                                     )}
                                   </div>
                                 </div>
-
-                                {/* PRECIO COTIZADOR EN REVERSO SOLO SI TIENE PERMISO */}
-                                {puedeVerPrecios && (
-                                  <div className="pt-3 border-t border-white/10 flex justify-between items-center">
-                                    <span className="text-[10px] text-[#D4AF37] font-bold uppercase">Precio Cotizador</span>
-                                    <span className="text-base font-extrabold text-[#D4AF37]">
-                                      Bs. {mel.precio_cotizador?.toFixed(2) || '0.00'}
-                                    </span>
-                                  </div>
-                                )}
+                                <div className="pt-3 border-t border-white/10 flex justify-between items-center">
+                                  {mel.foto_url && (
+                                    <button 
+                                      onClick={(e) => descargarFoto(e, mel.foto_url, mel.detalle, mel.codigo_melamina)}
+                                      className="bg-[#D4AF37] text-[#001f3f] px-3 py-1.5 rounded-xl font-bold text-[10px] flex items-center gap-1 hover:bg-opacity-90 transition"
+                                    >
+                                      <Download size={12} /> Descargar Imagen
+                                    </button>
+                                  )}
+                                  {puedeVerPrivado && (
+                                    <div className="text-right">
+                                      <span className="text-[9px] text-[#D4AF37] block uppercase font-bold">Cotizador</span>
+                                      <span className="text-sm font-extrabold text-[#D4AF37]">
+                                        Bs. {mel.precio_cotizador?.toFixed(2) || '0.00'}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             )}
 
