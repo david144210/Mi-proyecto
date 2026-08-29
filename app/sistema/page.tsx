@@ -21,7 +21,7 @@ const getRangoFechas = (mesStr: string) => {
 export default function Sistema() {
   const [usuario, setUsuario] = useState<any>(null)
   const [esVendedorAsignado, setEsVendedorAsignado] = useState(false)
-  const [podioVentas, setPodioVentas] = useState<{ primero: any, segundo: any }>({ primero: null, segundo: null })
+  const [vendedorMes, setVendedorMes] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
 
@@ -29,7 +29,7 @@ export default function Sistema() {
     const carnetGuardado = localStorage.getItem('carnet')
     if (!carnetGuardado) { window.location.replace('/'); return }
 
-    // 1. Cargar datos del usuario actual[cite: 3]
+    // 1. Cargar datos del usuario actual
     supabase.from('personal').select('*, cargos(*)')
       .eq('carnet', carnetGuardado)
       .eq('estado', true)
@@ -43,7 +43,7 @@ export default function Sistema() {
 
         const esAdminUser = userData?.cargos?.es_admin === true
 
-        // 2. Verificar si el usuario es un vendedor activo asignado[cite: 3]
+        // 2. Verificar si el usuario es un vendedor activo asignado
         const { data: vendedorData } = await supabase.from('vendedores')
           .select('id')
           .or(`personal_id.eq.${userData.id},ci.eq.${userData.carnet}`)
@@ -54,20 +54,20 @@ export default function Sistema() {
         setEsVendedorAsignado(tieneVentasAsignadas)
         setLoading(false)
 
-        // 3. Si tiene permisos o ventas asignadas, calcular métricas y podio[cite: 3]
+        // 3. Si tiene permisos o ventas asignadas, calcular métricas y vendedor del mes
         if (tieneVentasAsignadas) {
-          calcularMetricasYPodio()
+          calcularMetricasYVendedorMes()
         }
       })
 
-    const calcularMetricasYPodio = async () => {
+    const calcularMetricasYVendedorMes = async () => {
       try {
         const hoy = new Date()
         const mesActualStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
         const mesAnteriorStr = getMesAnterior(mesActualStr)
         const { inicio: iniAnt, fin: finAnt } = getRangoFechas(mesAnteriorStr)
 
-        // Cargar vendedores activos y registros de personal en paralelo[cite: 3]
+        // Cargar vendedores activos y registros de personal en paralelo
         const [{ data: vends }, { data: personalList }] = await Promise.all([
           supabase.from('vendedores').select('id, nombre, personal_id, ci').eq('activo', true),
           supabase.from('personal').select('id, carnet, foto_url')
@@ -87,14 +87,14 @@ export default function Sistema() {
           mapaVendedores[v.id] = { id: v.id, nombre: v.nombre, foto, vendido: 0, cobrado: 0, pedidos: 0 }
         })
 
-        // Obtener ventas del mes anterior con estado activo (> 0)[cite: 3]
+        // Obtener ventas del mes anterior con estado activo (> 0)
         const { data: ventasAnterior } = await supabase.from('ventas')
           .select('id, cod_venta, cod_vendedor, total_venta, anticipo, fecha_pedido')
           .gte('fecha_pedido', iniAnt)
           .lte('fecha_pedido', finAnt)
           .gt('estado', 0)
 
-        // Obtener cobranzas del mes anterior vinculadas a los vendedores[cite: 3]
+        // Obtener cobranzas del mes anterior vinculadas a los vendedores
         const { data: cobrosAnterior } = await supabase.from('cobranzas')
           .select('cod_venta, total_cobrado, ventas!inner(cod_vendedor)')
           .gte('created_at', `${iniAnt}T00:00:00`)
@@ -122,17 +122,14 @@ export default function Sistema() {
           .filter((r: any) => r.vendido > 0 || r.cobrado > 0)
           .sort((a: any, b: any) => b.vendido - a.vendido)
 
-        setPodioVentas({
-          primero: ranking[0] || null,
-          segundo: ranking[1] || null
-        })
+        setVendedorMes(ranking[0] || null)
       } catch (error) {
-        console.error("Error calculando podio comercial:", error)
+        console.error("Error calculando vendedor del mes:", error)
       }
     }
   }, [])
 
-  // Estilo mejorado para las tarjetas de opciones con bordes dorados sutiles y fondo traslúcido[cite: 3]
+  // Estilo mejorado para las tarjetas de opciones con bordes dorados sutiles y fondo traslúcido
   const cardStyle: React.CSSProperties = { 
     backgroundColor: 'rgba(255, 255, 255, 0.95)', 
     borderRadius: '16px', 
@@ -180,7 +177,7 @@ export default function Sistema() {
         </div>
       </nav>
 
-      {/* MENÚ HAMBURGUESA LATERAL (Con acceso añadido a Paletas Automáticas) */}
+      {/* MENÚ HAMBURGUESA LATERAL */}
       <div style={{ position: 'fixed', top: 0, left: isMenuOpen ? 0 : '-250px', height: '100%', width: '250px', backgroundColor: '#001f3f', transition: '0.3s', padding: '80px 20px', zIndex: 900, boxShadow: '2px 0 10px rgba(0,0,0,0.3)' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <a href="/cotizador" style={{ color: '#D4AF37', textDecoration: 'none', fontSize: '18px', borderBottom: '1px solid rgba(212, 175, 55, 0.3)', paddingBottom: '10px' }}>⚡ Cotizador</a>
@@ -196,91 +193,84 @@ export default function Sistema() {
         <h1 style={{ marginBottom: '8px', color: '#001f3f', fontWeight: '700' }}>Bienvenido de vuelta, {nombreMostrar.split(' ')[0]} 👋</h1>
         <p style={{ color: '#555', marginBottom: '30px', fontWeight: '500' }}>{usuario?.cargos?.nombre}</p>
 
-        {/* WIDGET DE PROGRESIÓN PERSONAL[cite: 3] */}
+        {/* WIDGET DE PROGRESIÓN PERSONAL */}
         {esVendedorAsignado && <ProgresoWidget />}
 
-        {/* ── SECCIÓN PODIO COMERCIAL ── */}
+        {/* ── SECCIÓN VENDEDOR DEL MES (DISEÑO CIRCULAR / ESTRELLA) ── */}
         {esVendedorAsignado && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '40px' }}>
-            
-            {/* 1ER LUGAR (ORO)[cite: 3] */}
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '40px' }}>
             <div style={{
-              background: 'linear-gradient(135deg, #001f3f 0%, #003366 100%)',
-              borderRadius: '16px',
-              padding: '24px',
+              background: 'linear-gradient(135deg, #001f3f 0%, #002c59 100%)',
+              borderRadius: '24px',
+              padding: '24px 30px',
               color: 'white',
-              border: '3px solid #D4AF37',
-              boxShadow: '0 8px 24px rgba(212, 175, 55, 0.25)',
+              border: '2px solid #D4AF37',
+              boxShadow: '0 10px 25px rgba(212, 175, 55, 0.25)',
               display: 'flex',
+              flexDirection: 'column',
               alignItems: 'center',
-              gap: '20px'
+              textAlign: 'center',
+              width: '100%',
+              maxWidth: '360px',
+              position: 'relative',
+              overflow: 'hidden'
             }}>
-              <div style={{ 
-                width: '70px', height: '70px', borderRadius: '50%', 
-                backgroundColor: '#222', border: '2px solid #D4AF37', 
-                display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                overflow: 'hidden', flexShrink: '0', position: 'relative' 
+              {/* Decoración de estrella superior */}
+              <div style={{
+                position: 'absolute',
+                top: '12px',
+                right: '15px',
+                fontSize: '18px',
+                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))'
               }}>
-                {podioVentas.primero?.foto ? (
-                  <img src={podioVentas.primero.foto} alt="1er Lugar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ⭐
+              </div>
+
+              {/* FOTO CIRCULAR DESTACADA */}
+              <div style={{ 
+                width: '95px', height: '95px', borderRadius: '50%', 
+                backgroundColor: '#111', border: '3px solid #D4AF37', 
+                display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                overflow: 'hidden', margin: '8px 0 14px 0', 
+                boxShadow: '0 6px 18px rgba(212, 175, 55, 0.4)' 
+              }}>
+                {vendedorMes?.foto ? (
+                  <img src={vendedorMes.foto} alt="Vendedor del Mes" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 ) : (
-                  <span style={{ fontSize: '32px' }}>👑</span>
+                  <span style={{ fontSize: '42px' }}>👑</span>
                 )}
               </div>
-              <div style={{ overflow: 'hidden' }}>
-                <span style={{ backgroundColor: '#D4AF37', color: '#001f3f', padding: '3px 10px', borderRadius: '10px', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                  1er Lugar — Mes Anterior
-                </span>
-                <h2 style={{ margin: '6px 0 2px 0', fontSize: '20px', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {podioVentas.primero ? podioVentas.primero.nombre : 'Por definir'}
-                </h2>
-                <p style={{ margin: 0, color: '#D4AF37', fontSize: '13px', fontWeight: 'bold' }}>
-                  ⭐ Excelencia en Ventas ⭐
-                </p>
-              </div>
-            </div>
 
-            {/* 2DO LUGAR (PLATA)[cite: 3] */}
-            <div style={{
-              background: 'linear-gradient(135deg, #001f3f 0%, #1c2a38 100%)',
-              borderRadius: '16px',
-              padding: '24px',
-              color: 'white',
-              border: '2px solid #94a3b8',
-              boxShadow: '0 8px 24px rgba(148, 163, 184, 0.2)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '20px'
-            }}>
-              <div style={{ 
-                width: '70px', height: '70px', borderRadius: '50%', 
-                backgroundColor: '#222', border: '2px solid #94a3b8', 
-                display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                overflow: 'hidden', flexShrink: '0', position: 'relative' 
+              {/* ETIQUETA */}
+              <span style={{ 
+                backgroundColor: '#D4AF37', 
+                color: '#001f3f', 
+                padding: '4px 14px', 
+                borderRadius: '12px', 
+                fontSize: '11px', 
+                fontWeight: 'bold', 
+                textTransform: 'uppercase', 
+                letterSpacing: '1px',
+                marginBottom: '8px',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
               }}>
-                {podioVentas.segundo?.foto ? (
-                  <img src={podioVentas.segundo.foto} alt="2do Lugar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                ) : (
-                  <span style={{ fontSize: '32px' }}>🥈</span>
-                )}
-              </div>
-              <div style={{ overflow: 'hidden' }}>
-                <span style={{ backgroundColor: '#94a3b8', color: '#001f3f', padding: '3px 10px', borderRadius: '10px', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                  2do Lugar — Mes Anterior
-                </span>
-                <h2 style={{ margin: '6px 0 2px 0', fontSize: '20px', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {podioVentas.segundo ? podioVentas.segundo.nombre : 'Por definir'}
-                </h2>
-                <p style={{ margin: 0, color: '#cbd5e1', fontSize: '13px', fontWeight: 'bold' }}>
-                  🥈 Destacado Comercial 🥈
-                </p>
-              </div>
-            </div>
+                🌟 Vendedor del Mes 🌟
+              </span>
 
+              {/* NOMBRE */}
+              <h2 style={{ margin: '0 0 4px 0', fontSize: '22px', color: '#fff', fontWeight: '800' }}>
+                {vendedorMes ? vendedorMes.nombre : 'Por definir'}
+              </h2>
+
+              {/* SUBTÍTULO */}
+              <p style={{ margin: 0, color: '#cbd5e1', fontSize: '12px', fontWeight: '500' }}>
+                Período Anterior
+              </p>
+            </div>
           </div>
         )}
 
-        {/* GRILLA DE OPCIONES DEL SISTEMA[cite: 3] */}
+        {/* GRILLA DE OPCIONES DEL SISTEMA */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
           <a href="/perfil" style={cardStyle}><div style={{ fontSize: '38px', marginBottom: '10px' }}>👤</div><h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Mi Perfil</h3></a>
           <a href="/clientes" style={cardStyle}><div style={{ fontSize: '38px', marginBottom: '10px' }}>👥</div><h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Clientes</h3></a>
