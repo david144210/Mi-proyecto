@@ -50,7 +50,7 @@ export default function Clientes() {
       })
   }, [])
 
-  // Paginacion y busqueda 100% en servidor — sin limite de 1000 filas
+  // Paginacion y busqueda en servidor
   const cargarClientes = async (pag: number, busq: string) => {
     setLoadingTabla(true)
     const from = (pag - 1) * POR_PAGINA
@@ -79,7 +79,7 @@ export default function Clientes() {
   }
 
   const totalPaginas = Math.ceil(totalClientes / POR_PAGINA)
-  const clientesPagina = clientes  // ya vienen paginados del servidor
+  const clientesPagina = clientes
 
   const abrirNuevo = () => {
     if (!esAdmin) return
@@ -113,7 +113,7 @@ export default function Clientes() {
     setExito('')
   }
 
-  // Cargar Historial de Ventas
+  // Cargar Historial de Ventas corregido usando cliente.id (en vez de cliente.codigo)
   const abrirHistorialVentas = async (cliente: any) => {
     setClienteVentas(cliente)
     setModalVentasAbierto(true)
@@ -123,11 +123,13 @@ export default function Clientes() {
     const { data, error } = await supabase
       .from('ventas')
       .select('id, cod_venta, fecha_pedido, total_venta, anticipo, estado')
-      .eq('cod_cliente', cliente.codigo)
+      .eq('cod_cliente', cliente.id) // Corregido: se vincula con el id interno del cliente
       .order('fecha_pedido', { ascending: false })
 
     if (!error && data) {
       setVentas(data)
+    } else {
+      console.error('Error al cargar el historial de ventas:', error)
     }
     setLoadingVentas(false)
   }
@@ -138,27 +140,27 @@ export default function Clientes() {
     setVentas([])
   }
 
-  // Helpers para estados de venta
+  // Mapeo actualizado de estados de venta correctos
   const obtenerTextoEstado = (estado: number) => {
     const estados: { [key: number]: string } = {
-      0: 'Cotización',
-      1: 'Pendiente',
-      2: 'En Producción',
-      3: 'Listo',
-      4: 'Entregado',
-      5: 'Cancelado'
+      0: 'Anulado',
+      1: 'En cola de producción',
+      2: 'Produciendo',
+      3: 'Terminado',
+      4: 'Despachado',
+      5: 'Pagado'
     }
-    return estados[estado] || `Estado ${estado}`
+    return estados[estado] !== undefined ? estados[estado] : `Estado ${estado}`
   }
 
   const obtenerColorEstado = (estado: number) => {
     const colores: { [key: number]: string } = {
-      0: '#757575', // Gris
-      1: '#ff9800', // Naranja
-      2: '#0288d1', // Azul
-      3: '#9c27b0', // Morado
-      4: '#2e7d32', // Verde
-      5: '#d32f2f'  // Rojo
+      0: '#d32f2f', // Rojo - Anulado
+      1: '#ff9800', // Naranja - En cola de producción
+      2: '#0288d1', // Azul - Produciendo
+      3: '#9c27b0', // Morado - Terminado
+      4: '#3f51b5', // Índigo - Despachado
+      5: '#2e7d32'  // Verde - Pagado
     }
     return colores[estado] || '#333'
   }
@@ -205,7 +207,7 @@ export default function Clientes() {
 
   const inputStyle: any = {
     padding: '10px 12px', borderRadius: '8px', border: '1px solid #ddd',
-    fontSize: '14px', width: '100%', boxSizing: 'box-sizing',
+    fontSize: '14px', width: '100%', boxSizing: 'border-box',
     outline: 'none', backgroundColor: 'white',
   }
   const labelStyle: any = {
@@ -228,7 +230,7 @@ export default function Clientes() {
         }
       `}</style>
 
-      {/* MODAL - solo admin */}
+      {/* MODAL CLIENTE */}
       {modalAbierto && esAdmin && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', boxSizing: 'border-box' }}>
           <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '32px', width: '500px', maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
@@ -386,7 +388,6 @@ export default function Clientes() {
               {esAdmin && <span style={{ marginLeft: '10px', color: '#1565c0', fontSize: '12px' }}>● Modo administrador</span>}
             </p>
           </div>
-          {/* Boton nuevo solo para admin */}
           {esAdmin && (
             <button onClick={abrirNuevo}
               style={{ padding: '10px 20px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
@@ -409,7 +410,6 @@ export default function Clientes() {
           style={{ padding: '12px 16px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '14px', width: '100%', boxSizing: 'border-box', marginBottom: '16px', backgroundColor: 'white' }}
         />
 
-        {/* BANNER solo lectura para no admin */}
         {!esAdmin && (
           <div style={{ backgroundColor: '#e3f2fd', border: '1px solid #90caf9', borderRadius: '10px', padding: '10px 16px', marginBottom: '16px', fontSize: '13px', color: '#1565c0' }}>
             Solo tienes acceso de consulta. Contacta a un administrador para hacer cambios.
