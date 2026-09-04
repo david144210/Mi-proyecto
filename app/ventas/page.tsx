@@ -35,6 +35,9 @@ interface DetalleVenta {
   dimensiones: string | null
   color_estructura: string | null
   color_melamina: string | null
+  nombre_producto?: string
+  nombre_color_estructura?: string
+  nombre_color_melamina?: string
 }
 
 interface NuevaLinea {
@@ -125,11 +128,6 @@ export default function Ventas() {
   const [guardando, setGuardando] = useState(false)
   const [mensajeGuardado, setMensajeGuardado] = useState('')
 
-  // Mapas para nombres en detalle
-  const [productosMap, setProductosMap] = useState<Record<string, string>>({})
-  const [coloresEstMap, setColoresEstMap] = useState<Record<string, string>>({})
-  const [coloresMelMap, setColoresMelMap] = useState<Record<string, string>>({})
-
   // ── MODAL NUEVA VENTA ─────────────────────────────────────────────────────
   const [modalNueva, setModalNueva] = useState(false)
   const [pasoNueva, setPasoNueva] = useState<'form' | 'preview'>('form')
@@ -204,7 +202,7 @@ export default function Ventas() {
       ))
   }, [])
 
-  const puedeEditar   = usuario?.cargos?.es_admin || usuario?.cargos?.puede_editar_productos
+  const puedeEditar   = usuario?.cargos?.es_admin ||usuario?.cargos?.puede_editar_productos
   const puedeRegistrar = usuario?.cargos?.puede_ver_cotizador || usuario?.cargos?.es_admin
 
   // ── Cargar ventas ─────────────────────────────────────────────────────────
@@ -225,6 +223,7 @@ export default function Ventas() {
 
     const { data, count, error } = await query
     if (!error && data) {
+      // clientes → tabla clientes; vendedores → tabla vendedores
       const idsClientes   = [...new Set(data.map((v: any) => v.cod_cliente).filter(Boolean))]
       const idsVendedores = [...new Set(data.map((v: any) => v.cod_vendedor).filter(Boolean))]
       let clientesMap:  Record<number, string> = {}
@@ -251,28 +250,13 @@ export default function Ventas() {
     if (!loading && !accesoDenegado) cargarVentas(page, filtros)
   }, [loading, page, filtros, accesoDenegado, cargarVentas])
 
+  
   // ── Abrir detalle ─────────────────────────────────────────────────────────
   const abrirDetalle = async (v: Venta) => {
     setVentaSel(v); setModoEdicion(false); setMensajeGuardado('')
     setLoadingDetalle(true)
     const { data } = await supabase.from('detalle_venta').select('*').eq('cod_venta', v.cod_venta).order('item')
-    const items = data || []
-    setDetalle(items)
-
-    const codigosProductos = [...new Set(items.map(d => d.cod_producto).filter(Boolean))]
-    const codigosColores = [...new Set(items.map(d => d.color_estructura).filter(Boolean))]
-    const codigosMelaminas = [...new Set(items.map(d => d.color_melamina).filter(Boolean))]
-
-    const [pRes, cRes, mRes] = await Promise.all([
-      codigosProductos.length > 0 ? supabase.from('productos').select('codigo, nombre').in('codigo', codigosProductos) : Promise.resolve({ data: [] }),
-      codigosColores.length > 0 ? supabase.from('colores').select('codigo_color, detalle').in('codigo_color', codigosColores) : Promise.resolve({ data: [] }),
-      codigosMelaminas.length > 0 ? supabase.from('melaminas').select('codigo_melamina, detalle').in('codigo_melamina', codigosMelaminas) : Promise.resolve({ data: [] }),
-    ])
-
-    setProductosMap(Object.fromEntries((pRes.data || []).map((p: any) => [p.codigo, p.nombre])))
-    setColoresEstMap(Object.fromEntries((cRes.data || []).map((c: any) => [c.codigo_color, c.detalle])))
-    setColoresMelMap(Object.fromEntries((mRes.data || []).map((m: any) => [m.codigo_melamina, m.detalle])))
-
+    setDetalle(await enriquecerDetalles(data || []))
     setLoadingDetalle(false)
   }
 
@@ -281,6 +265,35 @@ export default function Ventas() {
     setFormVenta({ ...ventaSel })
     setFormDetalle(detalle.map(d => ({ ...d })))
     setModoEdicion(true)
+  }
+
+  const enriquecerDetalles = async (detalles: DetalleVenta[]) => {
+    const codigosProductos = [...new Set(detalles.map(d => d.cod_producto).filter(Boolean))]
+    const codigosColores = [...new Set(detalles.map(d => d.color_estructura).filter(Boolean))]
+    const codigosMelaminas = [...new Set(detalles.map(d => d.color_melamina).filter(Boolean))]
+
+    const [{ data: productosData }, { data: coloresData }, { data: melaminasData }] = await Promise.all([
+      codigosProductos.length > 0
+        ? supabase.from('productos').select('codigo, nombre').in('codigo', codigosProductos)
+        : Promise.resolve({ data: [] }),
+      codigosColores.length > 0
+        ? supabase.from('colores').select('codigo_color, detalle').in('codigo_color', codigosColores)
+        : Promise.resolve({ data: [] }),
+      codigosMelaminas.length > 0
+        ? supabase.from('melaminas').select('codigo_melamina, detalle').in('codigo_melamina', codigosMelaminas)
+        : Promise.resolve({ data: [] }),
+    ])
+
+    const productosMap = Object.fromEntries((productosData || []).map((p: any) => [p.codigo, p.nombre]))
+    const coloresMap = Object.fromEntries((coloresData || []).map((c: any) => [c.codigo_color, c.detalle]))
+    const melaminasMap = Object.fromEntries((melaminasData || []).map((m: any) => [m.codigo_melamina, m.detalle]))
+
+    return detalles.map(detalle => ({
+      ...detalle,
+      nombre_producto: productosMap[detalle.cod_producto || ''] || undefined,
+      nombre_color_estructura: coloresMap[detalle.color_estructura || ''] || undefined,
+      nombre_color_melamina: melaminasMap[detalle.color_melamina || ''] || undefined,
+    }))
   }
 
   // ── Guardar edicion ───────────────────────────────────────────────────────
@@ -315,7 +328,7 @@ export default function Ventas() {
       setVentaSel(vActual)
       setVentas(prev => prev.map(v => v.cod_venta === ventaSel.cod_venta ? vActual : v))
     }
-    setDetalle(da || []); setModoEdicion(false); setMensajeGuardado('Cambios guardados correctamente')
+    setDetalle(await enriquecerDetalles(da || [])); setModoEdicion(false); setMensajeGuardado('Cambios guardados correctamente')
     setGuardando(false)
   }
 
@@ -345,6 +358,11 @@ export default function Ventas() {
       delivery_pagado: '', anticipo: '', forma_pago: '', cod_transaccion: '',
     })
 
+    // vendedores → tabla vendedores (id, nombre, activo)
+    // productos  → tabla productos  (codigo PK, nombre, precio_tienda, precio_minimo)
+    // colores    → tabla colores    (id, codigo_color, detalle)
+    // melaminas  → tabla melaminas  (id, codigo_melamina, detalle)
+    // cod_venta siguiente = MAX + 1
     const [vRes, pRes, ceRes, cmRes, maxRes] = await Promise.all([
       supabase.from('vendedores').select('id, nombre').eq('activo', true).order('nombre'),
       supabase.from('productos').select('codigo, nombre, precio_tienda, precio_minimo, medidas').order('nombre'),
@@ -353,6 +371,7 @@ export default function Ventas() {
       supabase.from('ventas').select('cod_venta').order('cod_venta', { ascending: false }).limit(1),
     ])
 
+    // Usar tabla vendedores en lugar de personal para el select de vendedor
     setVendedores((vRes.data || []).map((v: any) => ({ id: v.id, nombre: v.nombre })))
     setProductos(pRes.data || [])
     setColoresEst(ceRes.data || [])
@@ -366,6 +385,7 @@ export default function Ventas() {
     setModalNueva(false); setPasoNueva('form'); setErrorGuardado('')
   }
 
+  // Busqueda de clientes EN TIEMPO REAL contra Supabase con debounce 300ms
   useEffect(() => {
     if (!clienteBusqueda.trim() || clienteBusqueda.trim().length < 2) {
       setClientesFiltrados([])
@@ -374,6 +394,7 @@ export default function Ventas() {
     const timer = setTimeout(async () => {
       const q = clienteBusqueda.trim()
       const esNumero = /^\d+$/.test(q)
+      // Busca activos primero; busca por nombre, celular o codigo
       let query = supabase
         .from('clientes')
         .select('id, codigo, nombre, direccion, celular')
@@ -391,6 +412,8 @@ export default function Ventas() {
     return () => clearTimeout(timer)
   }, [clienteBusqueda])
 
+  // Seleccionar producto en linea — autocompleta precios con campos reales de la tabla
+  // productos: codigo (PK), nombre, precio_tienda, precio_minimo
   const seleccionarProducto = (idx: number, codProducto: string) => {
     const prod = productos.find((p: any) => p.codigo === codProducto)
     setLineas(prev => prev.map((l, i) => i === idx ? {
@@ -414,11 +437,13 @@ export default function Ventas() {
     setErroresLineas(prev => prev.filter((_, i) => i !== idx))
   }
 
+  // ── Validacion ────────────────────────────────────────────────────────────
   const validar = (): boolean => {
     let ok = true
     const ec: Record<string, string> = {}
     const ecl = lineas.map(() => ({} as ErroresLinea))
 
+    // Cliente
     let eclienteMsg = ''
     if (modoCliente === 'existente' && !clienteSeleccionado) {
       eclienteMsg = 'Selecciona un cliente existente'; ok = false
@@ -483,7 +508,7 @@ export default function Ventas() {
       const coloresMap = Object.fromEntries((coloresData || []).map((c: any) => [c.codigo_color, c.detalle]))
       const melaminasMap = Object.fromEntries((melaminasData || []).map((m: any) => [m.codigo_melamina, m.detalle]))
 
-      const lineasNota = (detalleData || []).map((detalle: any) => ({
+      const lineas = (detalleData || []).map((detalle: any) => ({
         producto: productosMap[detalle.cod_producto] || detalle.cod_producto || '—',
         dimensiones: detalle.dimensiones || '—',
         colorEstructura: coloresMap[detalle.color_estructura] || detalle.color_estructura || '—',
@@ -512,7 +537,7 @@ export default function Ventas() {
         deliveryPagado: Number(venta.delivery_pagado || 0),
         anticipo: Number(venta.anticipo || 0),
         total: Number(venta.total_venta || 0),
-        lineas: lineasNota,
+        lineas,
       })
     } catch (error) {
       console.error(error)
@@ -520,6 +545,7 @@ export default function Ventas() {
     }
   }
 
+  // ── Generar nota de venta ─────────────────────────────────────────────────
   const generarNotaVenta = (datos: any) => {
     const ventana = window.open('', '_blank', 'width=950,height=900')
     if (!ventana) return
@@ -534,64 +560,316 @@ export default function Ventas() {
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
         <style>
-          @page { size: A4; margin: 10mm; }
+          @page {
+            size: A4;
+            margin: 10mm;
+          }
           @media print {
             body { margin: 0; background: white; }
             .no-print { display: none; }
             #nota-container { box-shadow: none; padding: 0; }
           }
-          * { box-sizing: border-box; }
-          body { font-family: 'Arial', sans-serif; margin: 0; padding: 20px; background: #f5f5f5; color: #333; line-height: 1.4; }
-          #nota-container { background: white; max-width: 850px; margin: 0 auto; padding: 35px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-          .header { text-align: center; border-bottom: 3px solid #FFD700; padding-bottom: 25px; margin-bottom: 35px; display: flex; flex-direction: column; align-items: center; }
-          .logo-container { width: 110px; height: auto; margin-bottom: 10px; }
-          .logo { width: 100%; height: auto; object-fit: contain; display: block; }
-          .company-name { font-size: 28px; font-weight: bold; color: #0d0d1f; margin: 0 0 5px 0; }
-          .company-tagline { font-size: 13px; color: #666; margin: 0; }
-          .nota-title { font-size: 22px; font-weight: bold; margin: 25px 0 10px 0; text-align: center; color: #222; }
-          .nota-number { text-align: center; font-size: 16px; color: #0d0d1f; font-weight: bold; margin-bottom: 30px; }
-          .info-section { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; margin-bottom: 35px; }
-          .info-box { border: 2px solid #087e0b; padding: 18px; border-radius: 8px; background: #f9f9f9; }
-          .productos-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-          .info-title { font-weight: bold; margin-bottom: 12px; color: #0d0d1f; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
-          .info-item { margin-bottom: 6px; font-size: 13px; }
-          .productos-table { width: 100%; border-collapse: collapse; margin: 25px 0; font-size: 12px; table-layout: fixed; }
-          .productos-table th, .productos-table td { word-break: break-word; overflow-wrap: anywhere; white-space: normal; }
-          .productos-table th { background: #0d0d1f; color: white; font-weight: bold; padding: 10px; text-align: left; border: 1px solid #0d0d1f; }
-          .productos-table td { border: 1px solid #ddd; padding: 10px; text-align: left; }
-          .productos-table tbody tr:nth-child(odd) { background: #f9f9f9; }
-          .text-right { text-align: right !important; }
-          .total-section { text-align: right; margin-top: 25px; padding-top: 20px; border-top: 2px solid #FFD700; }
-          .total-row { display: flex; justify-content: flex-end; margin-bottom: 8px; font-size: 13px; padding: 4px 0; }
-          .total-row span:first-child { min-width: 200px; text-align: right; padding-right: 20px; }
-          .total-final { font-size: 16px; font-weight: bold; color: #0d0d1f; border-top: 1px solid #FFD700; padding-top: 8px; margin-top: 8px; }
-          .footer { margin-top: 40px; text-align: center; font-size: 11px; color: #888; border-top: 1px solid #ddd; padding-top: 15px; }
-          .contact-section { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 15px; text-align: left; }
-          .contact-item { background: #f9f9f9; padding: 8px 12px; border-radius: 6px; border: 1px solid #eee; }
-          .contact-title { font-weight: bold; color: #0d0d1f; font-size: 11px; margin-bottom: 4px; }
-          .contact-info { font-size: 10px; color: #666; line-height: 1.3; }
-          .button-container { text-align: center; margin-top: 30px; gap: 10px; display: flex; justify-content: center; flex-wrap: wrap; }
-          .btn-print { background: #0d0d1f; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; }
-          .btn-download { background: #FFD700; color: #0d0d1f; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; }
+          * {
+            box-sizing: border-box;
+          }
+          body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.4;
+          }
+          #nota-container {
+            background: white;
+            max-width: 850px;
+            margin: 0 auto;
+            padding: 35px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+          }
+          .header {
+            text-align: center;
+            border-bottom: 3px solid #FFD700;
+            padding-bottom: 25px;
+            margin-bottom: 35px;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+          }
+          .logo-container {
+            width: 110px;
+            height: auto;
+            margin-bottom: 10px;
+          }
+          .logo {
+            width: 100%;
+            height: auto;
+            object-fit: contain;
+            display: block;
+          }
+          .company-name {
+            font-size: 28px;
+            font-weight: bold;
+            color: #0d0d1f;
+            margin: 0 0 5px 0;
+          }
+          .company-tagline {
+            font-size: 13px;
+            color: #666;
+            margin: 0;
+          }
+          .nota-title {
+            font-size: 22px;
+            font-weight: bold;
+            margin: 25px 0 10px 0;
+            text-align: center;
+            color: #222;
+          }
+          .nota-number {
+            text-align: center;
+            font-size: 16px;
+            color: #0d0d1f;
+            font-weight: bold;
+            margin-bottom: 30px;
+          }
+          .info-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+            margin-bottom: 35px;
+          }
+          .info-box {
+            border: 2px solid #087e0b;
+            padding: 18px;
+            border-radius: 8px;
+            background: #f9f9f9;
+          }
+          .productos-table-wrap {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+          }
+          .info-title {
+            font-weight: bold;
+            margin-bottom: 12px;
+            color: #0d0d1f;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+          }
+          .info-item {
+            margin-bottom: 6px;
+            font-size: 13px;
+          }
+          .info-item strong {
+            color: #222;
+          }
+          .productos-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 25px 0;
+            font-size: 12px;
+            table-layout: fixed;
+          }
+          .productos-table th,
+          .productos-table td {
+            word-break: break-word;
+            overflow-wrap: anywhere;
+            white-space: normal;
+          }
+          .productos-table th {
+            background: #0d0d1f;
+            color: white;
+            font-weight: bold;
+            padding: 10px;
+            text-align: left;
+            border: 1px solid #0d0d1f;
+          }
+          .productos-table td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+          }
+          .productos-table tbody tr:nth-child(odd) {
+            background: #f9f9f9;
+          }
+          .text-right {
+            text-align: right !important;
+          }
+          .total-section {
+            text-align: right;
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 2px solid #FFD700;
+          }
+          .total-row {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 8px;
+            font-size: 13px;
+            padding: 4px 0;
+          }
+          .total-row span:first-child {
+            min-width: 200px;
+            text-align: right;
+            padding-right: 20px;
+          }
+          .total-final {
+            font-size: 16px;
+            font-weight: bold;
+            color: #0d0d1f;
+            border-top: 1px solid #FFD700;
+            padding-top: 8px;
+            margin-top: 8px;
+          }
+          .footer {
+            margin-top: 40px;
+            text-align: center;
+            font-size: 11px;
+            color: #888;
+            border-top: 1px solid #ddd;
+            padding-top: 15px;
+          }
+          .contact-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+            text-align: left;
+          }
+          .contact-item {
+            background: #f9f9f9;
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #eee;
+          }
+          .contact-title {
+            font-weight: bold;
+            color: #0d0d1f;
+            font-size: 11px;
+            margin-bottom: 4px;
+          }
+          .contact-info {
+            font-size: 10px;
+            color: #666;
+            line-height: 1.3;
+          }
+          .button-container {
+            text-align: center;
+            margin-top: 30px;
+            gap: 10px;
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+          }
+          .btn-print {
+            background: #0d0d1f;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: background 0.3s;
+          }
+          .btn-print:hover {
+            background: #1a1a2e;
+          }
+          .btn-download {
+            background: #FFD700;
+            color: #0d0d1f;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: background 0.3s;
+          }
+          .btn-download:hover {
+            background: #FFE55C;
+          }
+          .btn-download:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+          }
           @media (max-width: 700px) {
-            body { padding: 8px; }
-            #nota-container { padding: 14px; }
-            .info-section { grid-template-columns: 1fr; gap: 12px; }
-            .productos-table { font-size: 10px; min-width: 620px; }
-            .button-container { flex-direction: column; }
-            .btn-print, .btn-download { width: 100%; }
+            body {
+              padding: 8px;
+            }
+            #nota-container {
+              padding: 14px;
+            }
+            .header {
+              padding-bottom: 16px;
+              margin-bottom: 20px;
+            }
+            .company-name {
+              font-size: 22px;
+            }
+            .company-tagline {
+              font-size: 12px;
+            }
+            .nota-title {
+              font-size: 18px;
+              margin: 18px 0 8px 0;
+            }
+            .nota-number {
+              font-size: 14px;
+              margin-bottom: 18px;
+            }
+            .info-section {
+              grid-template-columns: 1fr;
+              gap: 12px;
+              margin-bottom: 20px;
+            }
+            .info-box {
+              padding: 12px;
+            }
+            .productos-table {
+              font-size: 10px;
+              min-width: 620px;
+            }
+            .productos-table th,
+            .productos-table td {
+              padding: 8px;
+            }
+            .total-row {
+              flex-direction: column;
+              align-items: flex-end;
+              gap: 2px;
+            }
+            .total-row span:first-child {
+              min-width: 0;
+              padding-right: 0;
+            }
+            .contact-section {
+              grid-template-columns: 1fr;
+            }
+            .button-container {
+              flex-direction: column;
+            }
+            .btn-print,
+            .btn-download {
+              width: 100%;
+            }
           }
         </style>
       </head>
       <body>
         <div id="nota-container">
           <div class="header">
-            <div class="logo-container"><img src="/logo.jpg" alt="Logo Muebles is Better" class="logo"></div>
+            <div class="logo-container">
+              <img src="/logo.jpg" alt="Logo Muebles is Better" class="logo">
+            </div>
             <h1 class="company-name">Muebles is Better</h1>
             <p class="company-tagline">Más que muebles, ingeniería de interiores</p>
           </div>
+
           <h2 class="nota-title">NOTA DE VENTA</h2>
           <p class="nota-number">N° <strong>${datos.codVenta}</strong></p>
+
           <div class="info-section">
             <div class="info-box">
               <div class="info-title">📋 Datos del Cliente</div>
@@ -600,20 +878,31 @@ export default function Ventas() {
               ${datos.cliente.celular ? `<div class="info-item"><strong>Celular:</strong> ${datos.cliente.celular}</div>` : ''}
               ${datos.cliente.direccion ? `<div class="info-item"><strong>Dirección:</strong> ${datos.cliente.direccion}</div>` : ''}
             </div>
+
             <div class="info-box">
               <div class="info-title">📅 Datos de la Venta</div>
               <div class="info-item"><strong>Vendedor:</strong> ${datos.vendedor || '—'}</div>
               <div class="info-item"><strong>Fecha Pedido:</strong> ${datos.fechaPedido || '—'}</div>
-              <div class="info-item"><strong>Fecha Entrega:</strong> ${datos.fechaEntrega || '—'}</div>
+              <div class="info-item"><strong>Fecha Entrega:</strong> ${datos.fechaEntrega || '—'}${datos.horaEntrega ? ` ${datos.horaEntrega}` : ''}</div>
               <div class="info-item"><strong>Ubicación:</strong> ${datos.ubicacionPedido || '—'}</div>
               <div class="info-item"><strong>Forma de Pago:</strong> ${datos.formaPago || '—'}</div>
+              ${datos.codTransaccion ? `<div class="info-item"><strong>Cód. Transacción:</strong> ${datos.codTransaccion}</div>` : ''}
             </div>
           </div>
+
+          <h3 style="font-size: 14px; color: #555; margin: 20px 0 10px 0; text-transform: uppercase;">📦 Productos</h3>
           <div class="productos-table-wrap">
             <table class="productos-table">
               <thead>
                 <tr>
-                  <th>#</th><th>Producto</th><th>Dimensiones</th><th>Color Estructura</th><th>Color Melamina</th><th>Cantidad</th><th class="text-right">Precio Unit.</th><th class="text-right">Subtotal</th>
+                  <th>#</th>
+                  <th>Producto</th>
+                  <th>Dimensiones</th>
+                  <th>Color Estructura</th>
+                  <th>Color Melamina</th>
+                  <th>Cantidad</th>
+                  <th class="text-right">Precio Unit.</th>
+                  <th class="text-right">Subtotal</th>
                 </tr>
               </thead>
               <tbody>
@@ -632,6 +921,7 @@ export default function Ventas() {
               </tbody>
             </table>
           </div>
+
           <div class="total-section">
             ${datos.deliveryCotizado > 0 ? `<div class="total-row"><span>Delivery Cotizado:</span><span>Bs. ${Number(datos.deliveryCotizado).toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span></div>` : ''}
             ${datos.deliveryPagado > 0 ? `<div class="total-row"><span>Delivery Pagado:</span><span>Bs. ${Number(datos.deliveryPagado).toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span></div>` : ''}
@@ -641,18 +931,96 @@ export default function Ventas() {
               <span>Bs. ${Number(datos.total).toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span>
             </div>
           </div>
+
+          <div class="footer">
+            <div class="contact-section">
+              <div class="contact-item">
+                <div class="contact-title">📍 El Alto</div>
+                <div class="contact-info">C. L. de la Vega 3623<br>+591 65572015</div>
+              </div>
+              <div class="contact-item">
+                <div class="contact-title">📍 La Paz</div>
+                <div class="contact-info">Zona Bella Vista, C. Ignacio Sanjines<br>+591 60633283</div>
+              </div>
+              <div class="contact-item">
+                <div class="contact-title">📍 Santa Cruz</div>
+                <div class="contact-info">Av. Napoleon Gomez Landivar, Radial 21<br>+591 60044821</div>
+              </div>
+              <div class="contact-item">
+                <div class="contact-title">📍 Cochabamba</div>
+                <div class="contact-info">Av. Segunda Circunvalacion<br>+591 61211195</div>
+              </div>
+            </div>
+            <p>Gracias por su preferencia en Muebles is Better</p>
+            <p>Más que muebles, ingeniería de interiores — Bolivia ${new Date().getFullYear()}</p>
+          </div>
         </div>
+
         <div class="button-container">
           <button class="btn-print" onclick="window.print()">🖨️ Imprimir</button>
-          <button class="btn-download" id="btnDownload" onclick="window.print()">📄 Guardar PDF</button>
+          <button class="btn-download" id="btnDownload" onclick="downloadPDF()">📄 Descargar PDF</button>
         </div>
+
+        <script>
+          async function downloadPDF() {
+            try {
+              const btn = document.getElementById('btnDownload');
+              btn.disabled = true;
+              btn.textContent = 'Generando PDF...';
+
+              const element = document.getElementById('nota-container');
+              const canvas = await html2canvas(element, { 
+                scale: 1.2,
+                backgroundColor: '#ffffff',
+                useCORS: true,
+                logging: false,
+                width: element.scrollWidth,
+                height: element.scrollHeight,
+                windowWidth: element.scrollWidth,
+                windowHeight: element.scrollHeight,
+                scrollX: 0,
+                scrollY: 0
+              });
+              
+              const { jsPDF } = window.jspdf;
+              const imgData = canvas.toDataURL('image/png');
+              const pdf = new jsPDF('p', 'mm', 'a4');
+              const imgWidth = 210; // ancho A4 en mm
+              const pageHeight = 297;
+              const imgHeight = (canvas.height * imgWidth) / canvas.width;
+              let heightLeft = imgHeight;
+              let position = 0;
+
+              pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+              heightLeft -= pageHeight;
+
+              while (heightLeft >= 0) {
+                position = heightLeft - imgHeight;
+                pdf.addPage();
+                pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+                heightLeft -= pageHeight;
+              }
+
+              pdf.save('Nota-Venta-${datos.codVenta}.pdf');
+              
+              btn.disabled = false;
+              btn.textContent = '📄 Descargar PDF';
+            } catch (error) {
+              alert('Error al generar PDF: ' + error.message);
+              document.getElementById('btnDownload').disabled = false;
+              document.getElementById('btnDownload').textContent = '📄 Descargar PDF';
+            }
+          }
+        </script>
       </body>
       </html>
     `
+
     ventana.document.write(htmlContent)
     ventana.document.close()
   }
 
+  // ── Generar texto para WhatsApp ────────────────────────────────────────────
   const generarTextoWhatsApp = (codVentaParam: number) => {
     const saldo = totalNuevaVenta - (nv.anticipo ? parseFloat(nv.anticipo) : 0)
     const productosNombres = lineas.map(l => productos.find(p => p.codigo === l.cod_producto)?.nombre || l.cod_producto).join(', ')
@@ -660,28 +1028,36 @@ export default function Ventas() {
     const cantidades = lineas.map(l => l.cantidad).join('-')
     const medidas = lineas.map(l => l.dimensiones || '—').join(' / ')
     const colorEst = coloresEst.find(c => c.codigo_color === lineas[0]?.color_estructura)?.detalle || lineas[0]?.color_estructura || '—'
-    const colorMel = lineas.map(l => coloresMel.find(m => m.codigo_melamina === l.color_melamina || m.id === parseInt(l.color_melamina))?.detalle || l.color_melamina).join(', ')
+    const colorMel = lineas.map(l => coloresMel.find(m => m.codigo_melamina === l.color_melamina)?.detalle || l.color_melamina).join(', ')
 
     const texto = `*N. PEDIDO:* ${codVentaParam}
 *1. Ejecutivo de ventas:* ${vendedorNombre}
+*2. Cuenta facebook:* 
 *3. Mueble:* ${productosNombres}
 *3.1. Cantidad:* ${cantidades}
 *4. Código:* ${productosCodigos}
 *5. Medidas:* ${medidas}
 *6. Color melamina:* ${colorMel}
 *7. Color acero:* ${colorEst}
+*7.1. Medida del acero:* ${medidas}
 *8. Detalles específicos:* ${nv.detalles_especificos?.trim() || '—'}
+*8.1. Pedido para envio:* 
 *9. Fecha pedido:* ${nv.fecha_pedido}
+*9.1. Hora:* ${nv.hora_entrega || '—'}
 *10. Fecha entrega:* ${nv.fecha_entrega}
 *11. Precio:* ${lineas.map(l => parseFloat(l.precio_vendido).toLocaleString('es-BO', { minimumFractionDigits: 0 })).join(' / ')} bs
+*11.1. Embalaje:* 
 *12. Recibo:* ${nv.cod_transaccion || 'No especificado'}
 *13. Total:* ${totalNuevaVenta.toLocaleString('es-BO', { minimumFractionDigits: 0 })}
 *14. Adelanto:* ${nv.anticipo ? parseFloat(nv.anticipo).toLocaleString('es-BO', { minimumFractionDigits: 0 }) : '0'}
 *15. Saldo:* ${saldo.toLocaleString('es-BO', { minimumFractionDigits: 0 })}
+*16. Delivery cotizado:* ${nv.delivery_cotizado ? parseFloat(nv.delivery_cotizado).toLocaleString('es-BO', { minimumFractionDigits: 0 }) : '0'}
 *17. Nombre cliente:* ${modoCliente === 'nuevo' ? nuevoClienteNombre : clienteSeleccionado?.nombre || '—'}
 *18. Celular cliente:* ${modoCliente === 'nuevo' ? nuevoClienteCelular : clienteSeleccionado?.celular || '—'}
 *19. Ubicación:* ${nv.ubicacion_pedido || '—'}
-*20. Dirección del cliente:* ${modoCliente === 'nuevo' ? nuevoClienteDireccion : clienteSeleccionado?.direccion || '—'}`
+*20. Dirección del cliente:* ${modoCliente === 'nuevo' ? nuevoClienteDireccion : clienteSeleccionado?.direccion || '—'}
+*21. Número y color de puerta:* 
+*22. Foto pedido especial:* `
     
     setTextoWhatsApp(texto)
     setMostrarTextoWA(true)
@@ -689,15 +1065,17 @@ export default function Ventas() {
 
   const copiarAlPortapapeles = () => {
     navigator.clipboard.writeText(textoWhatsApp).then(() => {
-      alert('✅ Texto copiado al portapapeles.')
+      alert('✅ Texto copiado al portapapeles. Abre WhatsApp y pega.')
     }).catch(() => {
-      alert('❌ Error al copiar.')
+      alert('❌ Error al copiar. Copia manualmente desde el cuadro de texto.')
     })
   }
 
+  // ── Guardar nueva venta ───────────────────────────────────────────────────
   const confirmarNuevaVenta = async () => {
     setGuardandoNueva(true); setErrorGuardado('')
 
+    // Obtener codigo de venta seguro desde la secuencia de Supabase
     const { data: codData, error: codError } = await supabase.rpc('siguiente_cod_venta')
     if (codError || !codData) {
       setErrorGuardado('Error al generar codigo de venta: ' + (codError?.message || ''))
@@ -707,6 +1085,7 @@ export default function Ventas() {
 
     let cod_cliente_final: number
 
+    // Crear cliente nuevo si aplica
     if (modoCliente === 'nuevo') {
       const { data: cNuevo, error: eCli } = await supabase
         .from('clientes')
@@ -730,6 +1109,7 @@ export default function Ventas() {
     const totalVenta = lineas.reduce((acc, l) =>
       acc + parseFloat(l.precio_vendido || '0') * parseInt(l.cantidad || '0'), 0)
 
+    // Insertar cabecera venta
     const { error: eVenta } = await supabase.from('ventas').insert({
       cod_venta:         codVentaFinal,
       cod_cliente:       cod_cliente_final,
@@ -753,6 +1133,7 @@ export default function Ventas() {
       setGuardandoNueva(false); setPasoNueva('form'); return
     }
 
+    // Insertar lineas
     const detallesToInsert = lineas.map((l, i) => ({
       cod_venta: codVentaFinal,
       item:             i + 1,
@@ -769,22 +1150,33 @@ export default function Ventas() {
     const { error: eDet } = await supabase.from('detalle_venta').insert(detallesToInsert)
 
     if (eDet) {
+      // Revertir la venta si fallo el detalle
       await supabase.from('ventas').delete().eq('cod_venta', codVentaFinal)
       setErrorGuardado('Error al registrar los productos: ' + eDet.message)
       setGuardandoNueva(false); setPasoNueva('form'); return
     }
 
-    await supabase.from('progreso_produccion').insert({
-      codigo_pedido: codVentaFinal,
-      estado: 1,
-      fecha_ingreso: nv.fecha_pedido
-    })
+    // Insertar en progreso_produccion
+    const { error: insertProgreso } = await supabase
+      .from('progreso_produccion')
+      .insert({
+        codigo_pedido: codVentaFinal,
+        estado: 1,
+        fecha_ingreso: nv.fecha_pedido
+      })
 
+    if (insertProgreso) {
+      console.error('Error al insertar progreso:', insertProgreso)
+      // No revertir, solo loggear
+    }
+
+    // Exito — cerrar y recargar
     setGuardandoNueva(false)
     cerrarModalNueva()
     cargarVentas(0, filtros)
     setPage(0)
 
+    // Generar nota de venta
     await generarNotaVenta({
       codVenta: codVentaFinal,
       cliente: modoCliente === 'nuevo' ? {
@@ -810,18 +1202,20 @@ export default function Ventas() {
         subtotal: parseFloat(l.precio_vendido) * parseInt(l.cantidad),
         dimensiones: l.dimensiones,
         colorEstructura: coloresEst.find(c => c.codigo_color === l.color_estructura)?.detalle || l.color_estructura,
-        colorMelamina: coloresMel.find(m => m.codigo_melamina === l.color_melamina || m.id === parseInt(l.color_melamina))?.detalle || l.color_melamina,
+        colorMelamina: coloresMel.find(c => c.codigo_color === l.color_melamina)?.detalle || l.color_melamina,
       })),
       total: totalVenta
     })
   }
 
+  // ── Calculos preview ──────────────────────────────────────────────────────
   const totalNuevaVenta = lineas.reduce((acc, l) =>
     acc + (parseFloat(l.precio_vendido || '0') * parseInt(l.cantidad || '0')), 0)
 
   const vendedorNombre = vendedores.find(v => String(v.id) === nv.cod_vendedor)?.nombre || ''
   const clienteNombre  = modoCliente === 'nuevo' ? `${nuevoClienteNombre} (Cód: ${nuevoClienteCodigo})` : (clienteSeleccionado?.nombre || '')
 
+  // ── Estilos ───────────────────────────────────────────────────────────────
   const inputStyle: React.CSSProperties = {
     padding: '8px 12px', borderRadius: '8px', border: '1px solid #ddd',
     fontSize: '13px', width: '100%', boxSizing: 'border-box', backgroundColor: 'white',
@@ -858,23 +1252,20 @@ export default function Ventas() {
 
       <style>{`
         @media (max-width: 768px) {
-          .ventas-container { padding: 12px !important; }
-          .filtros-grid { grid-template-columns: 1fr !important; }
+          .ventas-container { padding: 16px !important; }
+          .filtros-grid { grid-template-columns: 1fr 1fr !important; }
           .tabla-wrap { font-size: 11px !important; }
-          .modal-inner { margin: 8px !important; padding: 16px !important; max-width: 100% !important; width: calc(100% - 16px) !important; }
-          .detalle-grid { grid-template-columns: 1fr !important; }
-          .linea-grid { grid-template-columns: 1fr !important; }
-          nav { padding: 12px 16px !important; }
-        }
-        @media (max-width: 1024px) and (min-width: 769px) {
-          .filtros-grid { grid-template-columns: repeat(3, 1fr) !important; }
-          .detalle-grid { grid-template-columns: repeat(2, 1fr) !important; }
+          .modal-inner { margin: 8px !important; padding: 16px !important; max-width: 100% !important; }
+          .detalle-grid { grid-template-columns: 1fr 1fr !important; }
+          .linea-grid { grid-template-columns: 1fr 1fr !important; }
         }
         .fila-venta:hover { background-color: #f0fff0 !important; cursor: pointer; }
         .btn-primary { background-color: #087e0b; color: white; border: none; border-radius: 8px; padding: 9px 20px; font-size: 13px; font-weight: bold; cursor: pointer; }
         .btn-primary:hover { background-color: #065e08; }
+        .btn-primary:disabled { background-color: #aaa; cursor: not-allowed; }
         .btn-secondary { background-color: white; color: #555; border: 1px solid #ddd; border-radius: 8px; padding: 9px 20px; font-size: 13px; cursor: pointer; }
         .btn-secondary:hover { background-color: #f5f5f5; }
+        .btn-danger { background-color: transparent; color: #e53935; border: 1px solid #e53935; border-radius: 8px; padding: 9px 20px; font-size: 13px; cursor: pointer; }
         .btn-edit { background-color: #1565c0; color: white; border: none; border-radius: 8px; padding: 9px 20px; font-size: 13px; font-weight: bold; cursor: pointer; }
         .btn-edit:hover { background-color: #0d47a1; }
         .btn-nueva { background-color: #087e0b; color: white; border: none; border-radius: 10px; padding: 11px 24px; font-size: 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 8px; }
@@ -899,22 +1290,26 @@ export default function Ventas() {
       <div className="ventas-container" style={{ padding: '32px 40px', maxWidth: '1300px', margin: '0 auto' }}>
 
         {/* CABECERA */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <h1 style={{ margin: '0 0 4px', fontSize: '24px' }}>Ventas</h1>
-            <p style={{ margin: 0, color: '#888', fontSize: '13px' }}>
-              {totalCount.toLocaleString()} registros
-              {puedeEditar && <span style={{ marginLeft: '10px', color: '#1565c0', fontSize: '12px' }}>● Administrador</span>}
-            </p>
-          </div>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {puedeRegistrar && (
-              <button className="btn-nueva" onClick={abrirModalNueva}>
-                ＋ Registrar venta
-              </button>
-            )}
-          </div>
-        </div>
+<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
+  <div>
+    <h1 style={{ margin: '0 0 4px', fontSize: '24px' }}>Ventas</h1>
+    <p style={{ margin: 0, color: '#888', fontSize: '13px' }}>
+      {totalCount.toLocaleString()} registros
+      {puedeEditar && <span style={{ marginLeft: '10px', color: '#1565c0', fontSize: '12px' }}>● Administrador</span>}
+    </p>
+  </div>
+  
+  {/* GRUPO DE ACCIONES (No altera el layout gracias al flexbox externo) */}
+  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+    
+    {/* Botón original de registro */}
+    {puedeRegistrar && (
+      <button className="btn-nueva" onClick={abrirModalNueva}>
+        ＋ Registrar venta
+      </button>
+    )}
+  </div>
+</div>
 
         {/* FILTROS */}
         <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', marginBottom: '20px' }}>
@@ -971,8 +1366,8 @@ export default function Ventas() {
               <p style={{ margin: 0 }}>No se encontraron ventas.</p>
             </div>
           ) : (
-            <div className="tabla-wrap" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '950px' }}>
+            <div className="tabla-wrap" style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
                     <th style={thStyle}># Venta</th>
@@ -1031,7 +1426,7 @@ export default function Ventas() {
             </div>
           )}
           {totalPages > 1 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderTop: '1px solid #f0f0f0', flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderTop: '1px solid #f0f0f0' }}>
               <span style={{ fontSize: '13px', color: '#888' }}>Pagina {page + 1} de {totalPages}</span>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button className="btn-secondary" style={{ padding: '7px 14px', fontSize: '12px' }} disabled={page === 0} onClick={() => setPage(0)}>« Primera</button>
@@ -1051,7 +1446,8 @@ export default function Ventas() {
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', zIndex: 1000, overflowY: 'auto', display: 'flex', justifyContent: 'center', padding: '20px' }}>
           <div className="modal-inner" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '32px', width: '100%', maxWidth: '860px', boxShadow: '0 8px 40px rgba(0,0,0,0.2)', height: 'fit-content', marginTop: '10px', marginBottom: '20px' }}>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '10px' }}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
               <div>
                 <h2 style={{ margin: '0 0 4px', fontSize: '20px' }}>
                   {pasoNueva === 'form' ? '➕ Registrar nueva venta' : '👁 Previsualizar venta'}
@@ -1065,6 +1461,8 @@ export default function Ventas() {
                 <span style={{ fontSize: '12px', color: pasoNueva === 'form' ? '#087e0b' : '#bbb', fontWeight: 'bold' }}>① Formulario</span>
                 <span style={{ color: '#ddd', fontSize: '16px' }}>→</span>
                 <span style={{ fontSize: '12px', color: pasoNueva === 'preview' ? '#087e0b' : '#bbb', fontWeight: 'bold' }}>② Preview</span>
+                <span style={{ color: '#ddd', fontSize: '16px' }}>→</span>
+                <span style={{ fontSize: '12px', color: '#bbb', fontWeight: 'bold' }}>③ Guardado</span>
               </div>
               <button className="btn-secondary" style={{ padding: '7px 14px', fontSize: '12px' }} onClick={cerrarModalNueva}>✕ Cerrar</button>
             </div>
@@ -1072,6 +1470,7 @@ export default function Ventas() {
             {loadingMaestros ? (
               <p style={{ textAlign: 'center', color: '#888', padding: '40px' }}>Cargando datos...</p>
             ) : pasoNueva === 'form' ? (
+              // ══════════════════ PASO 1: FORMULARIO ══════════════════
               <>
                 {errorGuardado && (
                   <div style={{ backgroundColor: '#ffebee', border: '1px solid #ef9a9a', borderRadius: '8px', padding: '12px 16px', marginBottom: '20px', fontSize: '13px', color: '#c62828' }}>
@@ -1082,20 +1481,21 @@ export default function Ventas() {
                 {/* CLIENTE */}
                 <div style={{ backgroundColor: '#f9f9f9', borderRadius: '12px', padding: '20px', marginBottom: '20px', border: '1px solid #eee' }}>
                   <h3 style={{ margin: '0 0 14px', fontSize: '15px', color: '#333' }}>👥 Cliente</h3>
-                  <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
                     <button className={`tab-btn ${modoCliente === 'existente' ? 'tab-active' : 'tab-inactive'}`}
                       onClick={() => { setModoCliente('existente'); setErrorCliente('') }}>
                       Cliente existente
                     </button>
                     <button className={`tab-btn ${modoCliente === 'nuevo' ? 'tab-active' : 'tab-inactive'}`}
                       onClick={async () => {
-                        setModoCliente('nuevo'); setErrorCliente('')
-                        setLoadingNextCodCliente(true)
-                        const { data } = await supabase.from('clientes').select('codigo').order('codigo', { ascending: false }).limit(1)
-                        const ultimo = data?.[0]?.codigo || 0
-                        setNuevoClienteCodigo(String(ultimo + 1))
-                        setLoadingNextCodCliente(false)
-                      }}>
+        setModoCliente('nuevo'); setErrorCliente('')
+        // Cargar el siguiente codigo correlativo de clientes
+        setLoadingNextCodCliente(true)
+        const { data } = await supabase.from('clientes').select('codigo').order('codigo', { ascending: false }).limit(1)
+        const ultimo = data?.[0]?.codigo || 0
+        setNuevoClienteCodigo(String(ultimo + 1))
+        setLoadingNextCodCliente(false)
+      }}>
                       + Nuevo cliente
                     </button>
                   </div>
@@ -1104,7 +1504,7 @@ export default function Ventas() {
                     <div style={{ position: 'relative' }}>
                       <label style={labelStyle}>Buscar por nombre, código o celular (mínimo 2 caracteres)</label>
                       {clienteSeleccionado ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#e8f5e9', border: '1px solid #a5d6a7', borderRadius: '8px', padding: '10px 14px', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#e8f5e9', border: '1px solid #a5d6a7', borderRadius: '8px', padding: '10px 14px' }}>
                           <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#2e7d32' }}>✓ {clienteSeleccionado.nombre}</span>
                           {clienteSeleccionado.codigo && <span style={{ fontSize: '11px', color: '#555' }}>Cód: {clienteSeleccionado.codigo}</span>}
                           <button onClick={() => { setClienteSeleccionado(null); setClienteBusqueda('') }}
@@ -1115,7 +1515,7 @@ export default function Ventas() {
                           <input style={errorCliente ? inputErr : inputStyle} placeholder="Escribe el nombre del cliente..."
                             value={clienteBusqueda} onChange={e => setClienteBusqueda(e.target.value)} />
                           {clientesFiltrados.length > 0 && (
-                            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: 'white', border: '1px solid #ddd', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 10, maxHeight: '200px', overflowY: 'auto' }}>
+                            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: 'white', border: '1px solid #ddd', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 10 }}>
                               {clientesFiltrados.map(c => (
                                 <div key={c.id} className="cliente-sugerencia"
                                   onClick={() => { setClienteSeleccionado(c); setClienteBusqueda(''); setErrorCliente('') }}>
@@ -1131,34 +1531,51 @@ export default function Ventas() {
                       {errorCliente && <p style={errMsg}>{errorCliente}</p>}
                     </div>
                   ) : (
-                    <div className="detalle-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
                       <div>
                         <label style={labelStyle}>Código *</label>
-                        <input type="number" style={inputStyle} value={nuevoClienteCodigo}
+                        <input
+                          type="number"
+                          style={inputStyle}
+                          value={nuevoClienteCodigo}
                           placeholder={loadingNextCodCliente ? 'Calculando...' : 'Ej: 2085'}
-                          onChange={e => setNuevoClienteCodigo(e.target.value)} />
-                        <p style={{ fontSize: '10px', color: '#aaa', margin: '3px 0 0' }}>Auto-generado</p>
+                          onChange={e => setNuevoClienteCodigo(e.target.value)}
+                        />
+                        <p style={{ fontSize: '10px', color: '#aaa', margin: '3px 0 0' }}>Auto-generado, puedes cambiar</p>
                       </div>
                       <div>
                         <label style={labelStyle}>Nombre completo *</label>
-                        <input style={errorCliente ? inputErr : inputStyle} placeholder="Nombre del cliente"
+                        <input
+                          style={errorCliente ? inputErr : inputStyle}
+                          placeholder="Nombre del cliente"
                           value={nuevoClienteNombre}
-                          onChange={e => { setNuevoClienteNombre(e.target.value); setErrorCliente('') }} />
+                          onChange={e => { setNuevoClienteNombre(e.target.value); setErrorCliente('') }}
+                        />
                         {errorCliente && <p style={errMsg}>{errorCliente}</p>}
                       </div>
                       <div>
                         <label style={labelStyle}>Celular</label>
-                        <input type="text" style={inputStyle} placeholder="Número de celular"
-                          value={nuevoClienteCelular} onChange={e => setNuevoClienteCelular(e.target.value)} />
+                        <input
+                          type="text"
+                          style={inputStyle}
+                          placeholder="Numero de celular"
+                          value={nuevoClienteCelular}
+                          onChange={e => setNuevoClienteCelular(e.target.value)}
+                        />
                       </div>
                       <div>
                         <label style={labelStyle}>Dirección</label>
-                        <input type="text" style={inputStyle} placeholder="Dirección o referencia"
-                          value={nuevoClienteDireccion} onChange={e => setNuevoClienteDireccion(e.target.value)} />
+                        <input
+                          type="text"
+                          style={inputStyle}
+                          placeholder="Dirección o referencia"
+                          value={nuevoClienteDireccion}
+                          onChange={e => setNuevoClienteDireccion(e.target.value)}
+                        />
                       </div>
                       <div style={{ gridColumn: 'span 2' }}>
                         <div style={{ backgroundColor: '#e3f2fd', border: '1px solid #90caf9', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', color: '#1565c0' }}>
-                          💡 El cliente se creará en la base de datos al confirmar la venta.
+                          💡 El cliente se creará en la base de datos al confirmar la venta. Puedes editarlo después desde la sección <strong>Clientes</strong>.
                         </div>
                       </div>
                     </div>
@@ -1206,10 +1623,13 @@ export default function Ventas() {
                     </div>
                     <div style={{ gridColumn: 'span 3' }}>
                       <label style={labelStyle}>Detalles específicos del pedido</label>
-                      <textarea rows={3} placeholder="Ej. Puerta de color blanco, entrega en edificio..."
+                      <textarea
+                        rows={3}
+                        placeholder="Ej. Puerta de color blanco, entrega en edificio con ascensor, etc."
                         style={{ ...inputStyle, resize: 'vertical', minHeight: '90px' }}
                         value={nv.detalles_especificos}
-                        onChange={e => setNv(p => ({ ...p, detalles_especificos: e.target.value }))} />
+                        onChange={e => setNv(p => ({ ...p, detalles_especificos: e.target.value }))}
+                      />
                     </div>
                     <div>
                       <label style={labelStyle}>Forma de pago *</label>
@@ -1267,7 +1687,7 @@ export default function Ventas() {
                             <option value="">— Selecciona un producto —</option>
                             {productos.map((p: any) => (
                               <option key={p.codigo} value={p.codigo}>
-                                {p.codigo} — {p.nombre}
+                                {p.nombre}
                               </option>
                             ))}
                           </select>
@@ -1309,7 +1729,7 @@ export default function Ventas() {
                             <option value="">— Selecciona color —</option>
                             {coloresEst.map((c: any) => (
                               <option key={c.id} value={c.codigo_color}>
-                                {c.codigo_color} — {c.detalle}
+                                {c.detalle}
                               </option>
                             ))}
                           </select>
@@ -1323,13 +1743,14 @@ export default function Ventas() {
                             <option value="">— Selecciona melamina —</option>
                             {coloresMel.map((m: any) => (
                               <option key={m.id} value={m.codigo_melamina}>
-                                {m.codigo_melamina} — {m.detalle}
+                                {m.detalle}
                               </option>
                             ))}
                           </select>
                           {erroresLineas[idx]?.color_melamina && <p style={errMsg}>{erroresLineas[idx].color_melamina}</p>}
                         </div>
                       </div>
+                      {/* Subtotal por linea */}
                       {linea.precio_vendido && linea.cantidad && (
                         <div style={{ marginTop: '10px', textAlign: 'right', fontSize: '13px', color: '#087e0b', fontWeight: 'bold' }}>
                           Subtotal: Bs. {(parseFloat(linea.precio_vendido) * parseInt(linea.cantidad)).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
@@ -1343,7 +1764,8 @@ export default function Ventas() {
                   </button>
                 </div>
 
-                <div style={{ borderTop: '2px solid #eee', paddingTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                {/* Total y boton siguiente */}
+                <div style={{ borderTop: '2px solid #eee', paddingTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <p style={{ margin: '0', fontSize: '13px', color: '#888' }}>Total estimado</p>
                     <p style={{ margin: '4px 0 0', fontSize: '22px', fontWeight: 'bold', color: '#087e0b' }}>
@@ -1359,6 +1781,7 @@ export default function Ventas() {
                 </div>
               </>
             ) : (
+              // ══════════════════ PASO 2: PREVIEW ══════════════════
               <>
                 {errorGuardado && (
                   <div style={{ backgroundColor: '#ffebee', border: '1px solid #ef9a9a', borderRadius: '8px', padding: '12px 16px', marginBottom: '20px', fontSize: '13px', color: '#c62828' }}>
@@ -1370,6 +1793,7 @@ export default function Ventas() {
                   ✅ Todo listo. Revisa los datos a continuacion y confirma para grabar en la base de datos.
                 </div>
 
+                {/* Cabecera preview */}
                 <div style={{ backgroundColor: '#f9f9f9', borderRadius: '12px', padding: '20px', marginBottom: '20px', border: '1px solid #eee' }}>
                   <h3 style={{ margin: '0 0 16px', fontSize: '14px', color: '#555', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Datos de la venta</h3>
                   <div className="detalle-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
@@ -1396,11 +1820,12 @@ export default function Ventas() {
                   </div>
                 </div>
 
+                {/* Lineas preview */}
                 <h3 style={{ margin: '0 0 12px', fontSize: '14px', color: '#555', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Productos ({lineas.length})
                 </h3>
                 <div style={{ overflowX: 'auto', marginBottom: '24px' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', minWidth: '700px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                     <thead>
                       <tr style={{ backgroundColor: '#f9f9f9' }}>
                         {['#', 'Producto', 'P. Cotizado', 'P. Vendido', 'Cant.', 'Subtotal', 'Dimensiones', 'Estructura', 'Melamina'].map(h => (
@@ -1421,9 +1846,11 @@ export default function Ventas() {
                             <td style={{ ...tdStyle, textAlign: 'center' }}>{l.cantidad}</td>
                             <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>Bs. {sub.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</td>
                             <td style={{ ...tdStyle, fontSize: '12px', color: '#666' }}>{l.dimensiones || '—'}</td>
-                            <td style={{ ...tdStyle, fontSize: '12px' }}>{coloresEst.find(c => c.codigo_color === l.color_estructura)?.detalle || l.color_estructura}</td>
                             <td style={{ ...tdStyle, fontSize: '12px' }}>
-                              {coloresMel.find((m: any) => m.codigo_melamina === l.color_melamina || m.id === parseInt(l.color_melamina))?.detalle || l.color_melamina}
+                              {coloresEst.find((c: any) => c.codigo_color === l.color_estructura)?.detalle || l.color_estructura}
+                            </td>
+                            <td style={{ ...tdStyle, fontSize: '12px' }}>
+                              {coloresMel.find((m: any) => m.codigo_melamina === l.color_melamina)?.detalle || l.color_melamina}
                             </td>
                           </tr>
                         )
@@ -1441,28 +1868,72 @@ export default function Ventas() {
                   </table>
                 </div>
 
+                {/* Botón WhatsApp */}
                 <div style={{ marginBottom: '20px' }}>
-                  <button onClick={() => generarTextoWhatsApp(nextCodVenta)}
-                    style={{ background: '#25D366', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px', width: '100%', justifyContent: 'center' }}>
+                  <button 
+                    onClick={() => generarTextoWhatsApp(nextCodVenta)}
+                    style={{
+                      background: '#25D366',
+                      color: 'white',
+                      border: 'none',
+                      padding: '10px 20px',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                      fontSize: '14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      width: '100%',
+                      justifyContent: 'center'
+                    }}
+                  >
                     💬 Generar texto para WhatsApp
                   </button>
                 </div>
 
+                {/* Textarea WhatsApp */}
                 {mostrarTextoWA && (
                   <div style={{ marginBottom: '20px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                       <label style={{ fontSize: '13px', fontWeight: 'bold', color: '#555' }}>Texto para WhatsApp</label>
-                      <button onClick={copiarAlPortapapeles}
-                        style={{ background: '#25D366', color: 'white', border: 'none', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+                      <button
+                        onClick={copiarAlPortapapeles}
+                        style={{
+                          background: '#25D366',
+                          color: 'white',
+                          border: 'none',
+                          padding: '6px 14px',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: 'bold'
+                        }}
+                      >
                         📋 Copiar
                       </button>
                     </div>
-                    <textarea value={textoWhatsApp} readOnly
-                      style={{ width: '100%', minHeight: '200px', padding: '12px', borderRadius: '8px', border: '2px solid #25D366', fontFamily: 'monospace', fontSize: '12px', backgroundColor: '#f0f9f6', color: '#222', boxSizing: 'border-box' }} />
+                    <textarea
+                      value={textoWhatsApp}
+                      readOnly
+                      style={{
+                        width: '100%',
+                        minHeight: '300px',
+                        padding: '12px',
+                        borderRadius: '8px',
+                        border: '2px solid #25D366',
+                        fontFamily: 'monospace',
+                        fontSize: '12px',
+                        backgroundColor: '#f0f9f6',
+                        color: '#222',
+                        boxSizing: 'border-box'
+                      }}
+                    />
                   </div>
                 )}
 
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
+                {/* Botones confirmacion */}
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'space-between', alignItems: 'center' }}>
                   <button className="btn-secondary" onClick={() => setPasoNueva('form')} disabled={guardandoNueva}>
                     ← Volver y editar
                   </button>
@@ -1484,7 +1955,7 @@ export default function Ventas() {
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, overflowY: 'auto', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '20px' }}>
           <div className="modal-inner" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '32px', width: '100%', maxWidth: '820px', boxShadow: '0 8px 40px rgba(0,0,0,0.2)', marginTop: '20px', marginBottom: '20px' }}>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
               <div>
                 <h2 style={{ margin: '0 0 4px', fontSize: '20px' }}>
                   Venta #{ventaSel.cod_venta}
@@ -1506,85 +1977,7 @@ export default function Ventas() {
               </div>
             )}
 
-            {loadingDetalle ? (
-              <div style={{ padding: '40px', textAlign: 'center', color: '#888' }}>Cargando detalle...</div>
-            ) : !modoEdicion ? (
-              <div>
-                <div className="detalle-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px', backgroundColor: '#f9f9f9', padding: '16px', borderRadius: '12px', border: '1px solid #eee' }}>
-                  <div>
-                    <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#888', textTransform: 'uppercase' }}>Cliente</p>
-                    <p style={{ margin: 0, fontWeight: 'bold', fontSize: '14px' }}>{ventaSel.nombre_cliente}</p>
-                  </div>
-                  <div>
-                    <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#888', textTransform: 'uppercase' }}>Vendedor</p>
-                    <p style={{ margin: 0, fontWeight: 'bold', fontSize: '14px' }}>{ventaSel.nombre_vendedor}</p>
-                  </div>
-                  <div>
-                    <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#888', textTransform: 'uppercase' }}>Fecha Pedido</p>
-                    <p style={{ margin: 0, fontSize: '13px' }}>{fmtFecha(ventaSel.fecha_pedido)}</p>
-                  </div>
-                  <div>
-                    <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#888', textTransform: 'uppercase' }}>Fecha Entrega</p>
-                    <p style={{ margin: 0, fontSize: '13px' }}>{fmtFecha(ventaSel.fecha_entrega)} {ventaSel.hora_entrega ? `(${ventaSel.hora_entrega})` : ''}</p>
-                  </div>
-                  <div>
-                    <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#888', textTransform: 'uppercase' }}>Ubicación</p>
-                    <p style={{ margin: 0, fontSize: '13px' }}>{ventaSel.ubicacion_pedido || '—'}</p>
-                  </div>
-                  <div>
-                    <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#888', textTransform: 'uppercase' }}>Forma de Pago</p>
-                    <p style={{ margin: 0, fontSize: '13px' }}>{ventaSel.forma_pago?.replace('_', ' ') || '—'}</p>
-                  </div>
-                  {ventaSel.detalles_especificos && (
-                    <div style={{ gridColumn: 'span 2' }}>
-                      <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#888', textTransform: 'uppercase' }}>Detalles Específicos</p>
-                      <p style={{ margin: 0, fontSize: '13px', color: '#333' }}>{ventaSel.detalles_especificos}</p>
-                    </div>
-                  )}
-                </div>
-
-                <h3 style={{ margin: '0 0 12px', fontSize: '15px', color: '#333' }}>Productos de la Venta</h3>
-                <div style={{ overflowX: 'auto', marginBottom: '20px' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', minWidth: '700px' }}>
-                    <thead>
-                      <tr style={{ backgroundColor: '#f9f9f9' }}>
-                        <th style={thStyle}>#</th>
-                        <th style={thStyle}>Producto</th>
-                        <th style={thStyle}>Dimensiones</th>
-                        <th style={thStyle}>Color Estructura</th>
-                        <th style={thStyle}>Color Melamina</th>
-                        <th style={{ ...thStyle, textAlign: 'center' }}>Cant.</th>
-                        <th style={{ ...thStyle, textAlign: 'right' }}>P. Vendido</th>
-                        <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detalle.map((d, idx) => (
-                        <tr key={d.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                          <td style={tdStyle}>{d.item || idx + 1}</td>
-                          <td style={{ ...tdStyle, fontWeight: 'bold' }}>{productosMap[d.cod_producto || ''] || d.cod_producto || '—'}</td>
-                          <td style={tdStyle}>{d.dimensiones || '—'}</td>
-                          <td style={tdStyle}>{coloresEstMap[d.color_estructura || ''] || d.color_estructura || '—'}</td>
-                          <td style={tdStyle}>{coloresMelMap[d.color_melamina || ''] || d.color_melamina || '—'}</td>
-                          <td style={{ ...tdStyle, textAlign: 'center' }}>{d.cantidad}</td>
-                          <td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(d.precio_vendido)}</td>
-                          <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold' }}>{fmt(d.subtotal)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div style={{ textAlign: 'right', borderTop: '2px solid #eee', paddingTop: '16px' }}>
-                  {ventaSel.delivery_cotizado ? <div style={{ fontSize: '13px', marginBottom: '4px' }}>Delivery Cotizado: <strong>{fmt(ventaSel.delivery_cotizado)}</strong></div> : null}
-                  {ventaSel.delivery_pagado ? <div style={{ fontSize: '13px', marginBottom: '4px' }}>Delivery Pagado: <strong>{fmt(ventaSel.delivery_pagado)}</strong></div> : null}
-                  {ventaSel.anticipo ? <div style={{ fontSize: '13px', marginBottom: '4px' }}>Anticipo: <strong>{fmt(ventaSel.anticipo)}</strong></div> : null}
-                  <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#087e0b', marginTop: '6px' }}>
-                    Total Venta: {fmt(ventaSel.total_venta)}
-                  </div>
-                </div>
-              </div>
-            ) : (
+            {modoEdicion ? (
               <>
                 <h3 style={{ margin: '0 0 16px', fontSize: '15px', color: '#444', borderBottom: '1px solid #eee', paddingBottom: '8px' }}>Datos de la venta</h3>
                 <div className="detalle-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', marginBottom: '24px' }}>
@@ -1630,7 +2023,7 @@ export default function Ventas() {
                   <div style={{ gridColumn: 'span 3' }}>
                     <label style={labelStyle}>Detalles específicos del pedido</label>
                     <textarea rows={3} value={formVenta.detalles_especificos || ''} style={{ ...inputStyle, resize: 'vertical', minHeight: '90px' }}
-                      placeholder="Ej. Puerta de color blanco..."
+                      placeholder="Ej. Puerta de color blanco, entrega en edificio con ascensor, etc."
                       onChange={e => setFormVenta(f => ({ ...f, detalles_especificos: e.target.value || null }))} />
                   </div>
                   <div>
@@ -1696,7 +2089,7 @@ export default function Ventas() {
                         <input type="text" value={d.color_estructura || ''} style={inputStyle}
                           onChange={e => setFormDetalle(prev => prev.map((x, i) => i === idx ? { ...x, color_estructura: e.target.value || null } : x))} />
                       </div>
-                      <div>
+                      <div style={{ gridColumn: 'span 3' }}>
                         <label style={labelStyle}>Color melamina</label>
                         <input type="text" value={d.color_melamina || ''} style={inputStyle}
                           onChange={e => setFormDetalle(prev => prev.map((x, i) => i === idx ? { ...x, color_melamina: e.target.value || null } : x))} />
@@ -1704,20 +2097,95 @@ export default function Ventas() {
                     </div>
                   </div>
                 ))}
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
-                  <button className="btn-secondary" onClick={() => setModoEdicion(false)} disabled={guardando}>Cancelar</button>
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '8px' }}>
+                  <button className="btn-danger" onClick={() => setModoEdicion(false)} disabled={guardando}>Cancelar</button>
                   <button className="btn-primary" onClick={guardarCambios} disabled={guardando}>
                     {guardando ? 'Guardando...' : '💾 Guardar cambios'}
                   </button>
                 </div>
               </>
-            )}
+            ) : (
+              <>
+                <div className="detalle-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
+                  {([
+                    ['Cliente', ventaSel.nombre_cliente || `ID ${ventaSel.cod_cliente}`],
+                    ['Vendedor', ventaSel.nombre_vendedor || '—'],
+                    ['Forma de pago', ventaSel.forma_pago?.replace('_', ' ') || '—'],
+                    ['Fecha pedido', fmtFecha(ventaSel.fecha_pedido)],
+                    ['Fecha entrega', fmtFecha(ventaSel.fecha_entrega)],
+                    ['Hora entrega', ventaSel.hora_entrega || '—'],
+                    ['Ubicación', ventaSel.ubicacion_pedido || '—'],
+                    ['Detalles', ventaSel.detalles_especificos || '—'],
+                    ['Delivery cotizado', fmt(ventaSel.delivery_cotizado)],
+                    ['Delivery pagado', fmt(ventaSel.delivery_pagado)],
+                    ['Anticipo', fmt(ventaSel.anticipo)],
+                    ['Total venta', fmt(ventaSel.total_venta)],
+                  ] as [string, string][]).map(([label, val]) => (
+                    <div key={label} style={{ backgroundColor: '#f9f9f9', borderRadius: '8px', padding: '12px 16px' }}>
+                      <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</p>
+                      <p style={{ margin: 0, fontSize: '14px', fontWeight: '500' }}>{val}</p>
+                    </div>
+                  ))}
+                  <div style={{ backgroundColor: '#f9f9f9', borderRadius: '8px', padding: '12px 16px', gridColumn: 'span 3' }}>
+                    <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Codigo transaccion</p>
+                    <p style={{ margin: 0, fontSize: '13px', fontFamily: 'monospace', color: ventaSel.cod_transaccion?.startsWith('TRUNCADO_') ? '#e65100' : '#222' }}>
+                      {ventaSel.cod_transaccion?.startsWith('TRUNCADO_')
+                        ? `Truncado por Excel: ${ventaSel.cod_transaccion.replace('TRUNCADO_', '')}`
+                        : (ventaSel.cod_transaccion || '—')}
+                    </p>
+                  </div>
+                </div>
 
+                <h3 style={{ margin: '0 0 14px', fontSize: '15px', color: '#444', borderBottom: '1px solid #eee', paddingBottom: '8px' }}>
+                  Productos ({detalle.length})
+                </h3>
+                {loadingDetalle ? (
+                  <p style={{ color: '#888', textAlign: 'center', padding: '20px' }}>Cargando detalle...</p>
+                ) : detalle.length === 0 ? (
+                  <p style={{ color: '#bbb', textAlign: 'center', padding: '20px' }}>Sin lineas de detalle registradas.</p>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr>
+                          {['#', 'Producto', 'P. Cotizado', 'P. Vendido', 'Cant.', 'Subtotal', 'Dimensiones', 'Estructura', 'Melamina'].map(h => (
+                            <th key={h} style={{ ...thStyle, fontSize: '11px' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detalle.map((d, i) => (
+                          <tr key={d.id} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                            <td style={{ ...tdStyle, color: '#087e0b', fontWeight: 'bold' }}>{d.item ?? i + 1}</td>
+                            <td style={{ ...tdStyle, fontWeight: '500' }}>{d.nombre_producto || d.cod_producto || '—'}</td>
+                            <td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(d.precio_cotizado)}</td>
+                            <td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(d.precio_vendido)}</td>
+                            <td style={{ ...tdStyle, textAlign: 'center' }}>{d.cantidad ?? '—'}</td>
+                            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>{fmt(d.subtotal)}</td>
+                            <td style={{ ...tdStyle, fontSize: '12px', color: '#666' }}>{d.dimensiones || '—'}</td>
+                            <td style={{ ...tdStyle, fontSize: '12px' }}>{d.nombre_color_estructura || d.color_estructura || '—'}</td>
+                            <td style={{ ...tdStyle, fontSize: '12px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                              title={d.nombre_color_melamina || d.color_melamina || ''}>{d.nombre_color_melamina || d.color_melamina || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ backgroundColor: '#f0fff0' }}>
+                          <td colSpan={5} style={{ padding: '10px 14px', fontWeight: 'bold', fontSize: '13px', borderTop: '2px solid #087e0b' }}>Total</td>
+                          <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 'bold', fontSize: '15px', color: '#087e0b', borderTop: '2px solid #087e0b' }}>
+                            {fmt(detalle.reduce((acc, d) => acc + (d.subtotal || 0), 0))}
+                          </td>
+                          <td colSpan={3} style={{ borderTop: '2px solid #087e0b' }}></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
       )}
-
     </div>
   )
 }
