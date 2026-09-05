@@ -1098,7 +1098,7 @@ export default function Ventas() {
             )}
 
             {/* Solo se puede subir/eliminar comprobantes en modo edición */}
-            <ComprobantesVenta codVenta={ventaSel.cod_venta} origen="vendedor" subidoPor={usuario?.nombre || usuario?.usuario || null} soloLectura={!modoEdicion} concepto="venta" />
+            <ComprobantesVenta codVenta={ventaSel.cod_venta} origen="vendedor" subidoPor={usuario?.nombre || null} soloLectura={!modoEdicion} />
 
             {modoEdicion ? (
               <>

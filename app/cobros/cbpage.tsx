@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
-import ComprobantesVenta from '../../components/ventas/ComprobantesVenta'
 
 interface VentaCobro {
   id: number
@@ -403,8 +402,7 @@ export default function CobrosPage() {
 
   const prepararFormularioCobro = (venta: VentaCobro) => {
     const saldo = Math.max(0, Number(venta.total_venta || 0) - Number(venta.anticipo || 0))
-    // El cobro registra lo que efectivamente se pagó de delivery, no lo cotizado.
-    const delivery = Number(venta.delivery_pagado ?? 0)
+    const delivery = Number(venta.delivery_pagado ?? venta.delivery_cotizado ?? 0)
 
     setFormCobro({
       saldo: saldo.toFixed(2),
@@ -610,19 +608,6 @@ export default function CobrosPage() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f5f5f5', fontFamily: 'Arial, sans-serif' }}>
       <style>{`
-        /* Sin esto, los <input>/<select> no se achican por debajo de su ancho
-           intrínseco dentro de un grid, y en pantallas medianas se salen de su
-           columna y quedan "cruzados" con la de al lado. */
-        input, select, textarea {
-          min-width: 0;
-        }
-
-        .detalle-grid > div,
-        .resumen-cobros-card,
-        label {
-          min-width: 0;
-        }
-
         .cobros-page {
           padding: 32px 40px;
           max-width: 1200px;
@@ -757,7 +742,7 @@ export default function CobrosPage() {
               <select
                 value={filtros.estado}
                 onChange={(e) => actualizarFiltro('estado', e.target.value)}
-                style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', width: '100%', boxSizing: 'border-box' }}
+                style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
               >
                 <option value="">Todos</option>
                 <option value="1">1 - En cola de produccion</option>
@@ -774,7 +759,7 @@ export default function CobrosPage() {
                 type="date"
                 value={filtros.fechaDesde}
                 onChange={(e) => actualizarFiltro('fechaDesde', e.target.value)}
-                style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', width: '100%', boxSizing: 'border-box' }}
+                style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
               />
             </label>
 
@@ -784,7 +769,7 @@ export default function CobrosPage() {
                 type="date"
                 value={filtros.fechaHasta}
                 onChange={(e) => actualizarFiltro('fechaHasta', e.target.value)}
-                style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', width: '100%', boxSizing: 'border-box' }}
+                style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
               />
             </label>
 
@@ -796,7 +781,7 @@ export default function CobrosPage() {
                   setPage(0)
                   setPageSize(Number(e.target.value))
                 }}
-                style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', width: '100%', boxSizing: 'border-box' }}
+                style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
               >
                 <option value={10}>10 registros</option>
                 <option value={20}>20 registros</option>
@@ -1014,16 +999,6 @@ export default function CobrosPage() {
                     </div>
                   )}
 
-                  {/* Subir/eliminar el comprobante del saldo solo se permite con el
-                      formulario de cobro abierto; en cualquier otro momento solo se ve la lista. */}
-                  <ComprobantesVenta
-                    codVenta={ventaSel.cod_venta!}
-                    origen="vendedor"
-                    subidoPor={usuario?.nombre || usuario?.usuario || null}
-                    concepto="cobro"
-                    soloLectura={!mostrarFormularioCobro}
-                  />
-
                   {mostrarFormularioCobro && (
                     <div style={{ backgroundColor: 'white', border: '1px solid #e5e5e5', borderRadius: '12px', padding: '16px', display: 'grid', gap: '14px' }}>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
@@ -1033,7 +1008,7 @@ export default function CobrosPage() {
                             type="date"
                             value={formCobro.fecha_pago}
                             onChange={(e) => actualizarFormCobro('fecha_pago', e.target.value)}
-                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', width: '100%', boxSizing: 'border-box' }}
+                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
                           />
                         </label>
 
@@ -1044,7 +1019,7 @@ export default function CobrosPage() {
                             step="0.01"
                             value={formCobro.saldo}
                             onChange={(e) => actualizarFormCobro('saldo', e.target.value)}
-                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', width: '100%', boxSizing: 'border-box' }}
+                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
                           />
                         </label>
 
@@ -1055,17 +1030,17 @@ export default function CobrosPage() {
                             step="0.01"
                             value={formCobro.total_cobrado}
                             onChange={(e) => actualizarFormCobro('total_cobrado', e.target.value)}
-                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', width: '100%', boxSizing: 'border-box' }}
+                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
                           />
                         </label>
 
                         <label style={{ display: 'grid', gap: '6px', fontWeight: 'bold', color: '#333' }}>
-                          Delivery pagado
+                          Delivery
                           <input
                             type="number"
                             value={formCobro.delivery}
                             onChange={(e) => actualizarFormCobro('delivery', e.target.value)}
-                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', width: '100%', boxSizing: 'border-box' }}
+                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
                           />
                         </label>
 
@@ -1076,7 +1051,7 @@ export default function CobrosPage() {
                             step="0.01"
                             value={formCobro.descuentos}
                             onChange={(e) => actualizarFormCobro('descuentos', e.target.value)}
-                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', width: '100%', boxSizing: 'border-box' }}
+                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
                           />
                         </label>
 
@@ -1086,7 +1061,7 @@ export default function CobrosPage() {
                             value={formCobro.tipo_pago}
                             onChange={(e) => actualizarFormCobro('tipo_pago', e.target.value)}
                             placeholder="EFECTIVO, TRANSFERENCIA..."
-                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', width: '100%', boxSizing: 'border-box' }}
+                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
                           />
                         </label>
 
@@ -1095,7 +1070,7 @@ export default function CobrosPage() {
                           <input
                             value={formCobro.comprobante}
                             onChange={(e) => actualizarFormCobro('comprobante', e.target.value)}
-                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', width: '100%', boxSizing: 'border-box' }}
+                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
                           />
                         </label>
 
@@ -1107,7 +1082,7 @@ export default function CobrosPage() {
                             max="10"
                             value={formCobro.valoracion}
                             onChange={(e) => actualizarFormCobro('valoracion', e.target.value)}
-                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', width: '100%', boxSizing: 'border-box' }}
+                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
                           />
                         </label>
                       </div>
@@ -1118,7 +1093,7 @@ export default function CobrosPage() {
                           value={formCobro.observaciones}
                           onChange={(e) => actualizarFormCobro('observaciones', e.target.value)}
                           rows={3}
-                          style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', resize: 'vertical', width: '100%', boxSizing: 'border-box' }}
+                          style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', resize: 'vertical' }}
                         />
                       </label>
 
@@ -1271,7 +1246,7 @@ export default function CobrosPage() {
                             type="date"
                             value={formReprogramacion.fecha_entrega}
                             onChange={(e) => setFormReprogramacion({ fecha_entrega: e.target.value })}
-                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', width: '100%', boxSizing: 'border-box' }}
+                            style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
                           />
                         </label>
 
