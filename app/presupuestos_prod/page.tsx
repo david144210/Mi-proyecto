@@ -11,6 +11,7 @@ interface DetalleVenta {
   color_estructura: string
   color_melamina: string
   producto_nombre?: string
+  variante_id?: number
 }
 
 interface Pedido {
@@ -64,6 +65,10 @@ export default function GestorPresupuestosWorkflow() {
   const [manualDetalle, setManualDetalle] = useState('')
   const [manualCantidad, setManualCantidad] = useState('')
   const [manualPrecio, setManualPrecio] = useState('')
+
+  // Selección de variantes
+  const [variantesDisponiblesMap, setVariantesDisponiblesMap] = useState<Record<string, any[]>>({})
+  const [variantesSeleccionadas, setVariantesSeleccionadas] = useState<Record<number, number>>({})
 
   useEffect(() => {
     const carnetGuardado = localStorage.getItem('carnet')
@@ -286,13 +291,31 @@ export default function GestorPresupuestosWorkflow() {
 
       const prodMap = Object.fromEntries(prodData?.map(p => [String(p.codigo), p.nombre]) || [])
 
+      const { data: variantesProdData } = codigosProd.length > 0
+        ? await supabase.from('producto_variantes').select('id, codigo_producto, es_estandar, descripcion, nombre').in('codigo_producto', codigosProd).eq('activo', true)
+        : { data: [] }
+
+      const varMap: Record<string, any[]> = {}
+      const defaultVarSelected: Record<number, number> = {}
+      ;(variantesProdData || []).forEach(v => {
+        if (!varMap[v.codigo_producto]) varMap[v.codigo_producto] = []
+        varMap[v.codigo_producto].push(v)
+      })
+
       const pedidosProcesados = ventasData.map(v => {
         const detalles = (detallesData || [])
           .filter(d => d.cod_venta === v.cod_venta)
-          .map(d => ({
-            ...d,
-            producto_nombre: prodMap[String(d.cod_producto)] || d.cod_producto,
-          }))
+          .map(d => {
+            const vars = varMap[String(d.cod_producto)] || []
+            const estandar = vars.find(val => val.es_estandar) || vars[0]
+            if (estandar && !d.variante_id) {
+              defaultVarSelected[d.id] = estandar.id
+            }
+            return {
+              ...d,
+              producto_nombre: prodMap[String(d.cod_producto)] || d.cod_producto,
+            }
+          })
         return {
           id: v.id,
           cod_venta: v.cod_venta,
@@ -303,6 +326,9 @@ export default function GestorPresupuestosWorkflow() {
           detalles
         }
       })
+
+      setVariantesDisponiblesMap(varMap)
+      setVariantesSeleccionadas(prev => ({ ...defaultVarSelected, ...prev }))
 
       const seleccionadosIds = seleccionados.map(s => s.cod_venta)
       setPedidosPendientes(pedidosProcesados.filter(p => !seleccionadosIds.includes(p.cod_venta)))
@@ -337,18 +363,21 @@ export default function GestorPresupuestosWorkflow() {
     }
   }
 
-  const buscarVariantesAutomaticas = async (det: DetalleVenta, cod_venta: number, tallerDestino: string) => {
-    const { data: variantesData } = await supabase
-      .from('producto_variantes')
-      .select('id')
-      .eq('codigo_producto', det.cod_producto)
-      .eq('es_estandar', true)
-      .eq('activo', true)
-      .limit(1)
+  const buscarVariantesAutomaticas = async (det: DetalleVenta, cod_venta: number, tallerDestino: string, varianteIdOverride?: number) => {
+    let varianteId = varianteIdOverride
+    if (!varianteId) {
+      const { data: variantesData } = await supabase
+        .from('producto_variantes')
+        .select('id')
+        .eq('codigo_producto', det.cod_producto)
+        .eq('es_estandar', true)
+        .eq('activo', true)
+        .limit(1)
 
-    if (!variantesData || variantesData.length === 0) return null
+      if (!variantesData || variantesData.length === 0) return null
+      varianteId = variantesData[0].id
+    }
 
-    const varianteId = variantesData[0].id
     const multPedido = det.cantidad || 1
 
     const [resAceros, resMelaminas, resAccesorios, resInsumos, resUniones] = await Promise.all([
@@ -514,10 +543,14 @@ export default function GestorPresupuestosWorkflow() {
     let materialesAgregados: MaterialPresupuesto[] = []
     let productosSinVariante: string[] = []
 
-    const pedidoConTaller: Pedido = { ...pedido, taller_destino: tallerAsignacionTemp }
+    const detallesConVariante = pedido.detalles.map(d => ({
+      ...d,
+      variante_id: variantesSeleccionadas[d.id]
+    }))
+    const pedidoConTaller: Pedido = { ...pedido, taller_destino: tallerAsignacionTemp, detalles: detallesConVariante }
 
-    for (const det of pedido.detalles) {
-      const componentes = await buscarVariantesAutomaticas(det, pedido.cod_venta, tallerAsignacionTemp)
+    for (const det of detallesConVariante) {
+      const componentes = await buscarVariantesAutomaticas(det, pedido.cod_venta, tallerAsignacionTemp, det.variante_id)
       if (componentes) {
         materialesAgregados.push(...componentes)
       } else {
@@ -532,7 +565,7 @@ export default function GestorPresupuestosWorkflow() {
     await agregarOConsolidarMateriales(materialesAgregados)
 
     if (productosSinVariante.length > 0) {
-      alert(`Aviso: Los productos [${productosSinVariante.join(', ')}] no tienen variante estándar y deben registrarse manualmente.`)
+      alert(`Aviso: Los productos [${productosSinVariante.join(', ')}] no tienen variante seleccionada y deben registrarse manualmente.`)
     }
     setLoading(false)
   }
@@ -554,7 +587,8 @@ export default function GestorPresupuestosWorkflow() {
     for (const ped of pedidosRestantes) {
       const tallerDestino = ped.taller_destino || talleresDisponibles[0]
       for (const det of ped.detalles) {
-        const componentes = await buscarVariantesAutomaticas(det, ped.cod_venta, tallerDestino)
+        const varId = det.variante_id || variantesSeleccionadas[det.id]
+        const componentes = await buscarVariantesAutomaticas(det, ped.cod_venta, tallerDestino, varId)
         if (componentes) nuevosMateriales.push(...componentes)
       }
     }
@@ -837,9 +871,32 @@ export default function GestorPresupuestosWorkflow() {
                     )}
                   </div>
                   <div style={{ fontSize: '12px', color: '#555' }}>
-                    {pedido.detalles.map(d => (
-                      <div key={d.id}>• {d.cantidad}x {d.producto_nombre}</div>
-                    ))}
+                    {pedido.detalles.map(d => {
+                      const vars = variantesDisponiblesMap[String(d.cod_producto)] || []
+                      return (
+                        <div key={d.id} style={{ margin: '8px 0', padding: '6px', backgroundColor: '#fff', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                            <span>• {d.cantidad}x {d.producto_nombre}</span>
+                          </div>
+                          {estadoWorkflow === 'creado' && vars.length > 0 && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+                              <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#0B1E36' }}>Variante:</span>
+                              <select
+                                value={variantesSeleccionadas[d.id] || ''}
+                                onChange={(e) => setVariantesSeleccionadas({ ...variantesSeleccionadas, [d.id]: Number(e.target.value) })}
+                                style={{ flex: 1, padding: '4px', fontSize: '11px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: 'white' }}
+                              >
+                                {vars.map(v => (
+                                  <option key={v.id} value={v.id}>
+                                    {v.nombre || v.descripcion || `Variante #${v.id}`} {v.es_estandar ? '(Estándar)' : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               ))}

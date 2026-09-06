@@ -4,6 +4,11 @@ import { supabase } from '../../../lib/supabase'
 
 const UBICACIONES_PEDIDO = ['La Paz', 'El Alto', 'Cochabamba', 'Santa Cruz']
 
+// Mismo bucket + tabla que usa el panel de ventas (ver components/ventas/ComprobantesVenta.tsx),
+// así el comprobante que sube el cliente aparece automáticamente en el
+// detalle de la venta que ve el vendedor, en vez de quedar aislado.
+const BUCKET_COMPROBANTES = 'comprobantes-pago'
+
 export default function ComprarPage() {
   const [cliente, setCliente] = useState<any>(null)
   const [producto, setProducto] = useState<any>(null)
@@ -22,8 +27,10 @@ export default function ComprarPage() {
   const [fechaEntrega, setFechaEntrega] = useState('')
   const [tipoPago, setTipoPago] = useState<'total' | 'anticipo'>('total')
   const [montoAnticipo, setMontoAnticipo] = useState('')
+  const [codTransaccion, setCodTransaccion] = useState('')
   const [comprobanteFile, setComprobanteFile] = useState<File | null>(null)
   const [comprobantePreview, setComprobantePreview] = useState('')
+  const [comprobanteEsPdf, setComprobanteEsPdf] = useState(false)
 
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState('')
@@ -54,7 +61,7 @@ export default function ComprarPage() {
           supabase.from('clientes').select('*').eq('carnet', carnetGuardado).single(),
           supabase.from('productos').select('*').eq('codigo', codigoProducto).single(),
           supabase.from('colores').select('id, codigo_color, detalle').order('detalle'),
-          supabase.from('melaminas').select('id, codigo_melamina, detalle').order('detalle'),
+          supabase.from('melaminas').select('id, codigo_melamina, detalle, foto_url').order('detalle'),
         ])
 
         if (clienteRes.error || !clienteRes.data) {
@@ -86,10 +93,21 @@ export default function ComprarPage() {
   const handleArchivoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    const esPdf = file.type === 'application/pdf'
+    if (!esPdf && !file.type.startsWith('image/')) {
+      setErroresCampos((prev) => ({ ...prev, comprobante: 'Solo se aceptan imágenes o archivos PDF' }))
+      return
+    }
     setComprobanteFile(file)
-    const reader = new FileReader()
-    reader.onload = () => setComprobantePreview(reader.result as string)
-    reader.readAsDataURL(file)
+    setComprobanteEsPdf(esPdf)
+    setErroresCampos((prev) => ({ ...prev, comprobante: '' }))
+    if (esPdf) {
+      setComprobantePreview('')
+    } else {
+      const reader = new FileReader()
+      reader.onload = () => setComprobantePreview(reader.result as string)
+      reader.readAsDataURL(file)
+    }
   }
 
   const totalVenta = producto ? (Number(producto.precio_tienda) || 0) * (parseInt(cantidad) || 0) : 0
@@ -116,16 +134,16 @@ export default function ComprarPage() {
 
     setEnviando(true)
     try {
-      // 1. Subir comprobante de pago a Storage
+      // 1. Subir comprobante de pago a Storage (mismo bucket que usa el panel de ventas)
       const ext = comprobanteFile!.name.split('.').pop()
       const nombreArchivo = `${cliente.codigo}_${Date.now()}.${ext}`
       const { error: uploadError } = await supabase.storage
-        .from('comprobantes')
+        .from(BUCKET_COMPROBANTES)
         .upload(nombreArchivo, comprobanteFile!)
 
       if (uploadError) throw new Error('No se pudo subir el comprobante: ' + uploadError.message)
 
-      const { data: urlData } = supabase.storage.from('comprobantes').getPublicUrl(nombreArchivo)
+      const { data: urlData } = supabase.storage.from(BUCKET_COMPROBANTES).getPublicUrl(nombreArchivo)
       const comprobanteUrl = urlData.publicUrl
 
       // 2. Obtener código de venta desde la secuencia segura de Supabase
@@ -147,6 +165,7 @@ export default function ComprarPage() {
         total_venta: totalVenta,
         anticipo: montoFinal,
         forma_pago: 'TRANSFERENCIA',
+        cod_transaccion: codTransaccion.trim() || null,
         estado: 1,
         origen: 'web',
         estado_pago: 'pendiente',
@@ -174,12 +193,25 @@ export default function ComprarPage() {
         throw new Error('Error al registrar el producto del pedido: ' + eDet.message)
       }
 
-      // 5. Insertar progreso de producción inicial
-      await supabase.from('progreso_produccion').insert({
-        codigo_pedido: codVentaFinal,
-        estado: 1,
-        fecha_ingreso: new Date().toISOString().split('T')[0],
+      // 5. Registrar el comprobante en la misma tabla que usa el panel de
+      //    ventas (comprobantes_venta), con concepto "venta" y origen "cliente",
+      //    para que el vendedor lo vea directo en el detalle del pedido.
+      const { error: eComp } = await supabase.from('comprobantes_venta').insert({
+        cod_venta: codVentaFinal,
+        url: comprobanteUrl,
+        tipo_archivo: comprobanteEsPdf ? 'pdf' : 'imagen',
+        nombre_archivo: comprobanteFile!.name,
+        origen: 'cliente',
+        concepto: 'venta',
+        subido_por: cliente.nombre || null,
       })
+      if (eComp) console.error('El pedido se guardó, pero el comprobante no quedó registrado:', eComp)
+
+      // 6. A propósito NO se inicia producción todavía: este pedido queda con
+      //    estado_pago = 'pendiente' hasta que un vendedor confirme el pago
+      //    (revisando el comprobante recién subido). Recién ahí se agrega a
+      //    progreso_produccion — igual que en el formulario de nueva venta
+      //    del panel, cuando modo = 'cliente'.
 
       setExito({ codVenta: codVentaFinal })
     } catch (err: any) {
@@ -290,6 +322,15 @@ export default function ComprarPage() {
               ))}
             </select>
             {erroresCampos.colorMelamina && <p style={errStyle}>{erroresCampos.colorMelamina}</p>}
+            {colorMelamina && (() => {
+              const m = coloresMel.find((mm) => mm.codigo_melamina === colorMelamina)
+              return m?.foto_url ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
+                  <img src={m.foto_url} alt={m.detalle} style={{ width: '44px', height: '44px', objectFit: 'cover', borderRadius: '8px', border: '1px solid rgba(255,215,0,0.3)' }} />
+                  <span style={{ fontSize: '12px', color: '#aaa' }}>{m.detalle}</span>
+                </div>
+              ) : null
+            })()}
           </div>
 
           <div>
@@ -365,9 +406,19 @@ export default function ComprarPage() {
           </div>
 
           <div>
-            <label style={labelStyle}>Sube tu comprobante de pago *</label>
-            <input type="file" accept="image/*" onChange={handleArchivoChange} style={inputStyle} />
+            <label style={labelStyle}>N° de transacción / referencia (opcional, si tu app o el banco te dio uno)</label>
+            <input type="text" value={codTransaccion} onChange={(e) => setCodTransaccion(e.target.value)} style={inputStyle} placeholder="Ej: 000123456" />
+          </div>
+
+          <div>
+            <label style={labelStyle}>Sube tu comprobante de pago (imagen o PDF) *</label>
+            <input type="file" accept="image/*,application/pdf" onChange={handleArchivoChange} style={inputStyle} />
             {erroresCampos.comprobante && <p style={errStyle}>{erroresCampos.comprobante}</p>}
+            {comprobanteEsPdf && comprobanteFile && (
+              <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', color: '#ccc', fontSize: '13px' }}>
+                <span style={{ fontSize: '20px' }}>📄</span> {comprobanteFile.name}
+              </div>
+            )}
             {comprobantePreview && (
               <img src={comprobantePreview} alt="Vista previa" style={{ marginTop: '10px', maxWidth: '160px', borderRadius: '10px', border: '1px solid rgba(255,215,0,0.3)' }} />
             )}

@@ -3,7 +3,17 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 
 export default function RegistroClientePage() {
-  const [vista, setVista] = useState<'login' | 'registro_manual' | 'buscar' | 'ingreso_existente' | 'activar'>('login')
+  const [vista, setVista] = useState<'login' | 'registro_manual' | 'buscar' | 'ingreso_existente' | 'activar' | 'google_completar'>('login')
+
+  // Chequeo inicial de sesión de Google (evita mostrar el login de golpe mientras se verifica)
+  const [chequeandoGoogle, setChequeandoGoogle] = useState(true)
+
+  // Datos de la cuenta de Google mientras falta pedirle carnet + contraseña
+  const [googleUser, setGoogleUser] = useState<{ email: string; auth_id: string; nombreSugerido: string } | null>(null)
+  const [celularGoogle, setCelularGoogle] = useState('')
+  const [carnetGoogle, setCarnetGoogle] = useState('')
+  const [passGoogle, setPassGoogle] = useState('')
+  const [completandoGoogle, setCompletandoGoogle] = useState(false)
 
   // Estados para Login Principal
   const [carnetLogin, setCarnetLogin] = useState('')
@@ -42,46 +52,166 @@ export default function RegistroClientePage() {
   const extraerNombre = (obj: any) => obj?.nombre ?? 'Sin nombre'
   const extraerCelular = (obj: any) => obj?.celular ?? 'No registrado'
 
-  // NUEVO: Detectar sesión activa de Google al recargar la página tras el redirect
+  // Detectar sesión activa de Google al recargar la página tras el redirect.
+  // Importante: esto YA NO crea el cliente a ciegas. Si la cuenta de Google
+  // todavía no tiene carnet + contraseña asignados, se le pide completarlos
+  // (misma idea que la vista "activar", pero disparada por Google en vez de
+  // por el código del vendedor).
   useEffect(() => {
-    const verificarSesionGoogle = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.user) {
-        const emailUser = session.user.email
-        
-        // Buscar el cliente en la tabla por email
-        let { data: cliente } = await supabase
-          .from('clientes')
-          .select('*')
-          .eq('email', emailUser)
-          .maybeSingle()
+    let cancelado = false
+    let yaProcesado = false
 
-        // Si el trigger de SQL no lo creó por alguna razón, lo insertamos de emergencia
-        if (!cliente) {
-          const { data: nuevoCliente } = await supabase
-            .from('clientes')
-            .upsert({
-              email: emailUser,
-              nombre: session.user.user_metadata?.full_name || emailUser?.split('@')[0],
-              auth_id: session.user.id,
-              activo: true
-            }, { onConflict: 'email' })
-            .select()
-            .single()
-          
-          cliente = nuevoCliente
-        }
+    const procesarSesion = async (session: any) => {
+      if (yaProcesado || cancelado || !session?.user) return
+      yaProcesado = true
 
-        if (cliente) {
-          localStorage.setItem('carnet', cliente.carnet || emailUser)
-          localStorage.setItem('tipoUsuario', 'cliente')
-          window.location.href = '/'
-        }
+      const authId = session.user.id
+      const email = session.user.email || ''
+      const nombreSugerido = session.user.user_metadata?.full_name || (email ? email.split('@')[0] : 'Cliente')
+
+      // ¿Esta cuenta de Google ya está vinculada a un cliente? (por auth_id, o
+      // por email si se vinculó antes de que existiera la columna auth_id)
+      const { data: porAuthId } = await supabase.from('clientes').select('*').eq('auth_id', authId).maybeSingle()
+      let cliente = porAuthId
+      if (!cliente && email) {
+        const { data: porEmail } = await supabase.from('clientes').select('*').eq('email', email).maybeSingle()
+        cliente = porEmail
       }
+
+      if (cancelado) return
+
+      if (cliente?.carnet && cliente?.password_hash) {
+        // Ya tiene todo activado: entra directo, sin pedir nada de nuevo.
+        localStorage.setItem('carnet', cliente.carnet)
+        localStorage.setItem('tipoUsuario', 'cliente')
+        window.location.href = '/'
+        return
+      }
+
+      // Falta carnet y/o contraseña: se los pedimos antes de continuar.
+      setGoogleUser({ email, auth_id: authId, nombreSugerido })
+      if (cliente) {
+        setClienteSeleccionado(cliente)
+        setCelularGoogle(cliente.celular || '')
+      }
+      setVista('google_completar')
+      setChequeandoGoogle(false)
     }
 
-    verificarSesionGoogle()
+    // 1) Por si la sesión ya estaba lista al montar (ej. recarga normal).
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        procesarSesion(session)
+      } else {
+        // Justo después de volver de Google, el cliente de Supabase puede
+        // tardar un instante en leer el access_token del hash de la URL.
+        // Le damos un margen antes de rendirnos y mostrar el login normal;
+        // si la sesión llega en ese lapso, la captura el listener de abajo.
+        setTimeout(() => {
+          if (!yaProcesado && !cancelado) setChequeandoGoogle(false)
+        }, 1200)
+      }
+    })
+
+    // 2) Se dispara justo cuando el cliente termina de procesar el
+    //    access_token del hash tras volver de Google (evento SIGNED_IN).
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) procesarSesion(session)
+    })
+
+    return () => {
+      cancelado = true
+      listener?.subscription?.unsubscribe()
+    }
   }, [])
+
+  // Completar el registro de Google pidiendo carnet + contraseña.
+  // Reutiliza la misma lógica que ya usás en "activar" (RPC activar_credenciales_cliente),
+  // así que el carnet y la contraseña quedan guardados exactamente igual que
+  // para cualquier otro cliente.
+  const handleCompletarGoogle = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!carnetGoogle.trim() || !passGoogle.trim()) {
+      setMensaje({ texto: 'El carnet y la contraseña son obligatorios.', tipo: 'error' })
+      return
+    }
+
+    setCompletandoGoogle(true)
+    setMensaje({ texto: '', tipo: '' })
+
+    try {
+      const carnetTrim = carnetGoogle.trim()
+      const passTrim = passGoogle.trim()
+
+      // ¿Ya existe un cliente con este carnet? (por ejemplo, uno que un
+      // vendedor ya había dado de alta antes, sin credenciales todavía)
+      const { data: existentePorCarnet } = await supabase
+        .from('clientes').select('*').eq('carnet', carnetTrim).maybeSingle()
+
+      let codigoDestino: number
+
+      if (existentePorCarnet) {
+        if (existentePorCarnet.password_hash) {
+          setMensaje({ texto: 'Ese carnet ya tiene una cuenta activada. Inicia sesión con tu Carnet y Contraseña, o usa otro carnet.', tipo: 'error' })
+          setCompletandoGoogle(false)
+          return
+        }
+        codigoDestino = existentePorCarnet.codigo
+        const { error: eUpd } = await supabase.from('clientes').update({
+          email: googleUser!.email || existentePorCarnet.email,
+          auth_id: googleUser!.auth_id,
+          celular: existentePorCarnet.celular || celularGoogle.trim() || null,
+        }).eq('codigo', codigoDestino)
+        if (eUpd) throw eUpd
+      } else if (clienteSeleccionado?.codigo) {
+        // Ya había una fila vinculada por email/auth_id, solo falta el carnet
+        codigoDestino = clienteSeleccionado.codigo
+        const { error: eUpd } = await supabase.from('clientes').update({
+          celular: celularGoogle.trim() || clienteSeleccionado.celular || null,
+        }).eq('codigo', codigoDestino)
+        if (eUpd) throw eUpd
+      } else {
+        // Cliente completamente nuevo
+        const { data: maxData } = await supabase.from('clientes').select('codigo').order('codigo', { ascending: false }).limit(1)
+        codigoDestino = (maxData?.[0]?.codigo || 0) + 1
+
+        const { error: eIns } = await supabase.from('clientes').insert({
+          codigo: codigoDestino,
+          nombre: googleUser!.nombreSugerido,
+          celular: celularGoogle.trim() || null,
+          email: googleUser!.email || null,
+          auth_id: googleUser!.auth_id,
+          activo: true,
+        })
+        if (eIns) throw eIns
+      }
+
+      const { error: rpcError } = await supabase.rpc('activar_credenciales_cliente', {
+        p_codigo: codigoDestino,
+        p_carnet: carnetTrim,
+        p_password: passTrim,
+      })
+      if (rpcError) throw rpcError
+
+      localStorage.setItem('carnet', carnetTrim)
+      localStorage.setItem('tipoUsuario', 'cliente')
+      window.location.href = '/'
+    } catch (err: any) {
+      setMensaje({ texto: 'Error al completar tu registro: ' + err.message, tipo: 'error' })
+      setCompletandoGoogle(false)
+    }
+  }
+
+  const handleCancelarGoogle = async () => {
+    await supabase.auth.signOut()
+    setGoogleUser(null)
+    setClienteSeleccionado(null)
+    setCarnetGoogle('')
+    setPassGoogle('')
+    setCelularGoogle('')
+    setMensaje({ texto: '', tipo: '' })
+    setVista('login')
+  }
 
   // Manejar Login Principal con Carnet
   const handleLogin = async (e: React.FormEvent) => {
@@ -138,7 +268,7 @@ export default function RegistroClientePage() {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/login`, // Redirige de vuelta a esta misma página
+          redirectTo: `${window.location.origin}/registro`, // Esta página vive en /registro, no en /login
         },
       })
       if (error) throw error
@@ -150,8 +280,8 @@ export default function RegistroClientePage() {
   // Manejar Registro Manual Nuevo
   const handleRegistroManual = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!nombreReg.trim() || !emailReg.trim() || !passwordReg.trim()) {
-      setMensaje({ texto: 'Nombre, Correo y Contraseña son obligatorios.', tipo: 'error' })
+    if (!nombreReg.trim() || !passwordReg.trim() || !carnetReg.trim()) {
+      setMensaje({ texto: 'Nombre, Carnet y Contraseña son obligatorios.', tipo: 'error' })
       return
     }
 
@@ -159,28 +289,51 @@ export default function RegistroClientePage() {
     setMensaje({ texto: '', tipo: '' })
 
     try {
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: emailReg.trim(),
-        password: passwordReg.trim(),
-        options: {
-          data: { full_name: nombreReg.trim() }
+      const carnetTrim = carnetReg.trim()
+
+      // Antes de crear una fila nueva, nos aseguramos de que este carnet no
+      // pertenezca ya a otro cliente (por ejemplo, uno dado de alta por un vendedor).
+      const { data: existente } = await supabase
+        .from('clientes').select('*').eq('carnet', carnetTrim).maybeSingle()
+
+      let codigoDestino: number
+
+      if (existente) {
+        if (existente.password_hash) {
+          setMensaje({ texto: 'Ese carnet ya tiene una cuenta activada. Inicia sesión en vez de registrarte de nuevo.', tipo: 'error' })
+          setCargandoRegistro(false)
+          return
         }
-      })
-
-      if (authError) throw authError
-
-      const { error: clienteError } = await supabase
-        .from('clientes')
-        .upsert({
-          email: emailReg.trim(),
+        codigoDestino = existente.codigo
+        const { error: eUpd } = await supabase.from('clientes').update({
           nombre: nombreReg.trim(),
-          celular: celularReg.trim() || null,
-          carnet: carnetReg.trim() || null,
-          auth_id: authData.user?.id,
-          activo: true
-        }, { onConflict: 'email' })
+          email: emailReg.trim() || existente.email || null,
+          celular: celularReg.trim() || existente.celular || null,
+        }).eq('codigo', codigoDestino)
+        if (eUpd) throw eUpd
+      } else {
+        const { data: maxData } = await supabase.from('clientes').select('codigo').order('codigo', { ascending: false }).limit(1)
+        codigoDestino = (maxData?.[0]?.codigo || 0) + 1
 
-      if (clienteError) throw clienteError
+        const { error: eIns } = await supabase.from('clientes').insert({
+          codigo: codigoDestino,
+          nombre: nombreReg.trim(),
+          email: emailReg.trim() || null,
+          celular: celularReg.trim() || null,
+          activo: true,
+        })
+        if (eIns) throw eIns
+      }
+
+      // El hash de la contraseña lo genera la misma RPC que usa el resto del
+      // sistema (activar_credenciales_cliente), así el login por Carnet
+      // funciona igual para todos los clientes.
+      const { error: rpcError } = await supabase.rpc('activar_credenciales_cliente', {
+        p_codigo: codigoDestino,
+        p_carnet: carnetTrim,
+        p_password: passwordReg.trim(),
+      })
+      if (rpcError) throw rpcError
 
       setMensaje({ texto: '¡Registro exitoso! Ya puedes iniciar sesión.', tipo: 'success' })
       setTimeout(() => {
@@ -308,6 +461,14 @@ export default function RegistroClientePage() {
 
   const nombreCliente = extraerNombre(clienteSeleccionado)
 
+  if (chequeandoGoogle) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#0f1117', color: '#ccc', fontFamily: 'Inter, sans-serif' }}>
+        Verificando tu cuenta...
+      </div>
+    )
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: '#0f1117', color: 'white', fontFamily: 'Inter, sans-serif', paddingBottom: '60px' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 40px', background: '#161726', borderBottom: '1px solid rgba(255,215,0,0.2)' }}>
@@ -401,7 +562,7 @@ export default function RegistroClientePage() {
                 <input type="text" value={nombreReg} onChange={(e) => setNombreReg(e.target.value)} style={inputStyle} placeholder="Ej: María Gómez" />
               </div>
               <div>
-                <label style={{ fontSize: '12px', color: '#ccc', display: 'block', marginBottom: '5px' }}>Correo Electrónico (Gmail u otro) *</label>
+                <label style={{ fontSize: '12px', color: '#ccc', display: 'block', marginBottom: '5px' }}>Correo Electrónico (opcional)</label>
                 <input type="email" value={emailReg} onChange={(e) => setEmailReg(e.target.value)} style={inputStyle} placeholder="tucorreo@gmail.com" />
               </div>
               <div>
@@ -414,8 +575,8 @@ export default function RegistroClientePage() {
                   <input type="text" value={celularReg} onChange={(e) => setCelularReg(e.target.value)} style={inputStyle} placeholder="70012345" />
                 </div>
                 <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: '12px', color: '#ccc', display: 'block', marginBottom: '5px' }}>Carnet (CI)</label>
-                  <input type="text" value={carnetReg} onChange={(e) => setCarnetReg(e.target.value)} style={inputStyle} placeholder="Opcional" />
+                  <label style={{ fontSize: '12px', color: '#ccc', display: 'block', marginBottom: '5px' }}>Carnet (CI) *</label>
+                  <input type="text" value={carnetReg} onChange={(e) => setCarnetReg(e.target.value)} style={inputStyle} placeholder="Tu carnet de identidad" />
                 </div>
               </div>
               <button type="submit" disabled={cargandoRegistro} style={{ background: 'linear-gradient(135deg, #FFD700, #FFA500)', color: '#0a0a1a', border: 'none', padding: '14px', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '15px', marginTop: '10px' }}>
@@ -509,6 +670,40 @@ export default function RegistroClientePage() {
                 </button>
                 <button type="submit" disabled={actualizando} style={{ background: 'linear-gradient(135deg, #FFD700, #FFA500)', color: '#0a0a1a', border: 'none', padding: '14px', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '15px', flex: 2 }}>
                   {actualizando ? 'Guardando...' : 'Activar y Entrar'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* VISTA 6: COMPLETAR REGISTRO CON GOOGLE (pide carnet + contraseña) */}
+          {vista === 'google_completar' && googleUser && (
+            <form onSubmit={handleCompletarGoogle} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              <div style={{ background: 'rgba(255,215,0,0.05)', padding: '15px', borderRadius: '10px', border: '1px solid rgba(255,215,0,0.2)' }}>
+                <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: '#aaa' }}>Conectado con Google:</p>
+                <strong style={{ fontSize: '16px', color: '#FFD700', display: 'block' }}>{googleUser.nombreSugerido}</strong>
+                {googleUser.email && <span style={{ fontSize: '12px', color: '#aaa' }}>{googleUser.email}</span>}
+              </div>
+              <p style={{ fontSize: '13px', color: '#aaa', margin: 0 }}>
+                Para terminar, ingresa tu <strong>Carnet (CI)</strong> y crea una <strong>contraseña</strong>. También podrás usarlos para entrar sin Google.
+              </p>
+              <div>
+                <label style={{ fontSize: '12px', color: '#ccc', display: 'block', marginBottom: '5px' }}>Celular</label>
+                <input type="text" value={celularGoogle} onChange={(e) => setCelularGoogle(e.target.value)} style={inputStyle} placeholder="70012345" />
+              </div>
+              <div>
+                <label style={{ fontSize: '12px', color: '#ccc', display: 'block', marginBottom: '5px' }}>Número de Carnet (CI) *</label>
+                <input type="text" value={carnetGoogle} onChange={(e) => setCarnetGoogle(e.target.value)} style={inputStyle} placeholder="Tu carnet de identidad" />
+              </div>
+              <div>
+                <label style={{ fontSize: '12px', color: '#ccc', display: 'block', marginBottom: '5px' }}>Crea tu Contraseña *</label>
+                <input type="password" value={passGoogle} onChange={(e) => setPassGoogle(e.target.value)} style={inputStyle} placeholder="Mínimo 6 caracteres" />
+              </div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <button type="button" onClick={handleCancelarGoogle} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: '#ccc', padding: '14px', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', flex: 1 }}>
+                  Cancelar
+                </button>
+                <button type="submit" disabled={completandoGoogle} style={{ background: 'linear-gradient(135deg, #FFD700, #FFA500)', color: '#0a0a1a', border: 'none', padding: '14px', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '15px', flex: 2 }}>
+                  {completandoGoogle ? 'Guardando...' : 'Completar registro'}
                 </button>
               </div>
             </form>

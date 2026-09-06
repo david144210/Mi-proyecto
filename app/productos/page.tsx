@@ -50,6 +50,10 @@ export default function Productos() {
   const [uploadingFotoNuevo, setUploadingFotoNuevo] = useState(false)
   const fileInputNuevoRef = useRef<HTMLInputElement>(null)
 
+  // Sugerencia de código (MLB-<LETRA><NNN>, ver siguiente_codigo_producto en Supabase)
+  const [letraCodigo, setLetraCodigo] = useState('')
+  const [sugiriendoCodigo, setSugiriendoCodigo] = useState(false)
+
   // Verificar sesión
   useEffect(() => {
     const carnetGuardado = localStorage.getItem('carnet')
@@ -162,6 +166,7 @@ export default function Productos() {
     if (!esAdmin) return
     setNuevoForm({})
     setNuevoMsg('')
+    setLetraCodigo('')
     setShowNuevoModal(true)
   }
 
@@ -183,6 +188,28 @@ export default function Productos() {
       setNuevoForm(prev => ({ ...prev, foto_url: urlData.publicUrl }))
     }
     setUploadingFotoNuevo(false)
+  }
+
+  // Deriva una letra sugerida a partir de la categoría escrita, mientras el
+  // admin no haya tocado el campo de letra a mano.
+  useEffect(() => {
+    if (!letraCodigo && nuevoForm.categoria?.trim()) {
+      setLetraCodigo(nuevoForm.categoria.trim().charAt(0).toUpperCase())
+    }
+  }, [nuevoForm.categoria]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const sugerirCodigo = async () => {
+    const letra = (letraCodigo || nuevoForm.categoria?.charAt(0) || '').toUpperCase().slice(0, 1)
+    if (!letra) { setNuevoMsg('Escribe una categoría o una letra de prefijo primero'); return }
+    setSugiriendoCodigo(true)
+    setNuevoMsg('')
+    const { data, error } = await supabase.rpc('siguiente_codigo_producto', { p_letra: letra })
+    setSugiriendoCodigo(false)
+    if (error || !data) {
+      setNuevoMsg('No se pudo generar el código: ' + (error?.message || 'error desconocido'))
+      return
+    }
+    setNuevoForm(prev => ({ ...prev, codigo: data }))
   }
 
   const guardarNuevo = async () => {
@@ -216,151 +243,124 @@ export default function Productos() {
   const fmt = (n: number | null) => n != null ? `Bs. ${n.toLocaleString()}` : '—'
 
   if (!usuario) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'system-ui' }}>
-      <p style={{ color: '#666' }}>Verificando sesión...</p>
+    <div style={{ minHeight: '100vh', background: '#0f1117', color: '#FFD700', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter, sans-serif' }}>
+      Verificando sesión...
     </div>
   )
 
   return (
-    <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", backgroundColor: '#f4f6f8', minHeight: '100vh' }}>
+    <div style={{ minHeight: '100vh', background: '#0f1117', color: 'white', fontFamily: 'Inter, sans-serif', paddingBottom: '60px' }}>
 
       <style>{`
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        .tabla-wrap { overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; min-width: 780px; }
-        th { background: #1a1a2e; color: white; padding: 12px 14px; text-align: left; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
-        td { padding: 11px 14px; border-bottom: 1px solid #eee; font-size: 13px; color: #333; vertical-align: middle; }
-        tr:hover td { background: #f0f7ff; }
-        .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
-        .btn { border: none; border-radius: 8px; padding: 7px 14px; font-size: 12px; cursor: pointer; font-weight: 500; transition: opacity .15s; }
+        * { box-sizing: border-box; }
+        .prod-card { background: #161726; border: 1px solid rgba(255,215,0,0.15); border-radius: 16px; overflow: hidden; display: flex; flex-direction: column; transition: border-color .15s, transform .15s; }
+        .prod-card:hover { border-color: rgba(255,215,0,0.45); }
+        .prod-foto { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; background: #0d0d1f; display: block; }
+        .prod-foto-placeholder { width: 100%; aspect-ratio: 1 / 1; background: #0d0d1f; display: flex; align-items: center; justify-content: center; font-size: 30px; color: #333; }
+        .badge-cat { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 10.5px; font-weight: 700; background: rgba(255,215,0,0.1); color: #FFD700; border: 1px solid rgba(255,215,0,0.25); }
+        .btn { border: none; border-radius: 8px; padding: 8px 14px; font-size: 12px; cursor: pointer; font-weight: 600; transition: opacity .15s; }
         .btn:hover { opacity: .85; }
-        .btn-edit { background: #1a1a2e; color: white; }
-        .btn-del { background: #fff0f0; color: #d63031; border: 1px solid #ffcdd2; }
-        .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 2000; padding: 20px; }
-        .modal { background: white; border-radius: 16px; padding: 32px; width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto; }
-        .form-label { font-size: 12px; font-weight: 600; color: #555; margin-bottom: 5px; display: block; text-transform: uppercase; letter-spacing: .4px; }
-        .form-input { width: 100%; padding: 10px 12px; border: 1.5px solid #e0e0e0; border-radius: 8px; font-size: 14px; outline: none; transition: border-color .2s; }
-        .form-input:focus { border-color: #1a1a2e; }
+        .btn-gold { background: linear-gradient(135deg, #FFD700, #FFA500); color: #0a0a1a; }
+        .btn-edit { background: rgba(255,255,255,0.08); color: white; border: 1px solid rgba(255,255,255,0.15); }
+        .btn-del { background: rgba(255,107,107,0.1); color: #ff6b6b; border: 1px solid rgba(255,107,107,0.3); }
+        .form-label { font-size: 12px; color: #ccc; margin-bottom: 5px; display: block; }
+        .form-input { width: 100%; padding: 12px 16px; border-radius: 10px; border: 1px solid rgba(255,215,0,0.3); font-size: 14px; outline: none; background: #0d0d1f; color: white; box-sizing: border-box; }
+        .form-input:focus { border-color: #FFD700; }
         .form-row { margin-bottom: 16px; }
-        .foto-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid #eee; }
-        .foto-placeholder { width: 64px; height: 64px; background: #f0f0f0; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #bbb; font-size: 22px; }
+        .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: flex; align-items: center; justify-content: center; z-index: 2000; padding: 20px; }
+        .modal { background: #161726; border: 1px solid rgba(255,215,0,0.2); border-radius: 16px; padding: 32px; width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .prod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 18px; }
         @media (max-width: 600px) {
           .top-bar { flex-direction: column; gap: 12px; align-items: flex-start !important; }
           .modal { padding: 20px; }
         }
       `}</style>
 
-      {/* NAVBAR */}
-      <nav style={{ backgroundColor: '#1a1a2e', padding: '14px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-          <a href="/" style={{ color: '#aaa', fontSize: '13px', textDecoration: 'none' }}>← Inicio</a>
-          <span style={{ color: 'white', fontWeight: '700', fontSize: '16px' }}>Gestión de Productos</span>
-        </div>
+      {/* NAVBAR — mismo lenguaje visual que /registro y /comprar */}
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 40px', background: '#161726', borderBottom: '1px solid rgba(255,215,0,0.2)', flexWrap: 'wrap', gap: '10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <img src="/logo.jpg" alt="Logo" style={{ width: '35px', height: '35px', borderRadius: '8px' }} />
+          <span style={{ fontWeight: '800', color: '#FFD700', fontSize: '16px' }}>Muebles is Better</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           {esAdmin && (
-            <span style={{ background: '#087e0b', color: 'white', padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '700' }}>
+            <span style={{ background: 'rgba(8,126,11,0.15)', color: '#4caf50', border: '1px solid rgba(76,175,80,0.4)', padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '700' }}>
               EDICIÓN ACTIVA
             </span>
           )}
           <span style={{ color: '#aaa', fontSize: '13px' }}>{usuario.nombre}</span>
+          <a href="/sistema" style={{ color: '#ccc', textDecoration: 'none', fontSize: '14px' }}>← Sistema</a>
         </div>
-      </nav>
+      </header>
 
       <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '28px 20px' }}>
 
         {/* BARRA TOP */}
         <div className="top-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', gap: '12px' }}>
           <div>
-            <h1 style={{ fontSize: '22px', fontWeight: '700', color: '#1a1a2e' }}>Catálogo de Productos</h1>
-            <p style={{ fontSize: '13px', color: '#888', marginTop: '2px' }}>{productosFiltrados.length} productos encontrados</p>
+            <h1 style={{ fontSize: '22px', fontWeight: '700', color: '#FFD700', margin: 0 }}>Catálogo de Productos</h1>
+            <p style={{ fontSize: '13px', color: '#888', marginTop: '4px' }}>{productosFiltrados.length} productos encontrados</p>
           </div>
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            {esAdmin && (
-              <button className="btn" style={{ background: '#087e0b', color: 'white', padding: '8px 18px', fontSize: '13px' }}
-                onClick={abrirNuevo}>
-                + Agregar Producto
-              </button>
-            )}
-          </div>
+          {esAdmin && (
+            <button className="btn btn-gold" style={{ padding: '10px 20px', fontSize: '13px' }} onClick={abrirNuevo}>
+              + Agregar Producto
+            </button>
+          )}
         </div>
 
         {/* BUSCADOR */}
-        <div style={{ marginBottom: '20px' }}>
+        <div style={{ marginBottom: '24px' }}>
           <input
             className="form-input"
             placeholder="🔍 Buscar por nombre, código, categoría..."
             value={filtro}
             onChange={e => setFiltro(e.target.value)}
-            style={{ maxWidth: '420px', background: 'white' }}
+            style={{ maxWidth: '420px' }}
           />
         </div>
 
-        {/* TABLA */}
-        <div style={{ background: 'white', borderRadius: '14px', boxShadow: '0 2px 12px rgba(0,0,0,.07)', overflow: 'hidden' }}>
-          {loading ? (
-            <div style={{ padding: '60px', textAlign: 'center', color: '#999' }}>Cargando productos...</div>
-          ) : (
-            <div className="tabla-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th style={{ width: '70px' }}>Foto</th>
-                    <th>Código</th>
-                    <th>Categoría</th>
-                    <th>Nombre</th>
-                    <th>Medidas</th>
-                    <th>Precio mín.</th>
-                    <th>Precio tienda</th>
-                    {esAdmin && <th style={{ width: '120px' }}>Acciones</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {productosFiltrados.length === 0 ? (
-                    <tr><td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: '#bbb' }}>Sin resultados</td></tr>
-                  ) : productosFiltrados.map(p => (
-                    <tr key={p.codigo}>
-                      <td>
-                        {p.foto_url
-                          ? <img src={p.foto_url} alt={p.nombre || ''} className="foto-thumb" />
-                          : <div className="foto-placeholder">📦</div>
-                        }
-                      </td>
-                      <td><span style={{ fontFamily: 'monospace', fontWeight: '600', color: '#1a1a2e', fontSize: '12px' }}>{p.codigo}</span></td>
-                      <td>
-                        {p.categoria
-                          ? <span className="badge" style={{ background: '#e8f0fe', color: '#1a1a2e' }}>{p.categoria}</span>
-                          : <span style={{ color: '#ccc' }}>—</span>}
-                      </td>
-                      <td style={{ fontWeight: '500' }}>{p.nombre || '—'}</td>
-                      <td style={{ color: '#666', fontSize: '12px' }}>{p.medidas || '—'}</td>
-                      <td>
-                        {p.precio_minimo != null
-                          ? <span style={{ color: '#087e0b', fontWeight: '600' }}>{fmt(p.precio_minimo)}</span>
-                          : <span style={{ color: '#ccc' }}>—</span>}
-                      </td>
-                      <td>
-                        {p.precio_tienda != null
-                          ? <span style={{ fontWeight: '600' }}>{fmt(p.precio_tienda)}</span>
-                          : <span style={{ color: '#ccc' }}>—</span>}
-                      </td>
-                      {esAdmin && (
-                        <td>
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <button className="btn btn-edit" onClick={() => abrirEditar(p)}>Editar</button>
-                            <button className="btn btn-del" onClick={() => abrirEliminar(p.codigo)}>Eliminar</button>
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+        {/* GRILLA DE PRODUCTOS */}
+        {loading ? (
+          <div style={{ padding: '60px', textAlign: 'center', color: '#888' }}>Cargando productos...</div>
+        ) : productosFiltrados.length === 0 ? (
+          <div style={{ padding: '60px', textAlign: 'center', color: '#555', background: '#161726', borderRadius: '16px', border: '1px solid rgba(255,215,0,0.1)' }}>
+            Sin resultados
+          </div>
+        ) : (
+          <div className="prod-grid">
+            {productosFiltrados.map(p => (
+              <div className="prod-card" key={p.codigo}>
+                {p.foto_url
+                  ? <img src={p.foto_url} alt={p.nombre || ''} className="prod-foto" />
+                  : <div className="prod-foto-placeholder">📦</div>
+                }
+                <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
+                  <span style={{ fontFamily: 'monospace', fontWeight: '700', color: '#FFD700', fontSize: '11px' }}>{p.codigo}</span>
+                  <span style={{ fontWeight: '600', fontSize: '14px', lineHeight: '1.3' }}>{p.nombre || '—'}</span>
+                  {p.categoria && <span className="badge-cat" style={{ width: 'fit-content' }}>{p.categoria}</span>}
+                  {p.medidas && <span style={{ fontSize: '12px', color: '#888' }}>📐 {p.medidas}</span>}
+
+                  <div style={{ marginTop: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <span style={{ fontSize: '11px', color: '#888' }}>
+                      {p.precio_minimo != null ? `mín. ${fmt(p.precio_minimo)}` : ''}
+                    </span>
+                    <span style={{ fontWeight: '700', color: '#FFD700', fontSize: '15px' }}>{fmt(p.precio_tienda)}</span>
+                  </div>
+
+                  {esAdmin && (
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
+                      <button className="btn btn-edit" style={{ flex: 1 }} onClick={() => abrirEditar(p)}>Editar</button>
+                      <button className="btn btn-del" style={{ flex: 1 }} onClick={() => abrirEliminar(p.codigo)}>Eliminar</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {!esAdmin && (
-          <p style={{ textAlign: 'center', color: '#bbb', fontSize: '12px', marginTop: '16px' }}>
+          <p style={{ textAlign: 'center', color: '#555', fontSize: '12px', marginTop: '20px' }}>
             Solo administradores o usuarios con permiso pueden editar productos
           </p>
         )}
@@ -372,10 +372,10 @@ export default function Productos() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
               <div>
-                <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#1a1a2e' }}>Editar Producto</h2>
-                <p style={{ fontSize: '12px', color: '#888', marginTop: '2px', fontFamily: 'monospace' }}>{editando.codigo}</p>
+                <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#FFD700', margin: 0 }}>Editar Producto</h2>
+                <p style={{ fontSize: '12px', color: '#888', marginTop: '4px', fontFamily: 'monospace' }}>{editando.codigo}</p>
               </div>
-              <button onClick={() => setShowEditModal(false)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#999' }}>✕</button>
+              <button onClick={() => setShowEditModal(false)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#888' }}>✕</button>
             </div>
 
             {/* FOTO */}
@@ -383,16 +383,16 @@ export default function Productos() {
               <label className="form-label">Foto del producto</label>
               <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                 {editForm.foto_url
-                  ? <img src={editForm.foto_url} alt="" className="foto-thumb" style={{ width: '80px', height: '80px' }} />
-                  : <div className="foto-placeholder" style={{ width: '80px', height: '80px', fontSize: '28px' }}>📦</div>
+                  ? <img src={editForm.foto_url} alt="" style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '10px', border: '1px solid rgba(255,215,0,0.3)' }} />
+                  : <div style={{ width: '80px', height: '80px', background: '#0d0d1f', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', color: '#333' }}>📦</div>
                 }
                 <div>
-                  <button className="btn" style={{ background: '#f0f4ff', color: '#1a1a2e', border: '1.5px solid #c7d2fe', marginBottom: '6px', display: 'block' }}
+                  <button className="btn btn-edit" style={{ marginBottom: '6px', display: 'block' }}
                     onClick={() => fileInputRef.current?.click()}>
                     {uploadingFoto ? 'Subiendo...' : editForm.foto_url ? 'Cambiar foto' : 'Subir foto'}
                   </button>
                   {editForm.foto_url && (
-                    <button className="btn" style={{ background: '#fff0f0', color: '#d63031', border: '1px solid #ffcdd2', fontSize: '11px' }}
+                    <button className="btn btn-del" style={{ fontSize: '11px' }}
                       onClick={() => setEditForm(prev => ({ ...prev, foto_url: null }))}>
                       Quitar foto
                     </button>
@@ -426,13 +426,13 @@ export default function Productos() {
             </div>
 
             {saveMsg && (
-              <p style={{ color: saveMsg.startsWith('✓') ? '#087e0b' : '#d63031', fontSize: '13px', marginBottom: '12px', textAlign: 'center', fontWeight: '600' }}>{saveMsg}</p>
+              <p style={{ color: saveMsg.startsWith('✓') ? '#4caf50' : '#ff6b6b', fontSize: '13px', marginBottom: '12px', textAlign: 'center', fontWeight: '600' }}>{saveMsg}</p>
             )}
 
             <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
-              <button className="btn" style={{ flex: 1, background: '#f0f0f0', color: '#333', padding: '12px' }}
+              <button className="btn" style={{ flex: 1, background: 'rgba(255,255,255,0.06)', color: '#ccc', padding: '12px' }}
                 onClick={() => setShowEditModal(false)}>Cancelar</button>
-              <button className="btn btn-edit" style={{ flex: 1, padding: '12px', fontSize: '14px', opacity: saveLoading || uploadingFoto ? .6 : 1 }}
+              <button className="btn btn-gold" style={{ flex: 1, padding: '12px', fontSize: '14px', opacity: saveLoading || uploadingFoto ? .6 : 1 }}
                 onClick={guardarEdicion} disabled={saveLoading || uploadingFoto}>
                 {saveLoading ? 'Guardando...' : 'Guardar cambios'}
               </button>
@@ -447,15 +447,15 @@ export default function Productos() {
           <div className="modal" style={{ maxWidth: '380px' }} onClick={e => e.stopPropagation()}>
             <div style={{ textAlign: 'center', marginBottom: '20px' }}>
               <div style={{ fontSize: '44px', marginBottom: '12px' }}>⚠️</div>
-              <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#1a1a2e' }}>¿Eliminar producto?</h2>
+              <h2 style={{ fontSize: '18px', fontWeight: '700', color: 'white' }}>¿Eliminar producto?</h2>
               <p style={{ fontSize: '13px', color: '#888', marginTop: '8px' }}>
-                Esta acción no se puede deshacer. El producto <strong style={{ fontFamily: 'monospace' }}>{deletingCodigo}</strong> será eliminado permanentemente.
+                Esta acción no se puede deshacer. El producto <strong style={{ fontFamily: 'monospace', color: '#FFD700' }}>{deletingCodigo}</strong> será eliminado permanentemente.
               </p>
             </div>
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button className="btn" style={{ flex: 1, background: '#f0f0f0', color: '#333', padding: '12px' }}
+              <button className="btn" style={{ flex: 1, background: 'rgba(255,255,255,0.06)', color: '#ccc', padding: '12px' }}
                 onClick={() => setShowDeleteModal(false)}>Cancelar</button>
-              <button className="btn" style={{ flex: 1, background: '#d63031', color: 'white', padding: '12px', fontSize: '14px' }}
+              <button className="btn" style={{ flex: 1, background: '#ff6b6b', color: '#0a0a1a', padding: '12px', fontSize: '14px', fontWeight: 700 }}
                 onClick={confirmarEliminar}>Eliminar</button>
             </div>
           </div>
@@ -468,17 +468,37 @@ export default function Productos() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
               <div>
-                <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#1a1a2e' }}>Nuevo Producto</h2>
-                <p style={{ fontSize: '12px', color: '#888', marginTop: '2px' }}>Completa los campos y guarda</p>
+                <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#FFD700', margin: 0 }}>Nuevo Producto</h2>
+                <p style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>Completa los campos y guarda</p>
               </div>
-              <button onClick={() => setShowNuevoModal(false)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#999' }}>✕</button>
+              <button onClick={() => setShowNuevoModal(false)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#888' }}>✕</button>
             </div>
 
-            {/* CÓDIGO — obligatorio */}
+            {/* CATEGORÍA primero, así ya está lista para sugerir la letra del código */}
             <div className="form-row">
-              <label className="form-label">Código <span style={{ color: '#d63031' }}>*</span></label>
-              <input className="form-input" placeholder="Ej: MLB-M99" value={nuevoForm.codigo || ''}
-                onChange={e => setNuevoForm(prev => ({ ...prev, codigo: e.target.value }))} />
+              <label className="form-label">Categoría</label>
+              <input className="form-input" placeholder="Ej: Mesas, Escritorios..." value={nuevoForm.categoria || ''}
+                onChange={e => setNuevoForm(prev => ({ ...prev, categoria: e.target.value }))} />
+            </div>
+
+            {/* CÓDIGO — obligatorio, con sugerencia automática sin duplicados */}
+            <div className="form-row">
+              <label className="form-label">Código <span style={{ color: '#ff6b6b' }}>*</span></label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input className="form-input" style={{ width: '54px', textAlign: 'center', flex: '0 0 54px', textTransform: 'uppercase' }}
+                  maxLength={1} placeholder="M"
+                  value={letraCodigo}
+                  onChange={e => setLetraCodigo(e.target.value.toUpperCase().slice(0, 1))} />
+                <input className="form-input" placeholder="MLB-M001" value={nuevoForm.codigo || ''}
+                  onChange={e => setNuevoForm(prev => ({ ...prev, codigo: e.target.value }))} />
+                <button type="button" className="btn btn-gold" style={{ whiteSpace: 'nowrap', flex: '0 0 auto' }}
+                  onClick={sugerirCodigo} disabled={sugiriendoCodigo}>
+                  {sugiriendoCodigo ? '...' : '✨ Sugerir'}
+                </button>
+              </div>
+              <p style={{ fontSize: '11px', color: '#666', marginTop: '6px' }}>
+                La letra es el prefijo (M de Mesas, E de Escritorios...). "Sugerir" genera el siguiente número disponible para esa letra — nunca repite uno ya usado.
+              </p>
             </div>
 
             {/* FOTO */}
@@ -486,16 +506,16 @@ export default function Productos() {
               <label className="form-label">Foto del producto</label>
               <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                 {nuevoForm.foto_url
-                  ? <img src={nuevoForm.foto_url} alt="" className="foto-thumb" style={{ width: '80px', height: '80px' }} />
-                  : <div className="foto-placeholder" style={{ width: '80px', height: '80px', fontSize: '28px' }}>📦</div>
+                  ? <img src={nuevoForm.foto_url} alt="" style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '10px', border: '1px solid rgba(255,215,0,0.3)' }} />
+                  : <div style={{ width: '80px', height: '80px', background: '#0d0d1f', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', color: '#333' }}>📦</div>
                 }
                 <div>
-                  <button className="btn" style={{ background: '#f0f4ff', color: '#1a1a2e', border: '1.5px solid #c7d2fe', marginBottom: '6px', display: 'block' }}
+                  <button className="btn btn-edit" style={{ marginBottom: '6px', display: 'block' }}
                     onClick={() => fileInputNuevoRef.current?.click()}>
                     {uploadingFotoNuevo ? 'Subiendo...' : nuevoForm.foto_url ? 'Cambiar foto' : 'Subir foto'}
                   </button>
                   {nuevoForm.foto_url && (
-                    <button className="btn" style={{ background: '#fff0f0', color: '#d63031', border: '1px solid #ffcdd2', fontSize: '11px' }}
+                    <button className="btn btn-del" style={{ fontSize: '11px' }}
                       onClick={() => setNuevoForm(prev => ({ ...prev, foto_url: undefined }))}>
                       Quitar foto
                     </button>
@@ -503,17 +523,16 @@ export default function Productos() {
                   <input ref={fileInputNuevoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFotoNuevoUpload} />
                 </div>
               </div>
-              <p style={{ fontSize: '11px', color: '#aaa', marginTop: '6px' }}>Ingresa el código antes de subir la foto</p>
+              <p style={{ fontSize: '11px', color: '#666', marginTop: '6px' }}>Ingresa el código antes de subir la foto</p>
             </div>
 
             {/* CAMPOS TEXTO */}
             {[
-              { key: 'categoria', label: 'Categoría', req: false },
               { key: 'nombre', label: 'Nombre', req: true },
               { key: 'medidas', label: 'Medidas', req: false },
             ].map(({ key, label, req }) => (
               <div className="form-row" key={key}>
-                <label className="form-label">{label} {req && <span style={{ color: '#d63031' }}>*</span>}</label>
+                <label className="form-label">{label} {req && <span style={{ color: '#ff6b6b' }}>*</span>}</label>
                 <input className="form-input" value={(nuevoForm as any)[key] || ''}
                   onChange={e => setNuevoForm(prev => ({ ...prev, [key]: e.target.value }))} />
               </div>
@@ -534,13 +553,13 @@ export default function Productos() {
             </div>
 
             {nuevoMsg && (
-              <p style={{ color: nuevoMsg.startsWith('✓') ? '#087e0b' : '#d63031', fontSize: '13px', marginBottom: '12px', textAlign: 'center', fontWeight: '600' }}>{nuevoMsg}</p>
+              <p style={{ color: nuevoMsg.startsWith('✓') ? '#4caf50' : '#ff6b6b', fontSize: '13px', marginBottom: '12px', textAlign: 'center', fontWeight: '600' }}>{nuevoMsg}</p>
             )}
 
             <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
-              <button className="btn" style={{ flex: 1, background: '#f0f0f0', color: '#333', padding: '12px' }}
+              <button className="btn" style={{ flex: 1, background: 'rgba(255,255,255,0.06)', color: '#ccc', padding: '12px' }}
                 onClick={() => setShowNuevoModal(false)}>Cancelar</button>
-              <button className="btn" style={{ flex: 1, padding: '12px', fontSize: '14px', background: '#087e0b', color: 'white', opacity: nuevoLoading || uploadingFotoNuevo ? .6 : 1 }}
+              <button className="btn btn-gold" style={{ flex: 1, padding: '12px', fontSize: '14px', opacity: nuevoLoading || uploadingFotoNuevo ? .6 : 1 }}
                 onClick={guardarNuevo} disabled={nuevoLoading || uploadingFotoNuevo}>
                 {nuevoLoading ? 'Guardando...' : 'Agregar producto'}
               </button>
