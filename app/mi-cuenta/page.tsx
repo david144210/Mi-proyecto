@@ -4,20 +4,30 @@ import { supabase } from '../../lib/supabase'
 
 // TODO: Sube tu catálogo en PDF a un bucket público de Supabase Storage
 // (Storage > tu bucket > "..." sobre el archivo > "Get URL") y pega la URL pública aquí.
-// Mientras esto esté vacío, el botón de descarga no se muestra.
 const CATALOGO_PDF_URL = ''
 
 export default function MiCuentaPage() {
   const [cliente, setCliente] = useState<any>(null)
   const [ventas, setVentas] = useState<any[]>([])
   const [productos, setProductos] = useState<any[]>([])
+  const [melaminas, setMelaminas] = useState<any[]>([])
+  const [proveedores, setProveedores] = useState<any[]>([])
   const [cargando, setCargando] = useState(true)
-  const [tab, setTab] = useState<'pedidos' | 'catalogo'>('pedidos')
+  
+  // Vista inicial establecida en 'catalogo' para evitar pantalla en blanco en clientes nuevos[cite: 2, 3]
+  const [tab, setTab] = useState<'catalogo' | 'pedidos'>('catalogo')
 
-  // Filtros del catálogo
+  // Filtros del catálogo de productos
   const [categoriaFiltro, setCategoriaFiltro] = useState('Todas')
   const [busquedaCatalogo, setBusquedaCatalogo] = useState('')
   const [productoModal, setProductoModal] = useState<any>(null)
+
+  // Estados para el botón flotante y modal de Paleta de Colores
+  const [modalPaletaAbierto, setModalPaletaAbierto] = useState(false)
+  const [busquedaPaleta, setBusquedaPaleta] = useState('')
+  const [melaminaModal, setMelaminaModal] = useState<any>(null)
+
+  const ciudadesGeograficas = ['Cochabamba', 'Santa Cruz', 'El Alto - La Paz']
 
   useEffect(() => {
     const carnetGuardado = localStorage.getItem('carnet')
@@ -43,7 +53,7 @@ export default function MiCuentaPage() {
 
         setCliente(clienteData)
 
-        const [ventasRes, productosRes] = await Promise.all([
+        const [ventasRes, productosRes, melaminasRes, proveedoresRes] = await Promise.all([
           supabase
             .from('ventas')
             .select(`*, detalle_venta (*), progreso_produccion (*)`)
@@ -53,11 +63,16 @@ export default function MiCuentaPage() {
             .from('productos')
             .select('*')
             .order('categoria', { ascending: true }),
+          supabase
+            .from('melaminas')
+            .select('*')
+            .order('codigo_melamina', { ascending: true }),
+          supabase
+            .from('proveedores')
+            .select('id, nombre, ciudad'),
         ])
 
         const { data: ventasData, error: ventasError } = ventasRes
-        if (ventasError) console.error('Error al cargar ventas:', ventasError)
-
         if (!ventasError && ventasData) {
           const codigosProducto = Array.from(
             new Set(
@@ -82,9 +97,15 @@ export default function MiCuentaPage() {
           )
         }
 
-        const { data: productosData, error: productosError } = productosRes
-        if (productosError) console.error('Error al cargar catálogo:', productosError)
+        const { data: productosData } = productosRes
         if (productosData) setProductos(productosData)
+
+        const { data: melaminasData } = melaminasRes
+        if (melaminasData) setMelaminas(melaminasData)
+
+        const { data: proveedoresData } = proveedoresRes
+        if (proveedoresData) setProveedores(proveedoresData)
+
       } catch (err) {
         console.error('Error al cargar datos:', err)
       } finally {
@@ -148,19 +169,8 @@ export default function MiCuentaPage() {
           </div>
         </div>
 
-        {/* PESTAÑAS */}
+        {/* PESTAÑAS (Catálogo primero por defecto) */}
         <div style={{ display: 'flex', gap: '8px', background: '#161726', padding: '6px', borderRadius: '14px', marginBottom: '30px', border: '1px solid rgba(255,255,255,0.05)', width: 'fit-content' }}>
-          <button
-            onClick={() => setTab('pedidos')}
-            style={{
-              padding: '10px 22px', borderRadius: '10px', border: 'none', cursor: 'pointer',
-              fontWeight: 'bold', fontSize: '14px', transition: '0.2s',
-              background: tab === 'pedidos' ? 'linear-gradient(135deg, #FFD700, #FFA500)' : 'transparent',
-              color: tab === 'pedidos' ? '#0a0a1a' : '#ccc',
-            }}
-          >
-            Mis Pedidos
-          </button>
           <button
             onClick={() => setTab('catalogo')}
             style={{
@@ -172,7 +182,113 @@ export default function MiCuentaPage() {
           >
             Catálogo
           </button>
+          <button
+            onClick={() => setTab('pedidos')}
+            style={{
+              padding: '10px 22px', borderRadius: '10px', border: 'none', cursor: 'pointer',
+              fontWeight: 'bold', fontSize: '14px', transition: '0.2s',
+              background: tab === 'pedidos' ? 'linear-gradient(135deg, #FFD700, #FFA500)' : 'transparent',
+              color: tab === 'pedidos' ? '#0a0a1a' : '#ccc',
+            }}
+          >
+            Mis Pedidos
+          </button>
         </div>
+
+        {/* ===================== TAB: CATÁLOGO ===================== */}
+        {tab === 'catalogo' && (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px', marginBottom: '20px' }}>
+              <h2 style={{ fontSize: '20px', color: '#FFD700', margin: 0 }}>Catálogo de Productos</h2>
+              {CATALOGO_PDF_URL ? (
+                <a
+                  href={CATALOGO_PDF_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ background: 'rgba(255,215,0,0.1)', border: '1px solid #FFD700', color: '#FFD700', padding: '8px 18px', borderRadius: '20px', fontSize: '13px', fontWeight: 'bold', textDecoration: 'none' }}
+                >
+                  📄 Descargar Catálogo PDF
+                </a>
+              ) : null}
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '25px' }}>
+              <input
+                type="text"
+                placeholder="Buscar producto por nombre..."
+                value={busquedaCatalogo}
+                onChange={(e) => setBusquedaCatalogo(e.target.value)}
+                style={{
+                  padding: '12px 16px', borderRadius: '10px', border: '1px solid rgba(255,215,0,0.3)',
+                  fontSize: '14px', width: '100%', boxSizing: 'border-box', backgroundColor: '#0d0d1f', color: 'white', outline: 'none',
+                }}
+              />
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {categorias.map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setCategoriaFiltro(cat)}
+                    style={{
+                      padding: '7px 16px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer',
+                      border: categoriaFiltro === cat ? 'none' : '1px solid rgba(255,255,255,0.15)',
+                      background: categoriaFiltro === cat ? 'linear-gradient(135deg, #FFD700, #FFA500)' : 'transparent',
+                      color: categoriaFiltro === cat ? '#0a0a1a' : '#ccc',
+                      transition: '0.2s',
+                    }}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {productosFiltrados.length === 0 ? (
+              <div style={{ background: '#161726', padding: '40px', borderRadius: '16px', textAlign: 'center', border: '1px solid rgba(255,255,255,0.05)' }}>
+                <p style={{ color: '#aaa', fontSize: '15px', margin: 0 }}>No se encontraron productos con ese filtro.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '20px' }}>
+                {productosFiltrados.map((p) => (
+                  <div
+                    key={p.codigo}
+                    onClick={() => setProductoModal(p)}
+                    style={{
+                      background: '#161726', border: '1px solid rgba(255,215,0,0.15)', borderRadius: '16px',
+                      overflow: 'hidden', cursor: 'pointer', transition: 'transform 0.2s, border-color 0.2s',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.borderColor = '#FFD700' }}
+                    onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = 'rgba(255,215,0,0.15)' }}
+                  >
+                    <div style={{ width: '100%', height: '160px', background: '#0d0d1f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {p.foto_url ? (
+                        <img src={p.foto_url} alt={p.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        <span style={{ color: '#444', fontSize: '13px' }}>Sin imagen</span>
+                      )}
+                    </div>
+                    <div style={{ padding: '15px' }}>
+                      <span style={{ fontSize: '10px', color: '#FFD700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{p.categoria || 'General'}</span>
+                      <h3 style={{ margin: '4px 0 6px 0', fontSize: '15px' }}>{p.nombre}</h3>
+                      {p.medidas && <p style={{ margin: '0 0 8px 0', fontSize: '12px', color: '#aaa' }}>{p.medidas}</p>}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ color: '#FFD700', fontWeight: 'bold', fontSize: '16px' }}>
+                          {p.precio_tienda ? `Bs. ${p.precio_tienda}` : 'Consultar precio'}
+                        </div>
+                        <a
+                          href={`/mi-cuenta/comprar?producto=${p.codigo}`}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{ background: 'linear-gradient(135deg, #FFD700, #FFA500)', color: '#0a0a1a', padding: '6px 14px', borderRadius: '16px', fontWeight: 'bold', textDecoration: 'none', fontSize: '12px', whiteSpace: 'nowrap' }}
+                        >
+                          🛒 Comprar
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
 
         {/* ===================== TAB: PEDIDOS ===================== */}
         {tab === 'pedidos' && (
@@ -245,104 +361,131 @@ export default function MiCuentaPage() {
             )}
           </>
         )}
+      </main>
 
-        {/* ===================== TAB: CATÁLOGO ===================== */}
-        {tab === 'catalogo' && (
-          <>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px', marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '20px', color: '#FFD700', margin: 0 }}>Catálogo de Productos</h2>
-              {CATALOGO_PDF_URL ? (
-                <a
-                  href={CATALOGO_PDF_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ background: 'rgba(255,215,0,0.1)', border: '1px solid #FFD700', color: '#FFD700', padding: '8px 18px', borderRadius: '20px', fontSize: '13px', fontWeight: 'bold', textDecoration: 'none' }}
-                >
-                  📄 Descargar Catálogo PDF
-                </a>
-              ) : null}
+      {/* BOTÓN FLOTANTE PARA PALETA DE COLORES */}
+      <button
+        onClick={() => setModalPaletaAbierto(true)}
+        style={{
+          position: 'fixed', bottom: '30px', right: '30px', zIndex: 999,
+          background: 'linear-gradient(135deg, #FFD700, #FFA500)', color: '#0a0a1a',
+          border: 'none', padding: '14px 22px', borderRadius: '30px', fontWeight: 'bold',
+          fontSize: '14px', cursor: 'pointer', boxShadow: '0 6px 24px rgba(255,215,0,0.4)',
+          display: 'flex', alignItems: 'center', gap: '8px', transition: 'transform 0.2s',
+        }}
+        onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+      >
+        🎨 Paleta de Colores
+      </button>
+
+      {/* MODAL / VENTANA FLOTANTE DE LA PALETA DE COLORES ORGANIZADA POR CIUDAD */}
+      {modalPaletaAbierto && (
+        <div
+          onClick={() => setModalPaletaAbierto(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#161726', borderRadius: '20px', maxWidth: '900px', width: '100%',
+              maxHeight: '90vh', overflowY: 'auto', border: '1px solid rgba(255,215,0,0.3)',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.8)', padding: '30px', color: 'white',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div>
+                <h2 style={{ fontSize: '22px', color: '#FFD700', margin: 0 }}>Catálogo Visual por Ciudad</h2>
+                <p style={{ color: '#aaa', fontSize: '13px', margin: '4px 0 0 0' }}>Explora los tonos y acabados disponibles organizados por ubicación geográfica.</p>
+              </div>
+              <button
+                onClick={() => setModalPaletaAbierto(false)}
+                style={{ background: 'transparent', border: 'none', color: '#aaa', fontSize: '20px', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
             </div>
 
-            {/* Buscador + filtro de categoría */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '25px' }}>
+            {/* Buscador global dentro de la paleta */}
+            <div style={{ marginBottom: '25px' }}>
               <input
                 type="text"
-                placeholder="Buscar producto por nombre..."
-                value={busquedaCatalogo}
-                onChange={(e) => setBusquedaCatalogo(e.target.value)}
+                placeholder="Buscar color por código o nombre..."
+                value={busquedaPaleta}
+                onChange={(e) => setBusquedaPaleta(e.target.value)}
                 style={{
                   padding: '12px 16px', borderRadius: '10px', border: '1px solid rgba(255,215,0,0.3)',
                   fontSize: '14px', width: '100%', boxSizing: 'border-box', backgroundColor: '#0d0d1f', color: 'white', outline: 'none',
                 }}
               />
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {categorias.map((cat) => (
-                  <button
-                    key={cat}
-                    onClick={() => setCategoriaFiltro(cat)}
-                    style={{
-                      padding: '7px 16px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer',
-                      border: categoriaFiltro === cat ? 'none' : '1px solid rgba(255,255,255,0.15)',
-                      background: categoriaFiltro === cat ? 'linear-gradient(135deg, #FFD700, #FFA500)' : 'transparent',
-                      color: categoriaFiltro === cat ? '#0a0a1a' : '#ccc',
-                      transition: '0.2s',
-                    }}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
             </div>
 
-            {/* Grid de productos */}
-            {productosFiltrados.length === 0 ? (
-              <div style={{ background: '#161726', padding: '40px', borderRadius: '16px', textAlign: 'center', border: '1px solid rgba(255,255,255,0.05)' }}>
-                <p style={{ color: '#aaa', fontSize: '15px', margin: 0 }}>No se encontraron productos con ese filtro.</p>
-              </div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '20px' }}>
-                {productosFiltrados.map((p) => (
-                  <div
-                    key={p.codigo}
-                    onClick={() => setProductoModal(p)}
-                    style={{
-                      background: '#161726', border: '1px solid rgba(255,215,0,0.15)', borderRadius: '16px',
-                      overflow: 'hidden', cursor: 'pointer', transition: 'transform 0.2s, border-color 0.2s',
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.borderColor = '#FFD700' }}
-                    onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = 'rgba(255,215,0,0.15)' }}
-                  >
-                    <div style={{ width: '100%', height: '160px', background: '#0d0d1f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      {p.foto_url ? (
-                        <img src={p.foto_url} alt={p.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      ) : (
-                        <span style={{ color: '#444', fontSize: '13px' }}>Sin imagen</span>
-                      )}
+            {/* Listado organizado por ciudades */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
+              {ciudadesGeograficas.map((ciudad) => {
+                const proveedoresDeCiudad = proveedores
+                  .filter(p => p.ciudad?.toLowerCase().trim() === ciudad.toLowerCase().trim())
+                  .map(p => p.nombre?.toLowerCase().trim())
+
+                const melaminasDeCiudad = melaminas.filter(m => {
+                  const perteneceCiudad = m.proveedor && proveedoresDeCiudad.includes(m.proveedor.toLowerCase().trim())
+                  if (!perteneceCiudad) return false
+
+                  if (!busquedaPaleta.trim()) return true
+                  const query = busquedaPaleta.toLowerCase()
+                  return (m.codigo_melamina || '').toLowerCase().includes(query) || (m.detalle || '').toLowerCase().includes(query)
+                })
+
+                if (melaminasDeCiudad.length === 0) return null
+
+                return (
+                  <div key={ciudad} style={{ background: '#0d0d1f', borderRadius: '16px', padding: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px', borderBottom: '1px solid rgba(255,215,0,0.15)', paddingBottom: '10px' }}>
+                      <span style={{ fontSize: '16px' }}>📍</span>
+                      <h3 style={{ margin: 0, fontSize: '16px', color: '#FFD700' }}>{ciudad}</h3>
+                      <span style={{ fontSize: '12px', color: '#aaa', marginLeft: 'auto' }}>({melaminasDeCiudad.length} colores)</span>
                     </div>
-                    <div style={{ padding: '15px' }}>
-                      <span style={{ fontSize: '10px', color: '#FFD700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{p.categoria || 'General'}</span>
-                      <h3 style={{ margin: '4px 0 6px 0', fontSize: '15px' }}>{p.nombre}</h3>
-                      {p.medidas && <p style={{ margin: '0 0 8px 0', fontSize: '12px', color: '#aaa' }}>{p.medidas}</p>}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                        <div style={{ color: '#FFD700', fontWeight: 'bold', fontSize: '16px' }}>
-                          {p.precio_tienda ? `Bs. ${p.precio_tienda}` : 'Consultar precio'}
-                        </div>
-                        <a
-                          href={`/mi-cuenta/comprar?producto=${p.codigo}`}
-                          onClick={(e) => e.stopPropagation()}
-                          style={{ background: 'linear-gradient(135deg, #FFD700, #FFA500)', color: '#0a0a1a', padding: '6px 14px', borderRadius: '16px', fontWeight: 'bold', textDecoration: 'none', fontSize: '12px', whiteSpace: 'nowrap' }}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '15px' }}>
+                      {melaminasDeCiudad.map((mel) => (
+                        <div
+                          key={mel.id}
+                          onClick={() => setMelaminaModal(mel)}
+                          style={{
+                            background: '#161726', border: '1px solid rgba(255,215,0,0.15)', borderRadius: '12px',
+                            overflow: 'hidden', cursor: 'pointer', transition: 'transform 0.2s, border-color 0.2s',
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.borderColor = '#FFD700' }}
+                          onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = 'rgba(255,215,0,0.15)' }}
                         >
-                          🛒 Comprar
-                        </a>
-                      </div>
+                          <div style={{ width: '100%', height: '120px', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                            {mel.foto_url ? (
+                              <img src={mel.foto_url} alt={mel.detalle || ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            ) : (
+                              <span style={{ color: '#444', fontSize: '11px' }}>Sin imagen</span>
+                            )}
+                            <span style={{ position: 'absolute', bottom: '6px', left: '6px', background: '#001f3f', color: '#FFD700', padding: '2px 6px', borderRadius: '4px', fontSize: '9px', fontWeight: 'bold', fontFamily: 'monospace' }}>
+                              {mel.codigo_melamina}
+                            </span>
+                          </div>
+                          <div style={{ padding: '10px' }}>
+                            <p style={{ margin: 0, fontSize: '12px', color: 'white', lineHeight: '1.3', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                              {mel.detalle || 'Color sin nombre'}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-      </main>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL DE DETALLE DE PRODUCTO */}
       {productoModal && (
@@ -390,6 +533,45 @@ export default function MiCuentaPage() {
                   🛒 Comprar
                 </a>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE DETALLE DE MELAMINA (AMPLIADA) */}
+      {melaminaModal && (
+        <div
+          onClick={() => setMelaminaModal(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '20px',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#161726', borderRadius: '20px', maxWidth: '440px', width: '100%',
+              overflow: 'hidden', border: '1px solid rgba(255,215,0,0.3)', boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
+            }}
+          >
+            <div style={{ width: '100%', height: '280px', background: '#0d0d1f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {melaminaModal.foto_url ? (
+                <img src={melaminaModal.foto_url} alt={melaminaModal.detalle || ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                <span style={{ color: '#444', fontSize: '14px' }}>Sin imagen</span>
+              )}
+            </div>
+            <div style={{ padding: '25px' }}>
+              <span style={{ fontSize: '11px', color: '#FFD700', textTransform: 'uppercase', letterSpacing: '0.5px', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                Código: {melaminaModal.codigo_melamina}
+              </span>
+              <h2 style={{ margin: '8px 0 20px 0', fontSize: '20px', color: 'white' }}>{melaminaModal.detalle}</h2>
+              <button
+                onClick={() => setMelaminaModal(null)}
+                style={{ width: '100%', background: 'linear-gradient(135deg, #FFD700, #FFA500)', color: '#0a0a1a', padding: '12px', borderRadius: '10px', fontWeight: 'bold', border: 'none', cursor: 'pointer', fontSize: '14px' }}
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>
