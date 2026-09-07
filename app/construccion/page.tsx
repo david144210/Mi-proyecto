@@ -81,6 +81,7 @@ const pct = (costo: number, precio: number | null) =>
 export default function ProductosConstructivos() {
   const [usuario, setUsuario] = useState<any>(null)
   const [esAdmin, setEsAdmin] = useState(false)
+  const [puedeEditar, setPuedeEditar] = useState(false)
   const [loading, setLoading] = useState(true)
 
   // Lista productos
@@ -142,8 +143,10 @@ export default function ProductosConstructivos() {
         setUsuario(data)
         const admin = data.cargos?.es_admin === true
         const produccion = data.cargos?.puede_ver_produccion === true
+        const editarProductos = data.cargos?.puede_editar_productos === true
         setEsAdmin(admin)
-        if (!admin && !produccion) { window.location.replace('/sistema'); return }
+        setPuedeEditar(admin || editarProductos)
+        if (!admin && !produccion && !editarProductos) { window.location.replace('/sistema'); return }
         cargarDatos()
       })
   }, [])
@@ -339,7 +342,7 @@ export default function ProductosConstructivos() {
     (!busqueda || (p.nombre || '').toLowerCase().includes(busqueda.toLowerCase()) || p.codigo.toLowerCase().includes(busqueda.toLowerCase()))
   )
 
-  // ── Preview costo pieza ────────────────────────────────────────────────────
+  // ── Preview costo pieza ────────────────────────────────────────────────    const previewCosto = () => {
   const previewCosto = () => {
     const cant = parseFloat(fpCantidad) || 0
     if (tabActiva === 'acero') {
@@ -635,7 +638,7 @@ export default function ProductosConstructivos() {
               {/* Selector variantes */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                 <h3 style={{ margin: 0, fontSize: '15px', color: '#333' }}>Variantes ({variantes.length})</h3>
-                {esAdmin && (
+                {puedeEditar && (
                   <button onClick={abrirModalVariante}
                     style={{ padding: '7px 14px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
                     + Nueva variante
@@ -676,7 +679,7 @@ export default function ProductosConstructivos() {
                       </button>
                     ))}
                     <div style={{ flex: 1 }} />
-                    {esAdmin && (
+                    {puedeEditar && (
                       <button onClick={abrirModalPieza}
                         style={{ margin: '8px 0', padding: '4px 12px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
                         + Agregar
@@ -703,7 +706,7 @@ export default function ProductosConstructivos() {
                                   <th style={{ ...thStyle, textAlign: 'right' }}>Long.(cm)</th>
                                   <th style={{ ...thStyle, textAlign: 'right' }}>Cant.</th>
                                   <th style={{ ...thStyle, textAlign: 'right' }}>Costo</th>
-                                  {esAdmin && <th style={{ ...thStyle, textAlign: 'center' }}></th>}
+                                  {puedeEditar && <th style={{ ...thStyle, textAlign: 'center' }}></th>}
                                 </tr></thead>
                                 <tbody>
                                   {piezasAcero.map((p, i) => (
@@ -713,7 +716,7 @@ export default function ProductosConstructivos() {
                                       <td style={{ ...tdStyle, textAlign: 'right' }}>{p.longitud_cm}</td>
                                       <td style={{ ...tdStyle, textAlign: 'right' }}>{p.cantidad}</td>
                                       <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>{fmt(p.costo_total)}</td>
-                                      {esAdmin && <td style={{ ...tdStyle, textAlign: 'center' }}>
+                                      {puedeEditar && <td style={{ ...tdStyle, textAlign: 'center' }}>
                                         <button onClick={() => eliminarPieza('variante_acero', p.id)} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '16px' }}>🗑</button>
                                       </td>}
                                     </tr>
@@ -748,7 +751,7 @@ export default function ProductosConstructivos() {
                                 <th style={{ ...thStyle, textAlign: 'right' }}>Ancho</th>
                                 <th style={{ ...thStyle, textAlign: 'right' }}>Cant.</th>
                                 <th style={{ ...thStyle, textAlign: 'right' }}>Costo</th>
-                                {esAdmin && <th style={{ ...thStyle, textAlign: 'center' }}></th>}
+                                {puedeEditar && <th style={{ ...thStyle, textAlign: 'center' }}></th>}
                               </tr></thead>
                               <tbody>
                                 {piezasMelamina.map((p, i) => (
@@ -759,7 +762,7 @@ export default function ProductosConstructivos() {
                                     <td style={{ ...tdStyle, textAlign: 'right' }}>{p.ancho_cm}</td>
                                     <td style={{ ...tdStyle, textAlign: 'right' }}>{p.cantidad}</td>
                                     <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>{fmt(p.costo_total)}</td>
-                                    {esAdmin && <td style={{ ...tdStyle, textAlign: 'center' }}>
+                                    {puedeEditar && <td style={{ ...tdStyle, textAlign: 'center' }}>
                                       <button onClick={() => eliminarPieza('variante_melamina', p.id)} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '16px' }}>🗑</button>
                                     </td>}
                                   </tr>
@@ -781,7 +784,7 @@ export default function ProductosConstructivos() {
                                 <th style={{ ...thStyle, textAlign: 'right' }}>Cant.</th>
                                 <th style={{ ...thStyle, textAlign: 'right' }}>P. Unit.</th>
                                 <th style={{ ...thStyle, textAlign: 'right' }}>Costo</th>
-                                {esAdmin && <th style={{ ...thStyle, textAlign: 'center' }}></th>}
+                                {puedeEditar && <th style={{ ...thStyle, textAlign: 'center' }}></th>}
                               </tr></thead>
                               <tbody>
                                 {piezasAccesorios.map((p, i) => (
@@ -791,7 +794,7 @@ export default function ProductosConstructivos() {
                                     <td style={{ ...tdStyle, textAlign: 'right' }}>{p.cantidad}</td>
                                     <td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(p.costo_unitario)}</td>
                                     <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>{fmt(p.costo_total)}</td>
-                                    {esAdmin && <td style={{ ...tdStyle, textAlign: 'center' }}>
+                                    {puedeEditar && <td style={{ ...tdStyle, textAlign: 'center' }}>
                                       <button onClick={() => eliminarPieza('variante_accesorios', p.id)} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '16px' }}>🗑</button>
                                     </td>}
                                   </tr>
@@ -813,7 +816,7 @@ export default function ProductosConstructivos() {
                                 <th style={{ ...thStyle, textAlign: 'right' }}>Cant.</th>
                                 <th style={{ ...thStyle, textAlign: 'right' }}>P. Unit.</th>
                                 <th style={{ ...thStyle, textAlign: 'right' }}>Costo</th>
-                                {esAdmin && <th style={{ ...thStyle, textAlign: 'center' }}></th>}
+                                {puedeEditar && <th style={{ ...thStyle, textAlign: 'center' }}></th>}
                               </tr></thead>
                               <tbody>
                                 {piezasInsumos.map((p, i) => (
@@ -823,7 +826,7 @@ export default function ProductosConstructivos() {
                                     <td style={{ ...tdStyle, textAlign: 'right' }}>{p.cantidad}</td>
                                     <td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(p.costo_unitario)}</td>
                                     <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>{fmt(p.costo_total)}</td>
-                                    {esAdmin && <td style={{ ...tdStyle, textAlign: 'center' }}>
+                                    {puedeEditar && <td style={{ ...tdStyle, textAlign: 'center' }}>
                                       <button onClick={() => eliminarPieza('variante_insumos', p.id)} style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '16px' }}>🗑</button>
                                     </td>}
                                   </tr>

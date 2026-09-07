@@ -3,6 +3,15 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 
+interface PiezaDesglose {
+  tipo: string
+  descripcion: string
+  cantidad: number
+  largo_cm?: number
+  ancho_cm?: number
+  longitud_cm?: number
+}
+
 interface ItemPlanificacion {
   id_temp: string
   tipo_origen: 'venta' | 'stock' | 'especial'
@@ -12,7 +21,7 @@ interface ItemPlanificacion {
   cantidad: number
   taller_destino: string
   detalles: any[]
-  piezas_desglose?: any[]
+  piezas_desglose: PiezaDesglose[]
 }
 
 export default function PaginaPlanificacionLote() {
@@ -31,7 +40,7 @@ export default function PaginaPlanificacionLote() {
   const [variantesProducto, setVariantesProducto] = useState<any[]>([])
   const [varianteIdSeleccionada, setVarianteIdSeleccionada] = useState('')
   const [cantidadStock, setCantidadStock] = useState('1')
-  const [piezasVarianteActual, setPiezasVarianteActual] = useState<any[]>([])
+  const [piezasVarianteActual, setPiezasVarianteActual] = useState<PiezaDesglose[]>([])
 
   const [especialNombre, setEspecialNombre] = useState('')
   const [especialCantidad, setEspecialCantidad] = useState('1')
@@ -39,6 +48,11 @@ export default function PaginaPlanificacionLote() {
 
   const [itemsPlanificados, setItemsPlanificados] = useState<ItemPlanificacion[]>([])
   const [loading, setLoading] = useState(false)
+
+  const [itemEditandoPiezasId, setItemEditandoPiezasId] = useState<string | null>(null)
+  const [nuevaPiezaTipo, setNuevaPiezaTipo] = useState('Melamina')
+  const [nuevaPiezaDesc, setNuevaPiezaDesc] = useState('')
+  const [nuevaPiezaCant, setNuevaPiezaCant] = useState('1')
 
   useEffect(() => {
     const inicializar = async () => {
@@ -142,6 +156,64 @@ export default function PaginaPlanificacionLote() {
     setFechaBusquedaVentas(d.toISOString().split('T')[0])
   }
 
+  // Algoritmo optimizado para buscar producto/variante, rescatar piezas por código y permitir llenado manual si no existen
+  const agregarVentaAlLote = async (venta: any) => {
+    setLoading(true)
+    try {
+      let piezasDesgloseVenta: PiezaDesglose[] = []
+
+      if (venta.detalles && venta.detalles.length > 0) {
+        for (const det of venta.detalles) {
+          const codProd = det.cod_producto || det.producto_codigo || det.codigo
+          if (codProd) {
+            const { data: variantesDb } = await supabase
+              .from('producto_variantes')
+              .select('id')
+              .eq('codigo_producto', codProd)
+
+            if (variantesDb && variantesDb.length > 0) {
+              const vId = variantesDb[0].id
+              const [melres, acerres, accres, insres, unires] = await Promise.all([
+                supabase.from('variante_melamina').select('*').eq('variante_id', vId),
+                supabase.from('variante_acero').select('*').eq('variante_id', vId),
+                supabase.from('variante_accesorios').select('*').eq('variante_id', vId),
+                supabase.from('variante_insumos').select('*').eq('variante_id', vId),
+                supabase.from('variante_uniones').select('*').eq('variante_id', vId)
+              ])
+
+              const melaminas = (melres.data || []).map(m => ({ tipo: 'Melamina', ...m, descripcion: m.descripcion || m.codigo_melamina }))
+              const aceros = (acerres.data || []).map(a => ({ tipo: 'Acero', ...a, descripcion: a.descripcion || a.codigo_acero }))
+              const accesorios = (accres.data || []).map(ac => ({ tipo: 'Accesorio', ...ac, descripcion: ac.descripcion || ac.codigo_accesorio }))
+              const insumos = (insres.data || []).map(i => ({ tipo: 'Insumo', ...i, descripcion: i.descripcion || i.codigo_insumo }))
+              const uniones = (unires.data || []).map(u => ({ tipo: 'Unión', ...u, descripcion: u.descripcion || u.codigo_union }))
+
+              piezasDesgloseVenta = [...piezasDesgloseVenta, ...melaminas, ...aceros, ...accesorios, ...insumos, ...uniones]
+            }
+          }
+        }
+      }
+
+      const nuevoItem: ItemPlanificacion = {
+        id_temp: Math.random().toString(36).substr(2, 9),
+        tipo_origen: 'venta',
+        referencia_id: venta.cod_venta,
+        titulo: `Venta #${venta.cod_venta} (Entrega: ${venta.fecha_entrega})`,
+        cliente_o_destino: venta.cliente_nombre,
+        cantidad: 1,
+        taller_destino: tallerSeleccionado,
+        detalles: venta.detalles || [],
+        piezas_desglose: piezasDesgloseVenta
+      }
+
+      setItemsPlanificados(prev => [...(prev || []), nuevoItem])
+    } catch (err) {
+      console.error('Error al rescatar piezas de la venta:', err)
+      alert('Se agregó la venta, pero hubo un problema al buscar las piezas automáticas. Puedes ingresarlas manualmente.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const agregarStockAlLote = () => {
     if (!productoStockCod || !varianteIdSeleccionada) return
     const prod = catalogoProductos.find(p => String(p.codigo) === productoStockCod)
@@ -158,26 +230,12 @@ export default function PaginaPlanificacionLote() {
       cantidad: parseInt(cantidadStock) || 1,
       taller_destino: tallerSeleccionado,
       detalles: [{ cod_producto: productoStockCod, variante_id: varianteIdSeleccionada, cantidad: parseInt(cantidadStock) || 1 }],
-      piezas_desglose: piezasVarianteActual
+      piezas_desglose: [...piezasVarianteActual]
     }
-    setItemsPlanificados([...itemsPlanificados, nuevoItem])
+    setItemsPlanificados(prev => [...(prev || []), nuevoItem])
     setProductoStockCod('')
     setVarianteIdSeleccionada('')
     setPiezasVarianteActual([])
-  }
-
-  const agregarVentaAlLote = (venta: any) => {
-    const nuevoItem: ItemPlanificacion = {
-      id_temp: Math.random().toString(36).substr(2, 9),
-      tipo_origen: 'venta',
-      referencia_id: venta.cod_venta,
-      titulo: `Venta #${venta.cod_venta} (Entrega: ${venta.fecha_entrega})`,
-      cliente_o_destino: venta.cliente_nombre,
-      cantidad: 1,
-      taller_destino: tallerSeleccionado,
-      detalles: venta.detalles
-    }
-    setItemsPlanificados([...itemsPlanificados, nuevoItem])
   }
 
   const agregarEspecialAlLote = () => {
@@ -190,15 +248,46 @@ export default function PaginaPlanificacionLote() {
       cliente_o_destino: 'Pedido Especial',
       cantidad: parseInt(especialCantidad) || 1,
       taller_destino: tallerSeleccionado,
-      detalles: [{ descripcion: especialDetalles, cantidad: parseInt(especialCantidad) || 1 }]
+      detalles: [{ descripcion: especialDetalles, cantidad: parseInt(especialCantidad) || 1 }],
+      piezas_desglose: []
     }
-    setItemsPlanificados([...itemsPlanificados, nuevoItem])
+    setItemsPlanificados(prev => [...(prev || []), nuevoItem])
     setEspecialNombre('')
     setEspecialDetalles('')
   }
 
   const eliminarItemPlanificado = (id_temp: string) => {
-    setItemsPlanificados(itemsPlanificados.filter(i => i.id_temp !== id_temp))
+    setItemsPlanificados(prev => (prev || []).filter(i => i.id_temp !== id_temp))
+  }
+
+  const agregarPiezaManualAItem = (id_temp: string) => {
+    if (!nuevaPiezaDesc) return
+    setItemsPlanificados(prev => (prev || []).map(item => {
+      if (item.id_temp === id_temp) {
+        return {
+          ...item,
+          piezas_desglose: [
+            ...(item.piezas_desglose || []),
+            { tipo: nuevaPiezaTipo, descripcion: nuevaPiezaDesc, cantidad: parseInt(nuevaPiezaCant) || 1 }
+          ]
+        }
+      }
+      return item
+    }))
+    setNuevaPiezaDesc('')
+    setNuevaPiezaCant('1')
+    setItemEditandoPiezasId(null)
+  }
+
+  const eliminarPiezaDeItem = (id_temp: string, indexPieza: number) => {
+    setItemsPlanificados(prev => (prev || []).map(item => {
+      if (item.id_temp === id_temp) {
+        const nuevasPiezas = [...(item.piezas_desglose || [])]
+        nuevasPiezas.splice(indexPieza, 1)
+        return { ...item, piezas_desglose: nuevasPiezas }
+      }
+      return item
+    }))
   }
 
   const guardarLoteEnSupabase = async () => {
@@ -348,7 +437,9 @@ export default function PaginaPlanificacionLote() {
                       <strong>#{v.cod_venta} - {v.cliente_nombre}</strong>
                       <div style={{ fontSize: '11px', color: '#666' }}>Entrega original: {v.fecha_entrega}</div>
                     </div>
-                    <button onClick={() => agregarVentaAlLote(v)} style={{ background: '#C5A059', color: '#0B1E36', border: 'none', padding: '6px 10px', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>+ Añadir al Lote</button>
+                    <button disabled={loading} onClick={() => agregarVentaAlLote(v)} style={{ background: '#C5A059', color: '#0B1E36', border: 'none', padding: '6px 10px', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>
+                      {loading ? 'Cargando...' : '+ Añadir al Lote'}
+                    </button>
                   </div>
                 ))
               )}
@@ -422,14 +513,46 @@ export default function PaginaPlanificacionLote() {
                   </div>
                   <div style={{ fontSize: '11px', color: '#555', marginTop: '6px' }}>Destino: {item.taller_destino} | Cantidad: {item.cantidad}</div>
                   
-                  {item.piezas_desglose && item.piezas_desglose.length > 0 && (
-                    <div style={{ marginTop: '8px', fontSize: '11px', background: '#fff', padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1' }}>
-                      <strong>Piezas de variante ({item.piezas_desglose.length}):</strong>
-                      {item.piezas_desglose.map((p: any, idx: number) => (
-                        <div key={idx} style={{ color: '#475569' }}>- [{p.tipo}] {p.descripcion} (Cant: {p.cantidad})</div>
-                      ))}
+                  <div style={{ marginTop: '8px', fontSize: '11px', background: '#fff', padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <strong>Piezas / Materiales ({item.piezas_desglose?.length || 0}):</strong>
+                      <button 
+                        onClick={() => setItemEditandoPiezasId(itemEditandoPiezasId === item.id_temp ? null : item.id_temp)} 
+                        style={{ background: '#0B1E36', color: '#C5A059', border: 'none', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', cursor: 'pointer', fontWeight: 'bold' }}
+                      >
+                        {itemEditandoPiezasId === item.id_temp ? 'Cerrar' : '+ Añadir Pieza Manual'}
+                      </button>
                     </div>
-                  )}
+
+                    {item.piezas_desglose && item.piezas_desglose.length > 0 ? (
+                      item.piezas_desglose.map((p: any, idx: number) => (
+                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#475569', borderBottom: '1px solid #f1f5f9', paddingBottom: '2px', marginTop: '2px' }}>
+                          <span>- [{p.tipo}] {p.descripcion} (Cant: {p.cantidad})</span>
+                          <button onClick={() => eliminarPiezaDeItem(item.id_temp, idx)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '10px' }}>🗑️</button>
+                        </div>
+                      ))
+                    ) : (
+                      <p style={{ color: '#94a3b8', fontStyle: 'italic', margin: '4px 0' }}>No hay piezas registradas automáticamente. Agregalas manualmente abajo si es necesario.</p>
+                    )}
+
+                    {itemEditandoPiezasId === item.id_temp && (
+                      <div style={{ marginTop: '8px', background: '#f8fafc', padding: '8px', borderRadius: '4px', border: '1px dashed #cbd5e1' }}>
+                        <div style={{ fontSize: '10px', fontWeight: 'bold', marginBottom: '4px', color: '#0B1E36' }}>Agregar pieza manual:</div>
+                        <div style={{ display: 'flex', gap: '4px', marginBottom: '4px' }}>
+                          <select value={nuevaPiezaTipo} onChange={e => setNuevaPiezaTipo(e.target.value)} style={{ padding: '4px', fontSize: '10px', borderRadius: '4px', border: '1px solid #ccc' }}>
+                            <option value="Melamina">Melamina</option>
+                            <option value="Acero">Acero</option>
+                            <option value="Accesorio">Accesorio</option>
+                            <option value="Insumo">Insumo</option>
+                            <option value="Unión">Unión</option>
+                          </select>
+                          <input type="text" placeholder="Descripción / Medida" value={nuevaPiezaDesc} onChange={e => setNuevaPiezaDesc(e.target.value)} style={{ flex: 1, padding: '4px', fontSize: '10px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                          <input type="number" placeholder="Cant" value={nuevaPiezaCant} onChange={e => setNuevaPiezaCant(e.target.value)} style={{ width: '40px', padding: '4px', fontSize: '10px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        </div>
+                        <button onClick={() => agregarPiezaManualAItem(item.id_temp)} style={{ background: '#16a34a', color: 'white', border: 'none', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}>Guardar Pieza</button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
 
