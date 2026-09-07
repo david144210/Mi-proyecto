@@ -39,7 +39,10 @@ export default function Home() {
   const [direccionPersonalizada, setDireccionPersonalizada] = useState('')
 
   // --- Reseñas de clientes ---
+  const RESENAS_POR_PAGINA = 6
   const [resenas, setResenas] = useState<Resena[]>([])
+  const [totalResenas, setTotalResenas] = useState(0)
+  const [cargandoMasResenas, setCargandoMasResenas] = useState(false)
   const [textoResena, setTextoResena] = useState('')
   const [estrellasResena, setEstrellasResena] = useState(5)
   const [enviandoResena, setEnviandoResena] = useState(false)
@@ -100,12 +103,26 @@ export default function Home() {
   }, [])
 
   const cargarResenas = async () => {
+    const { data, count } = await supabase
+      .from('resenas')
+      .select('*', { count: 'exact' })
+      .order('creado_en', { ascending: false })
+      .range(0, RESENAS_POR_PAGINA - 1)
+    if (data) setResenas(data as Resena[])
+    if (typeof count === 'number') setTotalResenas(count)
+  }
+
+  const cargarMasResenas = async () => {
+    setCargandoMasResenas(true)
     const { data } = await supabase
       .from('resenas')
       .select('*')
       .order('creado_en', { ascending: false })
-      .limit(6)
-    if (data) setResenas(data as Resena[])
+      .range(resenas.length, resenas.length + RESENAS_POR_PAGINA - 1)
+    if (data && data.length > 0) {
+      setResenas(prev => [...prev, ...(data as Resena[])])
+    }
+    setCargandoMasResenas(false)
   }
 
   const handlePublicarResena = async () => {
@@ -138,12 +155,41 @@ export default function Home() {
   const puedeModerarResenas =
     tipoUsuario === 'personal' && (usuario?.es_admin || !!usuario?.cargos?.puede_ver_mk)
 
+  const tiktokPerfil = 'https://www.tiktok.com/@muebless.is.better.bol'
+
+  const handleCompartir = async () => {
+    const shareData = {
+      title: 'MuebLess is Better',
+      text: 'Mira estos muebles increíbles 🔥',
+      url: typeof window !== 'undefined' ? window.location.origin : '',
+    }
+    // navigator.share abre el selector nativo del celular (WhatsApp, TikTok,
+    // Instagram, etc. — cualquiera que el usuario tenga instalado). No existe
+    // una forma de compartir directo "a TikTok" desde la web sin pasar por ahí.
+    if (typeof navigator !== 'undefined' && (navigator as any).share) {
+      try {
+        await (navigator as any).share(shareData)
+      } catch {
+        // El usuario canceló el selector, no hacemos nada
+      }
+      return
+    }
+    // Escritorio (sin Web Share API): copiar el link como respaldo
+    try {
+      await navigator.clipboard.writeText(shareData.url)
+      alert('Enlace copiado. Pégalo en TikTok o donde quieras compartirlo.')
+    } catch {
+      alert('No se pudo copiar el enlace automáticamente. Cópialo desde la barra de direcciones.')
+    }
+  }
+
   const handleEliminarResena = async (id: string) => {
     if (!puedeModerarResenas) return
     setEliminandoResenaId(id)
     const { error: errorDelete } = await supabase.from('resenas').delete().eq('id', id)
     if (!errorDelete) {
       setResenas(prev => prev.filter(r => r.id !== id))
+      setTotalResenas(prev => Math.max(0, prev - 1))
     }
     setEliminandoResenaId(null)
   }
@@ -437,6 +483,29 @@ export default function Home() {
           color: var(--bg-primary); 
         }
 
+        /* BOTÓN FLOTANTE TIKTOK */
+        .tiktok-float {
+          position: fixed; bottom: 170px; right: 30px; z-index: 1200;
+          background: #000; color: white; width: 60px; height: 60px; border-radius: 50%;
+          display: flex; align-items: center; justify-content: center;
+          text-decoration: none; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+          border: 1px solid rgba(255,255,255,0.1);
+          transition: transform 0.3s ease;
+        }
+        .tiktok-float:hover { transform: scale(1.1) rotate(5deg); }
+
+        /* BOTÓN FLOTANTE COMPARTIR */
+        .compartir-float {
+          position: fixed; bottom: 240px; right: 30px; z-index: 1200;
+          background: var(--bg-secondary); color: var(--gold-primary);
+          width: 60px; height: 60px; border-radius: 50%;
+          display: flex; align-items: center; justify-content: center;
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+          border: 1px solid var(--gold-primary);
+          cursor: pointer; transition: transform 0.3s ease, background 0.3s ease, color 0.3s ease;
+        }
+        .compartir-float:hover { transform: scale(1.1); background: var(--gold-primary); color: var(--bg-primary); }
+
         @media (max-width: 768px) {
           .hero-section { flex-direction: column; text-align: center; padding-top: 120px; }
           .hero-microtrust { justify-content: center; }
@@ -527,7 +596,12 @@ export default function Home() {
             Diseñamos y fabricamos el mueble exacto que tu espacio necesita. Acabados impecables, líneas limpias y entrega garantizada.
           </p>
           <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
-            <button className="btn-gold" onClick={() => document.getElementById('productos')?.scrollIntoView?.({ behavior: 'smooth' })}>Descubrir Colección</button>
+            <button
+              className="btn-gold"
+              onClick={() => { window.location.href = tipoUsuario === 'cliente' ? '/mi-cuenta' : '/registro' }}
+            >
+              Descubrir Colección
+            </button>
             <a href="/cotizador" className="btn-outline">Cotizar a Medida</a>
           </div>
           <div className="hero-microtrust" style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', marginTop: '25px' }}>
@@ -702,6 +776,19 @@ export default function Home() {
             </div>
           ))}
         </div>
+
+        {resenas.length < totalResenas && (
+          <div style={{ textAlign: 'center', marginTop: '30px' }}>
+            <button
+              onClick={cargarMasResenas}
+              disabled={cargandoMasResenas}
+              className="btn-gold"
+              style={{ padding: '12px 28px', fontSize: '14px' }}
+            >
+              {cargandoMasResenas ? 'Cargando...' : `Ver más reseñas (${totalResenas - resenas.length} más)`}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="divider"></div>
@@ -777,6 +864,24 @@ export default function Home() {
         </div>
         <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '13px' }}>© 2026 MuebLess is Better Bolivia. Diseñado para espacios excepcionales.</p>
       </footer>
+
+      {/* BOTÓN FLOTANTE TIKTOK */}
+      <a href={tiktokPerfil} target="_blank" rel="noopener noreferrer" className="tiktok-float" aria-label="Síguenos en TikTok" title="Síguenos en TikTok">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor">
+          <path d="M16.6 5.82s.51.5 0 0A4.278 4.278 0 0 1 15.54 3h-3.09v12.4a2.592 2.592 0 0 1-2.59 2.5c-1.42 0-2.6-1.16-2.6-2.6 0-1.72 1.66-3.01 3.37-2.48V9.66c-3.45-.46-6.47 2.22-6.47 5.64 0 3.33 2.76 5.7 5.69 5.7 3.14 0 5.69-2.55 5.69-5.7V9.01a7.35 7.35 0 0 0 4.3 1.38V7.3s-1.88.09-3.24-1.48z"/>
+        </svg>
+      </a>
+
+      {/* BOTÓN FLOTANTE COMPARTIR */}
+      <button onClick={handleCompartir} className="compartir-float" aria-label="Compartir" title="Compartir">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="18" cy="5" r="3"></circle>
+          <circle cx="6" cy="12" r="3"></circle>
+          <circle cx="18" cy="19" r="3"></circle>
+          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+        </svg>
+      </button>
 
       {/* BOTÓN FLOTANTE DISEÑO 3D */}
       <a href="/clientes/3d" className="diseno-3d-float" aria-label="Abrir diseñador 3D" title="Creador y Diseñador 3D">
