@@ -1,349 +1,320 @@
 'use client'
-import { useState, useEffect } from 'react'
+
+import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 
-// ── Tipos ────────────────────────────────────────────────────────────────────
-interface Venta {
-  id: number
-  cod_venta: number
-  cod_cliente: number | null
-  cod_vendedor: number | null
-  fecha_pedido: string | null
-  fecha_entrega: string | null
-  hora_entrega: string | null
-  delivery_cotizado: number | null
-  delivery_pagado: number | null
-  total_venta: number | null
-  anticipo: number | null
-  forma_pago: string | null
-  cod_transaccion: string | null
-  estado: number | null
-  nombre_cliente?: string
-  nombre_vendedor?: string
-  detalles?: DetalleVenta[]
-}
-
-interface DetalleVenta {
-  id: number
-  cod_venta: number
-  item: number | null
-  cod_producto: string | null
-  precio_cotizado: number | null
-  precio_vendido: number | null
-  cantidad: number | null
-  subtotal: number | null
+interface DetalleLinea {
+  cod_producto: string
+  nombre_producto: string
+  foto_producto: string | null
+  cantidad: number
   dimensiones: string | null
   color_estructura: string | null
   color_melamina: string | null
+  foto_melamina: string | null
 }
 
-const ESTADOS = [
-  { value: 1, label: 'En cola de producción', color: '#ffa726' },
-  { value: 2, label: 'Produciendo', color: '#42a5f5' },
-  { value: 3, label: 'Terminado', color: '#66bb6a' },
-  { value: 4, label: 'Despachado', color: '#ab47bc' },
-  { value: 5, label: 'Entregado', color: '#26a69a' }
-]
-
-const fmtFecha = (v: string | null | undefined) => {
-  if (!v) return '—'
-  try { return new Date(v + 'T00:00:00').toLocaleDateString('es-BO', { day: '2-digit', month: '2-digit', year: 'numeric' }) }
-  catch { return v }
+interface Pedido {
+  id: number
+  cod_venta: number
+  cliente: string
+  celular: string | null
+  direccion: string | null
+  ubicacion_pedido: string | null
+  fecha_entrega: string | null
+  hora_entrega: string | null
+  detalles_especificos: string | null
+  estado: number
+  total_venta?: number
+  lineas: DetalleLinea[]
 }
 
-export default function Produccion() {
+export default function ProduccionPage() {
   const [usuario, setUsuario] = useState<any>(null)
+  const [pedidos, setPedidos] = useState<Pedido[]>([])
   const [loading, setLoading] = useState(true)
-  const [accesoDenegado, setAccesoDenegado] = useState(false)
-  const [ventas, setVentas] = useState<Venta[]>([])
-  const [loadingVentas, setLoadingVentas] = useState(false)
+  const [actualizando, setActualizando] = useState<number | null>(null)
 
   useEffect(() => {
-    const carnetGuardado = localStorage.getItem('carnet')
-    if (!carnetGuardado) { window.location.replace('/'); return }
-    supabase.from('personal').select('*, cargos(*)')
-      .eq('carnet', carnetGuardado)
-      .eq('estado', true)
-      .single()
-      .then(({ data }) => {
-        if (!data) window.location.replace('/')
-        else {
-          const esProduccion = data.cargos?.puede_ver_produccion === true
-          const esAdmin = data.cargos?.es_admin === true
-          if (!esProduccion && !esAdmin) {
-            setAccesoDenegado(true)
-            setLoading(false)
-            return
-          }
-          setUsuario(data)
-          setLoading(false)
-          cargarVentas()
-        }
-      })
+    const verificarUsuario = async () => {
+      const carnetGuardado = localStorage.getItem('carnet')
+      if (!carnetGuardado) {
+        window.location.replace('/')
+        return
+      }
+
+      const { data, error } = await supabase
+        .from('personal')
+        .select(`*, cargos(*)`)
+        .eq('carnet', carnetGuardado)
+        .eq('estado', true)
+        .single()
+
+      if (error || !data) {
+        window.location.replace('/')
+        return
+      }
+
+      const esProduccion = data.cargos?.puede_ver_produccion === true
+      const esAdmin = data.cargos?.es_admin === true
+      if (!esProduccion && !esAdmin) {
+        alert('Acceso denegado.')
+        window.location.replace('/sistema')
+        return
+      }
+
+      setUsuario(data)
+      cargarPedidos()
+    }
+
+    verificarUsuario()
   }, [])
 
-  // Refrescar ventas cada minuto
   useEffect(() => {
     const intervalo = setInterval(() => {
-      cargarVentas()
-    }, 30000) // 30000 ms = 30 segundos
-
+      cargarPedidos()
+    }, 30000)
     return () => clearInterval(intervalo)
   }, [])
 
-  const cargarVentas = async () => {
-    setLoadingVentas(true)
+  const cargarPedidos = async () => {
     try {
-      // Obtener ventas con estado 1-3
+      setLoading(true)
       const { data: ventasData, error } = await supabase
         .from('ventas')
         .select('*')
-        .not('estado', 'is', null)
-        .gte('estado', 1)
-        .lte('estado', 2)
-        .order('fecha_pedido', { ascending: false })
+        .in('estado', [1, 2, 3])
+        .order('fecha_entrega', { ascending: true })
 
-      if (error) {
-        console.error('Error en query ventas:', error)
-        throw error
+      if (error) throw error
+      const ventas = ventasData || []
+
+      if (ventas.length === 0) {
+        setPedidos([])
+        setLoading(false)
+        return
       }
 
-      // Obtener clientes
-      const codClientes = ventasData.map(v => v.cod_cliente).filter(Boolean)
-      const { data: clientesData } = await supabase
-        .from('clientes')
-        .select('id, nombre')
-        .in('id', codClientes)
+      const codVentas = [...new Set(ventas.map(v => v.cod_venta).filter(Boolean))]
+      const clientesIds = [...new Set(ventas.map(v => v.cod_cliente).filter(Boolean))]
 
-      const clientesMap = Object.fromEntries(clientesData?.map(c => [c.id, c.nombre]) || [])
+      const { data: clientesData } = clientesIds.length > 0
+        ? await supabase.from('clientes').select('id, nombre, celular, direccion').in('id', clientesIds)
+        : { data: [] }
 
-      // Obtener vendedores
-      const codVendedores = ventasData.map(v => v.cod_vendedor).filter(Boolean)
-      const { data: vendedoresData } = await supabase
-        .from('vendedores')
-        .select('id, nombre')
-        .in('id', codVendedores)
+      const clientesMap = Object.fromEntries((clientesData || []).map(c => [c.id, c]))
 
-      const vendedoresMap = Object.fromEntries(vendedoresData?.map(v => [v.id, v.nombre]) || [])
+      const { data: detalleData } = codVentas.length > 0
+        ? await supabase
+            .from('detalle_venta')
+            .select('cod_venta, item, cod_producto, cantidad, dimensiones, color_estructura, color_melamina')
+            .in('cod_venta', codVentas)
+            .order('item')
+        : { data: [] }
 
-      // Obtener detalles
-      const codVentas = ventasData.map(v => v.cod_venta)
-      const { data: detallesData } = await supabase
-        .from('detalle_venta')
-        .select('*')
-        .in('cod_venta', codVentas)
+      const detalles = detalleData || []
+      const codigosProductos = [...new Set(detalles.map(d => d.cod_producto).filter(Boolean))]
+      const codigosColorEst = [...new Set(detalles.map(d => d.color_estructura).filter(Boolean))]
+      const codigosColorMel = [...new Set(detalles.map(d => d.color_melamina).filter(Boolean))]
 
-      const detallesMap = detallesData?.reduce((acc, d) => {
-        if (!acc[d.cod_venta]) acc[d.cod_venta] = []
-        acc[d.cod_venta].push(d)
-        return acc
-      }, {}) || {}
+      const [{ data: productosData }, { data: coloresEstData }, { data: coloresMelData }] = await Promise.all([
+        codigosProductos.length > 0
+          ? supabase.from('productos').select('codigo, nombre, foto_url').in('codigo', codigosProductos)
+          : Promise.resolve({ data: [] }),
+        codigosColorEst.length > 0
+          ? supabase.from('colores').select('codigo_color, detalle').in('codigo_color', codigosColorEst)
+          : Promise.resolve({ data: [] }),
+        codigosColorMel.length > 0
+          ? supabase.from('melaminas').select('codigo_melamina, detalle, foto_url').in('codigo_melamina', codigosColorMel)
+          : Promise.resolve({ data: [] }),
+      ])
 
-      // Procesar datos
-      const ventasProcesadas = ventasData.map((venta: any) => ({
-        ...venta,
-        nombre_cliente: clientesMap[venta.cod_cliente] || 'Sin cliente',
-        nombre_vendedor: vendedoresMap[venta.cod_vendedor] || 'Sin vendedor',
-        detalles: detallesMap[venta.cod_venta] || []
-      }))
+      const productosMap = Object.fromEntries((productosData || []).map(p => [p.codigo, p]))
+      const coloresEstMap = Object.fromEntries((coloresEstData || []).map(c => [c.codigo_color, c]))
+      const coloresMelMap = Object.fromEntries((coloresMelData || []).map(c => [c.codigo_melamina, c]))
 
-      setVentas(ventasProcesadas)
+      const lineasPorVenta: Record<number, DetalleLinea[]> = {}
+      detalles.forEach((d: any) => {
+        const prod = productosMap[d.cod_producto]
+        const est = coloresEstMap[d.color_estructura]
+        const mel = coloresMelMap[d.color_melamina]
+        const linea: DetalleLinea = {
+          cod_producto: d.cod_producto,
+          nombre_producto: prod?.nombre || d.cod_producto || 'Producto sin nombre',
+          foto_producto: prod?.foto_url || null,
+          cantidad: d.cantidad || 0,
+          dimensiones: d.dimensiones,
+          color_estructura: est?.detalle || d.color_estructura,
+          color_melamina: mel?.detalle || d.color_melamina,
+          foto_melamina: mel?.foto_url || null,
+        }
+        if (!lineasPorVenta[d.cod_venta]) lineasPorVenta[d.cod_venta] = []
+        lineasPorVenta[d.cod_venta].push(linea)
+      })
+
+      const pedidosProcesados: Pedido[] = ventas.map((venta: any) => {
+        const cliente = clientesMap[venta.cod_cliente]
+        return {
+          id: venta.id,
+          cod_venta: venta.cod_venta,
+          cliente: cliente?.nombre || 'Sin cliente',
+          celular: cliente?.celular || null,
+          direccion: cliente?.direccion || null,
+          ubicacion_pedido: venta.ubicacion_pedido || null,
+          fecha_entrega: venta.fecha_entrega,
+          hora_entrega: venta.hora_entrega,
+          detalles_especificos: venta.detalles_especificos || null,
+          estado: venta.estado,
+          total_venta: venta.total_venta,
+          lineas: lineasPorVenta[venta.cod_venta] || [],
+        }
+      })
+
+      setPedidos(pedidosProcesados)
     } catch (error) {
-      console.error('Error cargando ventas:', error)
-      alert('Error al cargar las ventas de producción')
+      console.error(error)
+      alert('Error cargando pedidos de producción')
     } finally {
-      setLoadingVentas(false)
+      setLoading(false)
     }
   }
 
-  const cambiarEstado = async (codVenta: number, nuevoEstado: number) => {
+  const cambiarEstado = async (pedido: Pedido, nuevoEstado: number) => {
+    const nombresEstados: Record<number, string> = { 1: 'Pendiente', 2: 'En Fabricación', 3: 'Terminado' }
+    if (!confirm(`¿Cambiar pedido #${pedido.cod_venta} a estado: ${nombresEstados[nuevoEstado]}?`)) return
+
     try {
-      const ventaActual = ventas.find(v => v.cod_venta === codVenta)
-      if (!ventaActual) return
-
-      const estadoActualNumero = ventaActual.estado ?? 1
-
-      // No permitir reducir estado ni exceder 3
-      if (nuevoEstado < estadoActualNumero || nuevoEstado > 3) {
-        alert('Solo se permiten estados 1-3 en producción.')
-        return
-      }
-
-      // Verificar permisos para estado 5
-      if (nuevoEstado === 5 && usuario?.cargos?.nombre !== 'Cobranza' && !usuario?.cargos?.es_admin) {
-        alert('Solo el usuario de cobranza puede marcar como entregado')
-        return
-      }
-
-      // Confirmar el cambio
-      const estadoActual = ESTADOS.find(e => e.value === estadoActualNumero)?.label || 'desconocido'
-      const estadoNuevo = ESTADOS.find(e => e.value === nuevoEstado)?.label || 'desconocido'
-      const confirmacion = window.confirm(
-        `¿Cambiar de "${estadoActual}" a "${estadoNuevo}"?\n\nEste cambio es irreversible.`
-      )
-
-      if (!confirmacion) return
-
-      // Actualizar estado en ventas
-      const { error: updateError } = await supabase
-        .from('ventas')
-        .update({ estado: nuevoEstado, actualizado_en: new Date().toISOString() })
-        .eq('cod_venta', codVenta)
-
-      if (updateError) throw updateError
-
-      // Manejar progreso_produccion
-      const { data: progresoExistente } = await supabase
-        .from('progreso_produccion')
-        .select('*')
-        .eq('codigo_pedido', codVenta)
-        .single()
-
-      const updateData: any = {
-        estado: nuevoEstado,
-        updated_at: new Date().toISOString()
-      }
-
-      // Registrar fecha_produccion cuando cambia a estado 2 (produciendo)
-      if (nuevoEstado === 3 && progresoExistente && !progresoExistente.fecha_produccion) {
-        updateData.fecha_produccion = new Date().toISOString().split('T')[0]
-      }
-
-      // Registrar fecha_entregado cuando cambia a estado 5 (entregado)
-      if (nuevoEstado === 5 && progresoExistente && !progresoExistente.fecha_entregado) {
-        updateData.fecha_entregado = new Date().toISOString().split('T')[0]
-      }
-
-      if (!progresoExistente) {
-        // Insertar nuevo
-        updateData.codigo_pedido = codVenta
-        updateData.fecha_ingreso = ventaActual.fecha_pedido
-        if (nuevoEstado === 3) updateData.fecha_produccion = new Date().toISOString().split('T')[0]
-        if (nuevoEstado === 5) updateData.fecha_entregado = new Date().toISOString().split('T')[0]
-
-        const { error: insertError } = await supabase
-          .from('progreso_produccion')
-          .insert(updateData)
-
-        if (insertError) throw insertError
-      } else {
-        // Actualizar existente
-        const { error: updateProgresoError } = await supabase
-          .from('progreso_produccion')
-          .update(updateData)
-          .eq('codigo_pedido', codVenta)
-
-        if (updateProgresoError) throw updateProgresoError
-      }
-
-      // Actualizar estado local
-      setVentas(prev => prev.map(v =>
-        v.cod_venta === codVenta ? { ...v, estado: nuevoEstado } : v
-      ))
-
-      alert('Estado actualizado correctamente')
+      setActualizando(pedido.id)
+      const { error } = await supabase.from('ventas').update({ estado: nuevoEstado }).eq('id', pedido.id)
+      if (error) throw error
+      await cargarPedidos()
     } catch (error) {
-      console.error('Error cambiando estado:', error)
-      alert('Error al cambiar el estado')
+      console.error(error)
+      alert('Error actualizando estado del pedido')
+    } finally {
+      setActualizando(null)
     }
   }
 
-  if (loading) return <p style={{ textAlign: 'center', marginTop: '100px' }}>Cargando...</p>
-  if (accesoDenegado) return <p style={{ textAlign: 'center', marginTop: '100px', color: 'red' }}>Acceso denegado. Solo usuarios de producción pueden acceder.</p>
+  if (loading) {
+    return <div style={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>Cargando panel de producción...</div>
+  }
 
-  const nombreMostrar = usuario?.usuario || usuario?.nombre || usuario?.carnet || 'Usuario'
+  const pedidosPendientes = pedidos.filter(p => p.estado === 1)
+  const pedidosEnProceso = pedidos.filter(p => p.estado === 2)
+  const pedidosTerminados = pedidos.filter(p => p.estado === 3)
 
   return (
-    <div style={{ fontFamily: 'Arial, sans-serif', minHeight: '100vh', backgroundColor: '#f5f5f5' }}>
-      <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 40px', backgroundColor: '#222', color: 'white', boxSizing: 'border-box' as const }}>
-        <a href="/sistema" style={{ fontWeight: 'bold', fontSize: '20px', color: 'white', textDecoration: 'none' }}>← Sistema</a>
-        <span style={{ color: '#a3c47d', fontWeight: 'bold' }}>Producción</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ color: 'white', fontSize: '14px' }}>{nombreMostrar} 👤</span>
-          <a href="/" style={{ backgroundColor: 'transparent', color: '#ff6b6b', border: '1px solid #ff6b6b', padding: '5px 12px', borderRadius: '20px', fontSize: '12px', textDecoration: 'none' }}>
-            Salir
-          </a>
+    <div style={{ minHeight: '100vh', backgroundColor: '#f5f5f5', fontFamily: 'Arial, sans-serif' }}>
+      <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 25px', backgroundColor: '#0B1E36', color: 'white', flexWrap: 'wrap', gap: '10px' }}>
+        <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+          <a href="/sistema" style={{ color: 'white', textDecoration: 'none', fontWeight: 'bold' }}>← Sistema</a>
+          <a href="/planificacion" style={{ color: '#C5A059', textDecoration: 'none', fontSize: '14px', fontWeight: 'bold' }}>🗂️ Ir a Planificación</a>
         </div>
+        <div style={{ fontWeight: 'bold', color: '#C5A059' }}>🏭 Control de Producción</div>
+        <div style={{ fontSize: '14px' }}>{usuario?.usuario || usuario?.nombre || 'Usuario'}</div>
       </nav>
 
-      <div style={{ padding: '40px', maxWidth: '1400px', margin: '0 auto' }}>
-        <h1 style={{ marginBottom: '8px' }}>Panel de Producción 🏭</h1>
-        <p style={{ color: '#666', marginBottom: '40px' }}>Gestiona el progreso de fabricación de los productos vendidos</p>
+      <div style={{ padding: '25px', maxWidth: '1400px', margin: '0 auto' }}>
+        <h1 style={{ margin: '0 0 8px 0', fontSize: '22px' }}>Seguimiento en Planta</h1>
+        <p style={{ color: '#666', margin: '0 0 25px 0' }}>Visualiza y avanza el estado de fabricación de los pedidos</p>
 
-        {loadingVentas ? (
-          <p>Cargando ventas...</p>
-        ) : ventas.length === 0 ? (
-          <p>No hay ventas en producción</p>
-        ) : (
-          <div style={{ display: 'grid', gap: '20px' }}>
-            {ventas.map(venta => (
-              <div key={venta.cod_venta} style={{ backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                  <h3 style={{ margin: 0 }}>Pedido #{venta.cod_venta}</h3>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{
-                      backgroundColor: ESTADOS.find(e => e.value === venta.estado)?.color || '#ccc',
-                      color: 'white',
-                      padding: '4px 12px',
-                      borderRadius: '20px',
-                      fontSize: '12px',
-                      fontWeight: 'bold'
-                    }}>
-                      {ESTADOS.find(e => e.value === venta.estado)?.label || 'Desconocido'}
-                    </span>
-                    <select
-                      value={venta.estado || ''}
-                      onChange={(e) => cambiarEstado(venta.cod_venta, parseInt(e.target.value))}
-                      style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid #ddd' }}
-                    >
-                      {ESTADOS.filter(estado => {
-                        // Solo estados 1-3 para producción
-                        return estado.value >= 1 && estado.value <= 3
-                      }).map(estado => (
-                        <option key={estado.value} value={estado.value}>{estado.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
-                  <div>
-                    <strong>Cliente:</strong> {venta.nombre_cliente}
-                  </div>
-                  <div>
-                    <strong>Vendedor:</strong> {venta.nombre_vendedor}
-                  </div>
-                  <div>
-                    <strong>Fecha Pedido:</strong> {fmtFecha(venta.fecha_pedido)}
-                  </div>
-                  <div>
-                    <strong>Fecha Entrega:</strong> {fmtFecha(venta.fecha_entrega)}
-                  </div>
-                </div>
-
-                <div>
-                  <h4 style={{ marginBottom: '12px' }}>Productos a Fabricar:</h4>
-                  <div style={{ display: 'grid', gap: '8px' }}>
-                    {venta.detalles?.map(detalle => (
-                      <div key={detalle.id} style={{ backgroundColor: '#f9f9f9', padding: '12px', borderRadius: '8px', borderLeft: '4px solid #42a5f5' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <div>
-                            <strong>{detalle.cod_producto}</strong> - Cantidad: {detalle.cantidad}
-                          </div>
-                          <div style={{ fontSize: '14px', color: '#666' }}>
-                            Dimensiones: {detalle.dimensiones || 'N/A'}
-                          </div>
-                        </div>
-                        <div style={{ marginTop: '4px', fontSize: '14px', color: '#666' }}>
-                          Estructura: {detalle.color_estructura || 'N/A'} | Melamina: {detalle.color_melamina || 'N/A'}
-                        </div>
-                      </div>
-                    )) || <p>No hay detalles</p>}
-                  </div>
-                </div>
-              </div>
-            ))}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '20px', alignItems: 'start' }}>
+          {/* Pendientes */}
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.06)' }}>
+            <h2 style={{ fontSize: '15px', margin: '0 0 15px 0', color: '#e65100', borderBottom: '3px solid #ff9800', paddingBottom: '8px' }}>
+              ⏳ Pendientes de Iniciar ({pedidosPendientes.length})
+            </h2>
+            <div style={{ display: 'grid', gap: '12px' }}>
+              {pedidosPendientes.map(p => <PedidoCard key={p.id} pedido={p} actualizando={actualizando} onCambiarEstado={cambiarEstado} />)}
+              {pedidosPendientes.length === 0 && <p style={{ color: '#888', textAlign: 'center', fontSize: '13px' }}>Sin pendientes</p>}
+            </div>
           </div>
+
+          {/* En Fabricación */}
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.06)' }}>
+            <h2 style={{ fontSize: '15px', margin: '0 0 15px 0', color: '#0d47a1', borderBottom: '3px solid #2196f3', paddingBottom: '8px' }}>
+              🛠️ En Fabricación ({pedidosEnProceso.length})
+            </h2>
+            <div style={{ display: 'grid', gap: '12px' }}>
+              {pedidosEnProceso.map(p => <PedidoCard key={p.id} pedido={p} actualizando={actualizando} onCambiarEstado={cambiarEstado} />)}
+              {pedidosEnProceso.length === 0 && <p style={{ color: '#888', textAlign: 'center', fontSize: '13px' }}>Sin pedidos en proceso</p>}
+            </div>
+          </div>
+
+          {/* Terminados */}
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.06)' }}>
+            <h2 style={{ fontSize: '15px', margin: '0 0 15px 0', color: '#1b5e20', borderBottom: '3px solid #4caf50', paddingBottom: '8px' }}>
+              ✅ Terminados ({pedidosTerminados.length})
+            </h2>
+            <div style={{ display: 'grid', gap: '12px' }}>
+              {pedidosTerminados.map(p => <PedidoCard key={p.id} pedido={p} actualizando={actualizando} onCambiarEstado={cambiarEstado} />)}
+              {pedidosTerminados.length === 0 && <p style={{ color: '#888', textAlign: 'center', fontSize: '13px' }}>Sin pedidos terminados</p>}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PedidoCard({ pedido, actualizando, onCambiarEstado }: { pedido: Pedido; actualizando: number | null; onCambiarEstado: (p: Pedido, e: number) => void }) {
+  return (
+    <div style={{ backgroundColor: '#fafafa', borderRadius: '12px', padding: '12px', border: '1px solid #eee' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+        <strong style={{ fontSize: '14px' }}>Pedido #{pedido.cod_venta}</strong>
+        {pedido.ubicacion_pedido && <span style={{ backgroundColor: '#e3f2fd', color: '#1565c0', padding: '2px 6px', borderRadius: '999px', fontSize: '11px', fontWeight: 'bold' }}>📍 {pedido.ubicacion_pedido}</span>}
+      </div>
+      <div style={{ fontSize: '13px', color: '#333', marginBottom: '4px' }}>👤 <strong>{pedido.cliente}</strong></div>
+      <div style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>📅 Entrega: {pedido.fecha_entrega || 'Sin fecha'}</div>
+
+      {pedido.detalles_especificos && (
+        <div style={{ marginBottom: '8px', color: '#8a6d00', backgroundColor: '#fff8e1', border: '1px solid #ffe082', borderRadius: '6px', padding: '6px', fontSize: '11px' }}>
+          ⚠️ {pedido.detalles_especificos}
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gap: '6px', marginBottom: '10px' }}>
+        {pedido.lineas.map((linea, i) => (
+          <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'center', backgroundColor: '#fff', border: '1px solid #e0e0e0', borderRadius: '6px', padding: '6px' }}>
+            {linea.foto_producto ? (
+              <img src={linea.foto_producto} alt="" style={{ width: '34px', height: '34px', objectFit: 'cover', borderRadius: '4px', flexShrink: 0 }} />
+            ) : (
+              <div style={{ width: '34px', height: '34px', borderRadius: '4px', backgroundColor: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px' }}>🛋️</div>
+            )}
+            <div style={{ fontSize: '11px', color: '#333', flex: 1 }}>
+              <div style={{ fontWeight: 'bold' }}>{linea.nombre_producto} × {linea.cantidad}</div>
+              <div style={{ color: '#666' }}>
+                {linea.dimensiones && `📐 ${linea.dimensiones} · `}
+                {linea.color_estructura && `Est: ${linea.color_estructura} · `}
+                {linea.color_melamina && `Mel: ${linea.color_melamina}`}
+              </div>
+            </div>
+            {linea.foto_melamina && <img src={linea.foto_melamina} alt="" style={{ width: '22px', height: '22px', objectFit: 'cover', borderRadius: '3px', border: '1px solid #ddd' }} />}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', gap: '6px' }}>
+        {pedido.estado === 1 && (
+          <button onClick={() => onCambiarEstado(pedido, 2)} disabled={actualizando === pedido.id} style={{ width: '100%', background: '#2196f3', color: 'white', border: 'none', padding: '7px', borderRadius: '6px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer' }}>
+            🛠️ Iniciar Fabricación
+          </button>
+        )}
+        {pedido.estado === 2 && (
+          <>
+            <button onClick={() => onCambiarEstado(pedido, 1)} disabled={actualizando === pedido.id} style={{ flex: 1, background: '#757575', color: 'white', border: 'none', padding: '7px', borderRadius: '6px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer' }}>
+              ← Pendiente
+            </button>
+            <button onClick={() => onCambiarEstado(pedido, 3)} disabled={actualizando === pedido.id} style={{ flex: 2, background: '#4caf50', color: 'white', border: 'none', padding: '7px', borderRadius: '6px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer' }}>
+              ✅ Terminar
+            </button>
+          </>
+        )}
+        {pedido.estado === 3 && (
+          <button onClick={() => onCambiarEstado(pedido, 2)} disabled={actualizando === pedido.id} style={{ width: '100%', background: '#ff9800', color: 'white', border: 'none', padding: '7px', borderRadius: '6px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer' }}>
+            ↩️ Regresar a En Proceso
+          </button>
         )}
       </div>
     </div>

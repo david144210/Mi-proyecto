@@ -25,7 +25,6 @@ interface Variante {
   costo_accesorios: number
   costo_insumos: number
   costo_total: number
-  plano_pdf_url: string | null
 }
 
 interface PiezaAcero {
@@ -73,37 +72,6 @@ interface PiezaInsumo {
 
 type TabActiva = 'acero' | 'melamina' | 'accesorios' | 'insumos'
 
-// Bucket privado de Supabase Storage donde se suben los PDF de planos constructivos.
-// Debe crearse como bucket PRIVADO (no público) para que solo se pueda acceder
-// mediante URLs firmadas de corta duración generadas desde el servidor/cliente autenticado.
-const BUCKET_PLANOS = 'planos-constructivos'
-
-// Versión fija de PDF.js cargada desde CDN (no requiere instalar dependencias ni
-// configurar el worker en el bundler de Next.js).
-const PDFJS_VERSION = '3.11.174'
-const PDFJS_BASE = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`
-
-let pdfjsCargaPromise: Promise<any> | null = null
-function cargarPdfJs(): Promise<any> {
-  if (typeof window === 'undefined') return Promise.reject('no-window')
-  const w = window as any
-  if (w['pdfjs-dist/build/pdf']) return Promise.resolve(w['pdfjs-dist/build/pdf'])
-  if (pdfjsCargaPromise) return pdfjsCargaPromise
-  pdfjsCargaPromise = new Promise((resolve, reject) => {
-    const script = document.createElement('script')
-    script.src = `${PDFJS_BASE}/pdf.min.js`
-    script.onload = () => {
-      const pdfjsLib = (window as any)['pdfjs-dist/build/pdf']
-      if (!pdfjsLib) { reject(new Error('pdfjsLib no se cargó correctamente')); return }
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `${PDFJS_BASE}/pdf.worker.min.js`
-      resolve(pdfjsLib)
-    }
-    script.onerror = () => reject(new Error('No se pudo cargar PDF.js desde el CDN'))
-    document.head.appendChild(script)
-  })
-  return pdfjsCargaPromise
-}
-
 const fmt = (v: number | null | undefined) =>
   v != null ? `Bs. ${Number(v).toLocaleString('es-BO', { minimumFractionDigits: 2 })}` : '—'
 
@@ -148,20 +116,6 @@ export default function ProductosConstructivos() {
   const [guardando, setGuardando] = useState(false)
   const [errorModal, setErrorModal] = useState('')
   const [exito, setExito] = useState('')
-
-  // Visor de planos (PDF)
-  const [modalPlano, setModalPlano] = useState(false)
-  const [cargandoPlano, setCargandoPlano] = useState(false)
-  const [errorPlano, setErrorPlano] = useState('')
-  const [subiendoPlano, setSubiendoPlano] = useState(false)
-  const planoContainerRef = React.useRef<HTMLDivElement>(null)
-  const planoInputRef = React.useRef<HTMLInputElement>(null)
-
-  // Catálogo: alternar entre tarjetas (default) y tabla clásica
-  const [vistaCatalogo, setVistaCatalogo] = useState<'tarjetas' | 'tabla'>('tarjetas')
-  // Al seleccionar un producto, la lista se contrae para dar más espacio al despiece
-  // (importante sobre todo en pantallas angostas / responsive).
-  const [listaColapsada, setListaColapsada] = useState(false)
 
   // Form nueva variante
   const [fvNombre, setFvNombre] = useState('')
@@ -219,11 +173,10 @@ export default function ProductosConstructivos() {
 
   const seleccionarProducto = async (producto: Producto) => {
     if (productoSel?.codigo === producto.codigo) {
-      setProductoSel(null); setVariantes([]); setVarianteSel(null); setListaColapsada(false); return
+      setProductoSel(null); setVariantes([]); setVarianteSel(null); return
     }
     setProductoSel(producto)
     setVarianteSel(null)
-    setListaColapsada(true)
     setLoadingPanel(true)
     const { data } = await supabase.from('producto_variantes')
       .select('*').eq('codigo_producto', producto.codigo).eq('activo', true).order('es_estandar', { ascending: false })
@@ -378,113 +331,6 @@ export default function ProductosConstructivos() {
     await seleccionarVariante(varianteSel!)
   }
 
-  // ── Visor de planos (PDF) ────────────────────────────────────────────────
-  // El PDF nunca se expone como archivo descargable a los usuarios normales:
-  // se pinta página por página sobre <canvas>, sin capa de texto (no se puede
-  // copiar) y sin controles nativos del navegador (no hay botón de descarga
-  // ni de impresión, como sí ocurre con un <iframe>/<embed> de PDF).
-  const abrirPlano = async (variante: Variante) => {
-    if (!variante.plano_pdf_url) {
-      if (esAdmin) {
-        alert('Esta variante todavía no tiene un plano cargado. Usa "📎 Subir plano" para agregarlo.')
-      } else {
-        alert('Esta variante todavía no tiene un plano constructivo cargado.')
-      }
-      return
-    }
-    setErrorPlano('')
-    setCargandoPlano(true)
-    setModalPlano(true)
-    try {
-      // URL firmada de corta duración: no queda un link público reutilizable.
-      const { data, error } = await supabase.storage
-        .from(BUCKET_PLANOS)
-        .createSignedUrl(variante.plano_pdf_url, 300)
-      if (error || !data?.signedUrl) throw error || new Error('No se pudo generar el link del plano')
-
-      const pdfjsLib = await cargarPdfJs()
-      const pdf = await pdfjsLib.getDocument(data.signedUrl).promise
-
-      const contenedor = planoContainerRef.current
-      if (!contenedor) return
-      contenedor.innerHTML = ''
-
-      for (let numPagina = 1; numPagina <= pdf.numPages; numPagina++) {
-        const pagina = await pdf.getPage(numPagina)
-        const anchoDisponible = Math.min(contenedor.clientWidth || 800, 900)
-        const viewportBase = pagina.getViewport({ scale: 1 })
-        const escala = anchoDisponible / viewportBase.width
-        const viewport = pagina.getViewport({ scale: escala })
-
-        const canvas = document.createElement('canvas')
-        canvas.width = viewport.width
-        canvas.height = viewport.height
-        canvas.style.display = 'block'
-        canvas.style.margin = '0 auto 16px'
-        canvas.style.boxShadow = '0 2px 10px rgba(0,0,0,0.25)'
-        canvas.style.borderRadius = '4px'
-        const ctx = canvas.getContext('2d')
-        if (ctx) await pagina.render({ canvasContext: ctx, viewport }).promise
-        contenedor.appendChild(canvas)
-      }
-    } catch (err: any) {
-      console.error(err)
-      setErrorPlano('No se pudo cargar el plano. ' + (err?.message || ''))
-    } finally {
-      setCargandoPlano(false)
-    }
-  }
-
-  const cerrarPlano = () => {
-    setModalPlano(false)
-    setErrorPlano('')
-    if (planoContainerRef.current) planoContainerRef.current.innerHTML = ''
-  }
-
-  const subirPlano = async (file: File) => {
-    if (!varianteSel) return
-    if (file.type !== 'application/pdf') { alert('El plano debe ser un archivo PDF.'); return }
-    setSubiendoPlano(true)
-    try {
-      const path = `variantes/${varianteSel.id}.pdf`
-      const { error: errorSubida } = await supabase.storage
-        .from(BUCKET_PLANOS)
-        .upload(path, file, { upsert: true, contentType: 'application/pdf' })
-      if (errorSubida) throw errorSubida
-
-      const { error: errorUpdate } = await supabase
-        .from('producto_variantes')
-        .update({ plano_pdf_url: path })
-        .eq('id', varianteSel.id)
-      if (errorUpdate) throw errorUpdate
-
-      const actualizada = { ...varianteSel, plano_pdf_url: path }
-      setVarianteSel(actualizada)
-      setVariantes(prev => prev.map(v => v.id === actualizada.id ? actualizada : v))
-      alert('Plano subido correctamente.')
-    } catch (err: any) {
-      console.error(err)
-      alert('Error al subir el plano: ' + (err?.message || 'revisa la consola.'))
-    } finally {
-      setSubiendoPlano(false)
-      if (planoInputRef.current) planoInputRef.current.value = ''
-    }
-  }
-
-  // Bloqueo best-effort de impresión (Ctrl+P / Cmd+P) mientras el plano está abierto.
-  // No es infalible (alguien podría hacer una captura de pantalla), pero evita el
-  // atajo directo de impresión del navegador para usuarios no-admin.
-  useEffect(() => {
-    if (!modalPlano || esAdmin) return
-    const bloquearImpresion = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
-        e.preventDefault()
-      }
-    }
-    window.addEventListener('keydown', bloquearImpresion)
-    return () => window.removeEventListener('keydown', bloquearImpresion)
-  }, [modalPlano, esAdmin])
-
   // ── Estilos compartidos ────────────────────────────────────────────────────
   const thStyle: any = { padding: '10px 12px', textAlign: 'left', borderBottom: '2px solid #eee', color: '#555', fontSize: '12px', whiteSpace: 'nowrap', backgroundColor: '#f9f9f9' }
   const tdStyle: any = { padding: '10px 12px', borderBottom: '1px solid #f0f0f0', fontSize: '13px' }
@@ -542,9 +388,8 @@ export default function ProductosConstructivos() {
 
       <style>{`
         @media (max-width: 900px) {
-          .layout-split { flex-direction: column !important; height: auto !important; }
+          .layout-split { flex-direction: column !important; }
           .panel-lateral { width: 100% !important; border-left: none !important; border-top: 2px solid #eee; }
-          .lista-productos { width: 100% !important; max-height: 45vh; }
         }
         .tab-btn { background: none; border: none; padding: 10px 16px; cursor: pointer; font-size: 13px; font-weight: 500; color: #888; border-bottom: 2px solid transparent; transition: all 0.15s; }
         .tab-btn.activa { color: #087e0b; border-bottom-color: #087e0b; }
@@ -552,13 +397,6 @@ export default function ProductosConstructivos() {
         .prod-row { cursor: pointer; transition: background 0.1s; }
         .prod-row:hover { background: #f0fff0 !important; }
         .prod-row.seleccionado { background: #e8f5e9 !important; }
-        .catalogo-card { cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
-        .catalogo-card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.12) !important; }
-        .catalogo-card.seleccionada { outline: 2px solid #087e0b; }
-        /* El visor de planos nunca debe salir en una impresión del navegador. */
-        @media print {
-          .plano-modal-overlay { display: none !important; }
-        }
       `}</style>
 
       {/* MODAL NUEVA VARIANTE */}
@@ -715,48 +553,6 @@ export default function ProductosConstructivos() {
         </div>
       )}
 
-      {/* MODAL VISOR DE PLANOS */}
-      {modalPlano && varianteSel && (
-        <div
-          className="plano-modal-overlay"
-          onContextMenu={e => e.preventDefault()}
-          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(10,10,10,0.92)', zIndex: 3000, display: 'flex', flexDirection: 'column' }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 24px', backgroundColor: '#111', color: 'white', flexShrink: 0 }}>
-            <div>
-              <p style={{ margin: 0, fontSize: '11px', color: '#a3c47d', textTransform: 'uppercase', letterSpacing: '0.5px' }}>📐 Plano constructivo</p>
-              <h3 style={{ margin: 0, fontSize: '15px' }}>{productoSel?.nombre} — {varianteSel.nombre_variante}</h3>
-            </div>
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              {esAdmin && varianteSel.plano_pdf_url && (
-                <button
-                  onClick={async () => {
-                    const { data } = await supabase.storage.from(BUCKET_PLANOS).createSignedUrl(varianteSel.plano_pdf_url!, 120)
-                    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
-                  }}
-                  style={{ background: 'none', border: '1px solid #a3c47d', color: '#a3c47d', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}
-                >
-                  ⬇ Abrir original (solo admin)
-                </button>
-              )}
-              <button onClick={cerrarPlano} style={{ background: 'none', border: 'none', fontSize: '22px', cursor: 'pointer', color: 'white' }}>✕</button>
-            </div>
-          </div>
-
-          <div style={{ flex: 1, overflowY: 'auto', padding: '24px', userSelect: 'none', WebkitUserSelect: 'none' }}>
-            {cargandoPlano && <p style={{ color: 'white', textAlign: 'center', marginTop: '60px' }}>Cargando plano...</p>}
-            {errorPlano && <p style={{ color: '#ff8080', textAlign: 'center', marginTop: '60px' }}>{errorPlano}</p>}
-            <div ref={planoContainerRef} style={{ maxWidth: '900px', margin: '0 auto' }} />
-          </div>
-
-          {!esAdmin && (
-            <p style={{ textAlign: 'center', color: '#888', fontSize: '11px', padding: '8px', margin: 0, backgroundColor: '#111' }}>
-              Vista de solo lectura — descarga, copia e impresión deshabilitadas.
-            </p>
-          )}
-        </div>
-      )}
-
       {/* NAVBAR */}
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 40px', backgroundColor: '#222', color: 'white', position: 'fixed', top: 0, width: '100%', zIndex: 1000, boxSizing: 'border-box' }}>
         <a href="/" style={{ fontWeight: 'bold', fontSize: '20px', color: 'white', textDecoration: 'none' }}>Muebles is Better</a>
@@ -768,35 +564,14 @@ export default function ProductosConstructivos() {
       </nav>
 
       {/* LAYOUT PRINCIPAL */}
-      <div className="layout-split" style={{ paddingTop: '60px', display: 'flex', height: 'calc(100vh - 60px)' }}>
+      <div style={{ paddingTop: '60px', display: 'flex', height: 'calc(100vh - 60px)' }}>
 
-        {/* COLUMNA IZQUIERDA — Lista productos (se contrae al seleccionar uno) */}
-        {(!productoSel || !listaColapsada) && (
-        <div className="lista-productos" style={{ width: productoSel ? '38%' : '100%', transition: 'width 0.3s', overflowY: 'auto', borderRight: '1px solid #e0e0e0', backgroundColor: 'white' }}>
+        {/* COLUMNA IZQUIERDA — Lista productos */}
+        <div style={{ width: productoSel ? '40%' : '100%', transition: 'width 0.3s', overflowY: 'auto', borderRight: '1px solid #e0e0e0', backgroundColor: 'white' }}>
 
           {/* Filtros */}
           <div style={{ padding: '20px', borderBottom: '1px solid #eee', position: 'sticky', top: 0, backgroundColor: 'white', zIndex: 10 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <h2 style={{ margin: 0, fontSize: '18px' }}>Catálogo de Productos</h2>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                {productoSel && (
-                  <button onClick={() => setListaColapsada(true)}
-                    style={{ padding: '5px 12px', borderRadius: '16px', border: '1px solid #ddd', cursor: 'pointer', fontSize: '12px', backgroundColor: 'white', color: '#666' }}>
-                    Contraer ▸
-                  </button>
-                )}
-                <div style={{ display: 'flex', gap: '4px', backgroundColor: '#f0f0f0', borderRadius: '20px', padding: '3px' }}>
-                  <button onClick={() => setVistaCatalogo('tarjetas')}
-                    style={{ padding: '5px 10px', borderRadius: '16px', border: 'none', cursor: 'pointer', fontSize: '13px', backgroundColor: vistaCatalogo === 'tarjetas' ? '#087e0b' : 'transparent', color: vistaCatalogo === 'tarjetas' ? 'white' : '#666' }}>
-                    ▦
-                  </button>
-                  <button onClick={() => setVistaCatalogo('tabla')}
-                    style={{ padding: '5px 10px', borderRadius: '16px', border: 'none', cursor: 'pointer', fontSize: '13px', backgroundColor: vistaCatalogo === 'tabla' ? '#087e0b' : 'transparent', color: vistaCatalogo === 'tabla' ? 'white' : '#666' }}>
-                    ☰
-                  </button>
-                </div>
-              </div>
-            </div>
+            <h2 style={{ margin: '0 0 14px', fontSize: '18px' }}>Productos</h2>
             <div style={{ display: 'flex', gap: '10px' }}>
               <input type="text" placeholder="Buscar por código o nombre..." value={busqueda}
                 onChange={e => setBusqueda(e.target.value)}
@@ -810,90 +585,42 @@ export default function ProductosConstructivos() {
             <p style={{ margin: '10px 0 0', fontSize: '12px', color: '#888' }}>{productosFiltrados.length} productos</p>
           </div>
 
-          {/* Catálogo en tarjetas */}
-          {vistaCatalogo === 'tarjetas' ? (
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: productoSel ? '1fr' : 'repeat(auto-fill, minmax(170px, 1fr))',
-              gap: '14px',
-              padding: '20px'
-            }}>
-              {productosFiltrados.map(p => (
-                <div key={p.codigo}
-                  className={`catalogo-card${productoSel?.codigo === p.codigo ? ' seleccionada' : ''}`}
-                  onClick={() => seleccionarProducto(p)}
-                  style={{
-                    backgroundColor: 'white',
-                    borderRadius: '12px',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                    overflow: 'hidden',
-                    display: productoSel ? 'flex' : 'block',
-                    alignItems: productoSel ? 'center' : undefined,
-                  }}>
-                  <div style={{
-                    width: productoSel ? '90px' : '100%',
-                    height: productoSel ? '90px' : '140px',
-                    flexShrink: 0,
-                    backgroundColor: '#f2f2f2',
-                    backgroundImage: p.foto_url ? `url(${p.foto_url})` : undefined,
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: '#ccc', fontSize: '28px'
-                  }}>
-                    {!p.foto_url && '🪑'}
-                  </div>
-                  <div style={{ padding: '10px 12px' }}>
-                    <p style={{ margin: '0 0 2px', fontSize: '10px', color: '#087e0b', fontFamily: 'monospace', fontWeight: 'bold' }}>{p.codigo}</p>
-                    <p style={{ margin: '0 0 2px', fontSize: '13px', fontWeight: '600', color: '#222', lineHeight: 1.2 }}>{p.nombre || '—'}</p>
-                    <p style={{ margin: 0, fontSize: '11px', color: '#999' }}>{p.categoria || '—'}</p>
-                  </div>
-                </div>
-              ))}
-              {productosFiltrados.length === 0 && (
-                <p style={{ gridColumn: '1 / -1', textAlign: 'center', color: '#bbb', padding: '30px' }}>Sin productos que coincidan con la búsqueda.</p>
-              )}
-            </div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  <th style={thStyle}>Código</th>
-                  <th style={thStyle}>Nombre</th>
-                  <th style={thStyle}>Categoría</th>
+          {/* Tabla productos */}
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={thStyle}>Código</th>
+                <th style={thStyle}>Nombre</th>
+                <th style={thStyle}>Categoría</th>
+                {!productoSel && <th style={{ ...thStyle, textAlign: 'right' }}>P. Mínimo</th>}
+                {!productoSel && <th style={{ ...thStyle, textAlign: 'right' }}>P. Tienda</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {productosFiltrados.map((p, i) => (
+                <tr key={p.codigo}
+                  className={`prod-row${productoSel?.codigo === p.codigo ? ' seleccionado' : ''}`}
+                  style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}
+                  onClick={() => seleccionarProducto(p)}>
+                  <td style={{ ...tdStyle, fontWeight: 'bold', color: '#087e0b', fontFamily: 'monospace' }}>{p.codigo}</td>
+                  <td style={tdStyle}>{p.nombre || '—'}</td>
+                  <td style={{ ...tdStyle, color: '#888', fontSize: '12px' }}>{p.categoria || '—'}</td>
+                  {!productoSel && <td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(p.precio_minimo)}</td>}
+                  {!productoSel && <td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(p.precio_tienda)}</td>}
                 </tr>
-              </thead>
-              <tbody>
-                {productosFiltrados.map((p, i) => (
-                  <tr key={p.codigo}
-                    className={`prod-row${productoSel?.codigo === p.codigo ? ' seleccionado' : ''}`}
-                    style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}
-                    onClick={() => seleccionarProducto(p)}>
-                    <td style={{ ...tdStyle, fontWeight: 'bold', color: '#087e0b', fontFamily: 'monospace' }}>{p.codigo}</td>
-                    <td style={tdStyle}>{p.nombre || '—'}</td>
-                    <td style={{ ...tdStyle, color: '#888', fontSize: '12px' }}>{p.categoria || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+              ))}
+            </tbody>
+          </table>
         </div>
-        )}
 
         {/* PANEL LATERAL — Variantes y materiales */}
         {productoSel && (
-          <div className="panel-lateral" style={{ width: listaColapsada ? '100%' : '62%', overflowY: 'auto', backgroundColor: '#f9f9f9' }}>
+          <div className="panel-lateral" style={{ width: '60%', overflowY: 'auto', backgroundColor: '#f9f9f9' }}>
 
             {/* Header producto */}
             <div style={{ padding: '20px 24px', backgroundColor: 'white', borderBottom: '1px solid #eee', position: 'sticky', top: 0, zIndex: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                  {listaColapsada && (
-                    <button onClick={() => setListaColapsada(false)}
-                      style={{ marginBottom: '6px', padding: '4px 10px', borderRadius: '14px', border: '1px solid #ddd', backgroundColor: 'white', color: '#666', cursor: 'pointer', fontSize: '11px' }}>
-                      ◂ Ver catálogo ({productosFiltrados.length})
-                    </button>
-                  )}
                   <p style={{ margin: '0 0 2px', fontSize: '11px', color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{productoSel.categoria}</p>
                   <h2 style={{ margin: '0 0 4px', fontSize: '18px' }}>{productoSel.nombre}</h2>
                   <p style={{ margin: 0, fontSize: '12px', color: '#087e0b', fontFamily: 'monospace' }}>{productoSel.codigo}</p>
@@ -930,7 +657,7 @@ export default function ProductosConstructivos() {
                   {variantes.map(v => (
                     <button key={v.id} onClick={() => seleccionarVariante(v)}
                       style={{ padding: '8px 16px', borderRadius: '20px', border: `2px solid ${varianteSel?.id === v.id ? '#087e0b' : '#ddd'}`, backgroundColor: varianteSel?.id === v.id ? '#087e0b' : 'white', color: varianteSel?.id === v.id ? 'white' : '#333', cursor: 'pointer', fontSize: '13px', fontWeight: varianteSel?.id === v.id ? 'bold' : 'normal' }}>
-                      {v.es_estandar ? '★ ' : ''}{v.nombre_variante}{v.plano_pdf_url ? ' 📐' : ''}
+                      {v.es_estandar ? '★ ' : ''}{v.nombre_variante}
                     </button>
                   ))}
                 </div>
@@ -941,7 +668,7 @@ export default function ProductosConstructivos() {
                 <div style={{ backgroundColor: 'white', borderRadius: '16px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
 
                   {/* Tabs */}
-                  <div style={{ display: 'flex', borderBottom: '1px solid #eee', padding: '0 8px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', borderBottom: '1px solid #eee', padding: '0 8px' }}>
                     {(['acero', 'melamina', 'accesorios', 'insumos'] as TabActiva[]).map(tab => (
                       <button key={tab} className={`tab-btn${tabActiva === tab ? ' activa' : ''}`}
                         onClick={() => setTabActiva(tab)}>
@@ -952,27 +679,6 @@ export default function ProductosConstructivos() {
                       </button>
                     ))}
                     <div style={{ flex: 1 }} />
-                    <button onClick={() => abrirPlano(varianteSel)}
-                      style={{ margin: '8px 4px', padding: '4px 12px', backgroundColor: varianteSel.plano_pdf_url ? '#0B1E36' : '#eee', color: varianteSel.plano_pdf_url ? '#C5A059' : '#999', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
-                      📐 {varianteSel.plano_pdf_url ? 'Ver plano' : 'Sin plano'}
-                    </button>
-                    {esAdmin && (
-                      <>
-                        <input
-                          ref={planoInputRef}
-                          type="file"
-                          accept="application/pdf"
-                          style={{ display: 'none' }}
-                          onChange={e => { const f = e.target.files?.[0]; if (f) subirPlano(f) }}
-                        />
-                        <button
-                          onClick={() => planoInputRef.current?.click()}
-                          disabled={subiendoPlano}
-                          style={{ margin: '8px 0', padding: '4px 12px', backgroundColor: subiendoPlano ? '#ccc' : '#555', color: 'white', border: 'none', borderRadius: '20px', cursor: subiendoPlano ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
-                          {subiendoPlano ? 'Subiendo...' : '📎 Subir plano'}
-                        </button>
-                      </>
-                    )}
                     {puedeEditar && (
                       <button onClick={abrirModalPieza}
                         style={{ margin: '8px 0', padding: '4px 12px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>

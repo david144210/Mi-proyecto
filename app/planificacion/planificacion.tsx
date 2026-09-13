@@ -61,12 +61,6 @@ export default function PlanificacionPage() {
   const [itemsPlanificados, setItemsPlanificados] = useState<ItemPlanificacion[]>([])
   const [procesandoPlan, setProcesandoPlan] = useState(false)
 
-  // Recuperación / sincronización del lote guardado en Supabase
-  const [loteIdActual, setLoteIdActual] = useState<number | null>(null)
-  const [estadoWorkflowLote, setEstadoWorkflowLote] = useState<string>('creado')
-  const [cargandoLote, setCargandoLote] = useState(false)
-  const [lotesGuardados, setLotesGuardados] = useState<any[]>([])
-
   // Estado para controlar qué items del lote muestran el desglose expandido
   const [itemsExpandidos, setItemsExpandidos] = useState<Record<string, boolean>>({})
 
@@ -103,101 +97,6 @@ export default function PlanificacionPage() {
   useEffect(() => {
     if (usuario) cargarVentasPorFecha(fechaBusquedaVentas)
   }, [fechaBusquedaVentas])
-
-  // Al abrir la página, buscamos en Supabase el lote "activo" más reciente (el que sigue
-  // en proceso, no aprobado todavía) y lo cargamos automáticamente. Así, un usuario en otra
-  // PC recupera el trabajo en curso sin depender de un link o de escribir el nombre exacto.
-  const [autoDeteccionHecha, setAutoDeteccionHecha] = useState(false)
-  useEffect(() => {
-    if (!usuario || autoDeteccionHecha) return
-    const detectarLoteActivo = async () => {
-      const { data } = await supabase
-        .from('lotes_produccion')
-        .select('fecha, nombre_lote')
-        .neq('estado_workflow', 'aprobado')
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      if (data) {
-        setFechaLote(data.fecha)
-        setNombreLote(data.nombre_lote)
-      }
-      setAutoDeteccionHecha(true)
-    }
-    detectarLoteActivo()
-  }, [usuario])
-
-  // Recupera de Supabase el lote correspondiente a fechaLote + nombreLote cada vez que
-  // cambian (o al cargar la página), en vez de arrancar siempre con itemsPlanificados vacío.
-  useEffect(() => {
-    if (!usuario) return
-    cargarLoteExistente(fechaLote, nombreLote)
-  }, [usuario, fechaLote, nombreLote])
-
-  // Lista de lotes ya guardados (para el selector "Abrir lote existente")
-  useEffect(() => {
-    if (!usuario) return
-    cargarListaDeLotes()
-  }, [usuario])
-
-  const cargarListaDeLotes = async () => {
-    const { data } = await supabase
-      .from('lotes_produccion')
-      .select('id, fecha, nombre_lote, estado_workflow, updated_at')
-      .order('updated_at', { ascending: false })
-      .limit(30)
-    setLotesGuardados(data || [])
-  }
-
-  const cargarLoteExistente = async (fec: string, nombre: string) => {
-    const nombreLimpio = nombre.trim()
-    if (!nombreLimpio) return
-    setCargandoLote(true)
-    try {
-      const { data, error } = await supabase
-        .from('lotes_produccion')
-        .select('id, estado_workflow, materiales_planificados')
-        .eq('fecha', fec)
-        .eq('nombre_lote', nombreLimpio)
-        .maybeSingle()
-
-      if (error) {
-        // Si la columna todavía no existe en Supabase (falta correr el ALTER TABLE),
-        // no rompemos la página: avisamos una sola vez y seguimos con la planificación vacía.
-        if (error.code === '42703' || (error.message || '').includes('materiales_planificados')) {
-          console.warn('La columna "materiales_planificados" no existe todavía en lotes_produccion. Ejecuta en Supabase: ALTER TABLE lotes_produccion ADD COLUMN IF NOT EXISTS materiales_planificados jsonb DEFAULT \'[]\'::jsonb;')
-          setLoteIdActual(null)
-          setEstadoWorkflowLote('creado')
-          setItemsPlanificados([])
-          return
-        }
-        throw error
-      }
-
-      if (data) {
-        setLoteIdActual(data.id)
-        setEstadoWorkflowLote(data.estado_workflow || 'creado')
-        // Garantizamos id_temp único por item: datos guardados por versiones anteriores
-        // del sistema, o editados manualmente en Supabase, pueden no traerlo.
-        const itemsRecuperados = (data.materiales_planificados || []).map((item: any, idx: number) => ({
-          ...item,
-          id_temp: item.id_temp || `rec-${idx}-${Math.random().toString(36).substr(2, 6)}`
-        }))
-        setItemsPlanificados(itemsRecuperados)
-      } else {
-        // No existe todavía un lote con esa fecha/nombre: es un lote nuevo, no un error.
-        setLoteIdActual(null)
-        setEstadoWorkflowLote('creado')
-        setItemsPlanificados([])
-      }
-    } catch (err: any) {
-      console.error('Error al recuperar el lote guardado:', err?.message || err?.details || err?.hint || JSON.stringify(err))
-      // No usamos alert() aquí: este efecto se dispara en cada cambio de fecha/nombre,
-      // y un alert bloqueante en cada intento fallido hace la página inusable.
-    } finally {
-      setCargandoLote(false)
-    }
-  }
 
   useEffect(() => {
     const cargarVariantes = async () => {
@@ -453,65 +352,44 @@ export default function PlanificacionPage() {
   }
 
   const guardarLoteEnSupabase = async () => {
-    const nombreLimpio = nombreLote.trim()
-    if (!nombreLimpio) {
-      alert('Ponle un nombre al lote antes de guardar.')
-      return
-    }
-    if (nombreLimpio !== nombreLote) setNombreLote(nombreLimpio)
-
     setProcesandoPlan(true)
     try {
-      // Re-verificamos contra Supabase (no solo loteIdActual en memoria) por si el lote
-      // fue creado/modificado por otro usuario o desde Presupuestos mientras tanto.
       const { data: existing } = await supabase
         .from('lotes_produccion')
-        .select('id, estado_workflow')
+        .select('id')
         .eq('fecha', fechaLote)
-        .eq('nombre_lote', nombreLimpio)
+        .eq('nombre_lote', nombreLote)
         .maybeSingle()
 
       let error;
-      let idResultante = existing?.id ?? null
       if (existing) {
         const { error: err } = await supabase
           .from('lotes_produccion')
           .update({
-            // No reseteamos el estado del flujo si el lote ya avanzó en Presupuestos
-            // (revisión de taller, compras, aprobado); solo lo forzamos a 'creado' si es nuevo.
-            estado_workflow: existing.estado_workflow || 'creado',
-            materiales_planificados: itemsPlanificados,
+            estado_workflow: 'creado',
+            pedidos_seleccionados: itemsPlanificados,
             updated_at: new Date().toISOString()
           })
           .eq('id', existing.id)
         error = err;
       } else {
-        const { data: inserted, error: err } = await supabase
+        const { error: err } = await supabase
           .from('lotes_produccion')
           .insert({
             fecha: fechaLote,
-            nombre_lote: nombreLimpio,
+            nombre_lote: nombreLote,
             estado_workflow: 'creado',
-            materiales_planificados: itemsPlanificados,
+            pedidos_seleccionados: itemsPlanificados,
             updated_at: new Date().toISOString()
           })
-          .select('id')
-          .single()
         error = err;
-        idResultante = inserted?.id ?? null
       }
 
       if (error) throw error
-      setLoteIdActual(idResultante)
-      cargarListaDeLotes()
-      alert('¡Lote y desglose guardados correctamente en Supabase! Cualquier usuario que abra Presupuestos (incluso desde otra PC) lo verá automáticamente como lote activo, o puede elegirlo del selector "Abrir lote guardado".')
-    } catch (err: any) {
+      alert('¡Lote y desglose guardados correctamente!')
+    } catch (err) {
       console.error(err)
-      if (err?.code === '42703' || (err?.message || '').includes('materiales_planificados')) {
-        alert('Falta crear la columna "materiales_planificados" en Supabase. Ejecuta en el SQL Editor:\n\nALTER TABLE lotes_produccion ADD COLUMN IF NOT EXISTS materiales_planificados jsonb DEFAULT \'[]\'::jsonb;')
-      } else {
-        alert('Error al guardar la planificación: ' + (err?.message || 'revisa la consola para más detalle.'))
-      }
+      alert('Error al guardar la planificación.')
     } finally {
       setProcesandoPlan(false)
     }
@@ -552,39 +430,7 @@ export default function PlanificacionPage() {
                 {talleres.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
-            {lotesGuardados.length > 0 && (
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold' }}>Abrir lote existente:</label>
-                <select
-                  value=""
-                  onChange={e => {
-                    const sel = lotesGuardados.find(l => String(l.id) === e.target.value)
-                    if (sel) { setFechaLote(sel.fecha); setNombreLote(sel.nombre_lote) }
-                  }}
-                  style={{ padding: '6px', borderRadius: '4px', border: '1px solid #ccc', marginTop: '4px', width: '260px' }}
-                >
-                  <option value="">-- Seleccionar de Supabase --</option>
-                  {lotesGuardados.map(l => (
-                    <option key={l.id} value={l.id}>
-                      {l.fecha} · {l.nombre_lote} ({l.estado_workflow})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
           </div>
-
-          {cargandoLote && (
-            <p style={{ fontSize: '12px', color: '#666', margin: '0 0 10px 0' }}>Recuperando lote guardado desde Supabase...</p>
-          )}
-          {!cargandoLote && loteIdActual && (
-            <p style={{ fontSize: '12px', color: '#16a34a', margin: '0 0 10px 0' }}>
-              ✓ Lote existente recuperado ({itemsPlanificados.length} items) · Estado: <strong>{estadoWorkflowLote}</strong>
-            </p>
-          )}
-          {!cargandoLote && !loteIdActual && (
-            <p style={{ fontSize: '12px', color: '#888', margin: '0 0 10px 0' }}>Este lote (fecha + nombre) todavía no existe en Supabase; se creará al guardar.</p>
-          )}
 
           <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
             {/* Panel Izquierdo: Inputs */}

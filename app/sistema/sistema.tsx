@@ -310,8 +310,10 @@ export default function Sistema() {
               <a href="/presupuestos_prod" style={cardStyle}><div style={{ fontSize: '38px', marginBottom: '10px' }}>🧮</div><h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Presupuestos de Producción</h3></a>
               <a href="/construccion" style={cardStyle}><div style={{ fontSize: '38px', marginBottom: '10px' }}>🚧</div><h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Construcción</h3></a>
               <a href="/almacenes" style={cardStyle}><div style={{ fontSize: '38px', marginBottom: '10px' }}>🏷</div><h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Almacenes</h3></a>
-              <a href="/taller" style={cardStyle}><div style={{ fontSize: '38px', marginBottom: '10px' }}>🔧</div><h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Taller</h3></a>
             </>
+          )}
+          {(esAdmin || !!usuario) && (
+             <a href="/calendario" style={cardStyle}><div style={{ fontSize: '38px', marginBottom: '10px' }}>📅</div><h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Calendario</h3></a>
           )}
           {(esAdmin || !!usuario?.cargos?.puede_ver_entregas) && (
             <>
@@ -345,36 +347,6 @@ export default function Sistema() {
           )}
         </div>
       </div>
-
-      {/* BOTÓN FLOTANTE PARA ACCEDER RÁPIDAMENTE AL CALENDARIO */}
-      {(esAdmin || !!usuario) && (
-        <a
-          href="/calendario"
-          style={{
-            position: 'fixed',
-            bottom: '90px',
-            right: '25px',
-            backgroundColor: '#001f3f',
-            color: '#D4AF37',
-            borderRadius: '50px',
-            padding: '12px 22px',
-            boxShadow: '0 6px 20px rgba(0,0,0,0.3)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            textDecoration: 'none',
-            fontWeight: 'bold',
-            fontSize: '14px',
-            zIndex: 999,
-            border: '2px solid #D4AF37',
-            transition: 'transform 0.2s ease'
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
-          onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-        >
-          <span style={{ fontSize: '18px' }}>📅</span> Calendario
-        </a>
-      )}
 
       {/* BOTÓN FLOTANTE PARA ACCEDER RÁPIDAMENTE A LAS PALETAS */}
       <a 

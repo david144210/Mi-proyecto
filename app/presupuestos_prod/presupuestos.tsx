@@ -47,17 +47,12 @@ export default function GestorPresupuestosWorkflow() {
   const [nombreLote, setNombreLote] = useState('Lote Mañana')
   const [loading, setLoading] = useState(true)
   const [sincronizando, setSincronizando] = useState(false)
-  const [lotesGuardados, setLotesGuardados] = useState<any[]>([])
 
   const [estadoWorkflow, setEstadoWorkflow] = useState<EstadoWorkflow>('creado')
 
   const [pedidosPendientes, setPedidosPendientes] = useState<Pedido[]>([])
   const [pedidosSeleccionados, setPedidosSeleccionados] = useState<Pedido[]>([])
   const [materialesLote, setMaterialesLote] = useState<MaterialPresupuesto[]>([])
-  // Materiales/piezas armados en la pantalla de Planificación para este mismo lote
-  // (columna materiales_planificados). Se muestran aparte y se pueden incorporar al presupuesto.
-  const [materialesPlanificados, setMaterialesPlanificados] = useState<any[]>([])
-  const [itemsPlanificadosExpandidos, setItemsPlanificadosExpandidos] = useState<Record<string, boolean>>({})
 
   const [talleresDisponibles, setTalleresDisponibles] = useState<string[]>([])
   const [tallerFiltroActivo, setTallerFiltroActivo] = useState<string>('TODOS')
@@ -112,45 +107,6 @@ export default function GestorPresupuestosWorkflow() {
       cargarDatosLoteYPedidos()
     }
   }, [fecha, nombreLote, usuario, talleresDisponibles])
-
-  // Al abrir la página, buscamos en Supabase el lote "activo" más reciente (el que sigue
-  // en proceso, no aprobado todavía) y lo cargamos automáticamente. Esto es lo que permite
-  // que el usuario de Presupuestos, en otra PC, recupere el trabajo que Planificación
-  // guardó, sin depender de un link ni de escribir la fecha/nombre exactos.
-  const [autoDeteccionHecha, setAutoDeteccionHecha] = useState(false)
-  useEffect(() => {
-    if (!usuario || autoDeteccionHecha) return
-    const detectarLoteActivo = async () => {
-      const { data } = await supabase
-        .from('lotes_produccion')
-        .select('fecha, nombre_lote')
-        .neq('estado_workflow', 'aprobado')
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      if (data) {
-        setFecha(data.fecha)
-        setNombreLote(data.nombre_lote)
-      }
-      setAutoDeteccionHecha(true)
-    }
-    detectarLoteActivo()
-  }, [usuario])
-
-  // Lista de lotes ya guardados en Supabase, para poder elegir uno exacto
-  // en vez de depender de escribir la fecha/nombre idénticos a mano.
-  useEffect(() => {
-    if (!usuario) return
-    const cargarListaDeLotes = async () => {
-      const { data } = await supabase
-        .from('lotes_produccion')
-        .select('id, fecha, nombre_lote, estado_workflow, updated_at')
-        .order('updated_at', { ascending: false })
-        .limit(30)
-      setLotesGuardados(data || [])
-    }
-    cargarListaDeLotes()
-  }, [usuario])
 
   useEffect(() => {
     const cargarCatalogo = async () => {
@@ -291,32 +247,22 @@ export default function GestorPresupuestosWorkflow() {
         .from('lotes_produccion')
         .select('*')
         .eq('fecha', fecha)
-        .eq('nombre_lote', nombreLote.trim())
+        .eq('nombre_lote', nombreLote)
         .maybeSingle()
 
       let estadoActual: EstadoWorkflow = 'creado'
       let seleccionados: Pedido[] = []
       let materialesGuardados: MaterialPresupuesto[] = []
-      let planificadosGuardados: any[] = []
 
       if (loteData) {
         estadoActual = loteData.estado_workflow as EstadoWorkflow
-        // Filtro de seguridad: descarta cualquier registro que no tenga la forma de un
-        // Pedido real (cod_venta) - por si un lote antiguo quedó con datos mezclados de
-        // Planificación (que ahora guarda en su propia columna materiales_planificados).
-        seleccionados = ((loteData.pedidos_seleccionados || []) as any[]).filter(
-          (p) => p && typeof p.cod_venta !== 'undefined'
-        )
+        seleccionados = loteData.pedidos_seleccionados || []
         materialesGuardados = loteData.materiales || []
-        // Lista de materiales/piezas que Planificación armó para este mismo lote
-        // (fecha + nombre_lote). Puede no existir todavía si no se corrió el ALTER TABLE.
-        planificadosGuardados = loteData.materiales_planificados || []
       }
 
       setEstadoWorkflow(estadoActual)
       setPedidosSeleccionados(seleccionados)
       setMaterialesLote(materialesGuardados)
-      setMaterialesPlanificados(planificadosGuardados)
 
       const { data: ventasData, error } = await supabase
         .from('ventas')
@@ -401,7 +347,7 @@ export default function GestorPresupuestosWorkflow() {
         .from('lotes_produccion')
         .upsert({
           fecha,
-          nombre_lote: nombreLote.trim(),
+          nombre_lote: nombreLote,
           estado_workflow: nuevoEstado,
           pedidos_seleccionados: nuevosPedidos,
           materiales: nuevosMateriales,
@@ -586,37 +532,6 @@ export default function GestorPresupuestosWorkflow() {
     }
     setMaterialesLote(actualizada)
     await persistirLoteEnBD(estadoWorkflow, pedidosSeleccionados, actualizada)
-  }
-
-  const incorporarItemPlanificadoAlPresupuesto = async (item: any) => {
-    if (estadoWorkflow !== 'creado') {
-      alert('Solo se pueden incorporar materiales cuando el lote está en fase de Creación.')
-      return
-    }
-    const piezas = item.piezas_desglose || []
-    if (piezas.length === 0) {
-      alert('Este item no tiene piezas registradas en Planificación.')
-      return
-    }
-    const nuevosMateriales: MaterialPresupuesto[] = piezas.map((p: any) => ({
-      id_fila: Math.random().toString(36).substr(2, 9),
-      cod_venta: 0, // No proviene de una venta puntual, sino de Planificación (stock/especial/venta ya desglosada)
-      codigo: p.codigo_melamina || p.codigo_acero || p.codigo_accesorio || p.codigo_insumo || p.codigo_union || p.descripcion || 'SIN-CODIGO',
-      detalle: `[Planificado] ${item.titulo} - ${p.descripcion || p.tipo}`,
-      cantidadReq: Number(p.cantidad) || 0,
-      stockActual: 0,
-      cantidadComprar: Number(p.cantidad) || 0,
-      precioUnitario: 0,
-      gastoReal: 0,
-      tipo: 'manual',
-      taller_destino: item.taller_destino || tallerAsignacionTemp
-    }))
-    await agregarOConsolidarMateriales(nuevosMateriales)
-    alert(`Se incorporaron ${nuevosMateriales.length} piezas de "${item.titulo}" al presupuesto. Revisa/ajusta el precio unitario de cada una: se cargaron en 0 porque Planificación no maneja precios.`)
-  }
-
-  const toggleExpandPlanificado = (id_temp: string) => {
-    setItemsPlanificadosExpandidos(prev => ({ ...prev, [id_temp]: !prev[id_temp] }))
   }
 
   const moverAPresupuesto = async (pedido: Pedido) => {
@@ -914,27 +829,6 @@ export default function GestorPresupuestosWorkflow() {
             <input type="text" value={nombreLote} onChange={(e) => setNombreLote(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: 'none', width: '220px' }} />
           </div>
 
-          {lotesGuardados.length > 0 && (
-            <div>
-              <label style={{ display: 'block', fontSize: '12px', color: '#C5A059' }}>Abrir lote guardado</label>
-              <select
-                value=""
-                onChange={(e) => {
-                  const sel = lotesGuardados.find(l => String(l.id) === e.target.value)
-                  if (sel) { setFecha(sel.fecha); setNombreLote(sel.nombre_lote) }
-                }}
-                style={{ padding: '8px', borderRadius: '6px', border: 'none', width: '260px' }}
-              >
-                <option value="">-- Seleccionar de Supabase --</option>
-                {lotesGuardados.map(l => (
-                  <option key={l.id} value={l.id}>
-                    {l.fecha} · {l.nombre_lote} ({l.estado_workflow})
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '12px' }}>
             <span style={{ padding: '6px 10px', borderRadius: '4px', backgroundColor: estadoWorkflow === 'creado' ? '#C5A059' : '#333', color: estadoWorkflow === 'creado' ? '#0B1E36' : 'white', fontWeight: 'bold' }}>1. Creación</span> →
             <span style={{ padding: '6px 10px', borderRadius: '4px', backgroundColor: estadoWorkflow === 'revision_taller' ? '#C5A059' : '#333', color: estadoWorkflow === 'revision_taller' ? '#0B1E36' : 'white', fontWeight: 'bold' }}>2. Talleres</span> →
@@ -968,8 +862,8 @@ export default function GestorPresupuestosWorkflow() {
             {!loading && pedidosPendientes.length === 0 && <p style={{ fontSize: '14px', color: '#666' }}>No hay pedidos pendientes.</p>}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-              {pedidosPendientes.map((pedido, idxPend) => (
-                <div key={pedido.cod_venta ?? pedido.id ?? idxPend} style={{ border: '1px solid #eee', borderRadius: '8px', padding: '12px', backgroundColor: '#fafafa' }}>
+              {pedidosPendientes.map(pedido => (
+                <div key={pedido.cod_venta} style={{ border: '1px solid #eee', borderRadius: '8px', padding: '12px', backgroundColor: '#fafafa' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                     <strong>#{pedido.cod_venta} - {pedido.cliente}</strong>
                     {estadoWorkflow === 'creado' && (
@@ -1037,8 +931,8 @@ export default function GestorPresupuestosWorkflow() {
               <h2 style={{ fontSize: '18px', color: '#0B1E36', borderBottom: '2px solid #C5A059', paddingBottom: '10px' }}>Pedidos Incluidos en el Lote</h2>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 {pedidosSeleccionados.length === 0 && <span style={{ fontSize: '13px', fontStyle: 'italic', color: '#999' }}>Ningún pedido seleccionado.</span>}
-                {pedidosSeleccionados.map((p, idxSel) => (
-                  <span key={p.cod_venta ?? p.id ?? idxSel} style={{ backgroundColor: '#0B1E36', color: 'white', padding: '6px 12px', borderRadius: '12px', fontSize: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                {pedidosSeleccionados.map(p => (
+                  <span key={p.cod_venta} style={{ backgroundColor: '#0B1E36', color: 'white', padding: '6px 12px', borderRadius: '12px', fontSize: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <strong>#{p.cod_venta}</strong> - {p.cliente} <span style={{ color: '#C5A059', fontSize: '10px' }}>({p.taller_destino})</span>
                     {estadoWorkflow === 'creado' && (
                       <button onClick={() => devolverAPendientes(p)} style={{ background: 'none', border: 'none', color: '#C5A059', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
@@ -1047,72 +941,6 @@ export default function GestorPresupuestosWorkflow() {
                 ))}
               </div>
             </div>
-
-            {/* Materiales planificados desde la pantalla de Planificación (mismo lote: fecha + nombre) */}
-            {materialesPlanificados.length > 0 && (
-              <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
-                <h2 style={{ fontSize: '18px', color: '#0B1E36', borderBottom: '2px solid #C5A059', paddingBottom: '10px', marginBottom: '10px' }}>
-                  📋 Materiales Planificados ({materialesPlanificados.length})
-                </h2>
-                <p style={{ fontSize: '11px', color: '#666', marginBottom: '10px' }}>
-                  Piezas armadas desde la pantalla de Planificación para este mismo lote (incluye stock y pedidos especiales, no solo ventas). Incorpóralas al presupuesto para poder descontar almacén y aprobar la compra.
-                </p>
-                {materialesPlanificados.map((item: any, idx: number) => {
-                  const idTemp = item.id_temp || `plan-${idx}`
-                  const expandido = itemsPlanificadosExpandidos[idTemp] || false
-                  return (
-                    <div key={idTemp} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px', marginBottom: '10px', background: '#f8fafc' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <strong style={{ fontSize: '13px' }}>{item.titulo}</strong>
-                          <div style={{ fontSize: '11px', color: '#666' }}>
-                            Destino: {item.taller_destino} · {(item.piezas_desglose || []).length} piezas
-                          </div>
-                        </div>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <button
-                            onClick={() => toggleExpandPlanificado(idTemp)}
-                            style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#0B1E36', fontSize: '11px', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                          >
-                            {expandido ? 'Ocultar ▲' : 'Ver piezas ▼'}
-                          </button>
-                          {estadoWorkflow === 'creado' && (
-                            <button
-                              onClick={() => incorporarItemPlanificadoAlPresupuesto(item)}
-                              style={{ background: '#C5A059', color: '#0B1E36', border: 'none', fontSize: '11px', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                            >
-                              + Incorporar al presupuesto
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      {expandido && (
-                        <div style={{ marginTop: '8px', maxHeight: '160px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '4px' }}>
-                          <table style={{ width: '100%', fontSize: '10px', borderCollapse: 'collapse' }}>
-                            <thead>
-                              <tr style={{ background: '#e2e8f0', textAlign: 'left' }}>
-                                <th style={{ padding: '4px 6px' }}>Tipo</th>
-                                <th style={{ padding: '4px 6px' }}>Descripción</th>
-                                <th style={{ padding: '4px 6px' }}>Cant.</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {(item.piezas_desglose || []).map((pieza: any, pIdx: number) => (
-                                <tr key={pIdx} style={{ borderBottom: '1px solid #eee' }}>
-                                  <td style={{ padding: '4px 6px', fontWeight: 'bold' }}>{pieza.tipo}</td>
-                                  <td style={{ padding: '4px 6px' }}>{pieza.descripcion || '-'}</td>
-                                  <td style={{ padding: '4px 6px' }}>{pieza.cantidad}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
 
             {/* Adición Manual */}
             {estadoWorkflow === 'creado' && (
