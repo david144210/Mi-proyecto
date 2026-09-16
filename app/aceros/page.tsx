@@ -96,19 +96,28 @@ export default function GestionAceros() {
 
     setGuardando(true)
     setErrorForm('')
-    
+
     // Mapeo estricto con conversión numérica para evitar strings vacíos "" o errores en columnas numeric(10,2)
-    const datosAcero = {
-      codigo_acero: formCodigo.trim().toUpperCase(),
+    // IMPORTANTE: codigo_acero NUNCA se incluye al editar. Es la columna referenciada por
+    // pedidos_acero_detalle (y otras tablas) mediante foreign key. El input ya está deshabilitado
+    // al editar, pero si igual se manda en el UPDATE (aunque "parezca" el mismo valor), un simple
+    // cambio de mayúsculas/minúsculas hace que Postgres intente modificar la clave referenciada y
+    // la operación se rechaza con el error de foreign key que estabas viendo.
+    const datosAcero: any = {
       detalle: formDetalle.trim() || null,
       precio_compra: formPrecioCompra ? parseFloat(formPrecioCompra) : null,
       precio_cotizador: formPrecioCotizador ? parseFloat(formPrecioCotizador) : null,
       proveedor: formProveedor.trim() || null,
     }
 
+    if (!aceroEditando) {
+      // Solo al crear un acero nuevo se define su código (clave usada por las demás tablas)
+      datosAcero.codigo_acero = formCodigo.trim().toUpperCase()
+    }
+
     try {
       if (aceroEditando) {
-        // Modificar registro existente
+        // Modificar registro existente (nunca toca codigo_acero)
         const { error } = await supabase
           .from('aceros')
           .update(datosAcero)
@@ -132,7 +141,13 @@ export default function GestionAceros() {
       }, 1000)
 
     } catch (err: any) {
-      setErrorForm('Error al procesar la operación: ' + err.message)
+      if (err.code === '23503') {
+        setErrorForm('No se pudo guardar: este código de acero está en uso en pedidos u otras tablas y no puede modificarse. Si necesitas cambiar el código, crea un acero nuevo en su lugar.')
+      } else if (err.code === '23505') {
+        setErrorForm('Ya existe un acero registrado con ese código.')
+      } else {
+        setErrorForm('Error al procesar la operación: ' + err.message)
+      }
     } finally {
       setGuardando(false)
     }
@@ -147,7 +162,11 @@ export default function GestionAceros() {
       .eq('id', acero.id)
 
     if (error) {
-      alert('No se pudo eliminar el acero: ' + error.message)
+      if (error.code === '23503') {
+        alert('No se puede eliminar este acero: tiene pedidos, variantes de producto o stock asociados en el historial. Si ya no se usa, puedes dejar de seleccionarlo en nuevos pedidos, pero no se puede borrar sin afectar esos registros.')
+      } else {
+        alert('No se pudo eliminar el acero: ' + error.message)
+      }
     } else {
       cargarAceros()
     }
