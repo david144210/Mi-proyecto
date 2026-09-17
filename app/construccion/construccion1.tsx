@@ -257,15 +257,6 @@ export default function ProductosConstructivos() {
   const [fpCanteadoDer, setFpCanteadoDer] = useState(false)
   const [fpPrecioTapacanto, setFpPrecioTapacanto] = useState('')
 
-  // ── Importar piezas de melamina desde el diseñador 3D ───────────────────────
-  const [importPendiente, setImportPendiente] = useState<any>(null)
-  const [modalImportar, setModalImportar] = useState(false)
-  const [importFilas, setImportFilas] = useState<any[]>([])
-  const [importPrecioTapacanto, setImportPrecioTapacanto] = useState('')
-  const [importCodigoParaTodas, setImportCodigoParaTodas] = useState('')
-  const [importando, setImportando] = useState(false)
-  const [importError, setImportError] = useState('')
-
   // ── Auth ───────────────────────────────────────────────────────────────────
   useEffect(() => {
     const carnet = localStorage.getItem('carnet')
@@ -283,16 +274,6 @@ export default function ProductosConstructivos() {
         if (!admin && !produccion && !editarProductos) { window.location.replace('/sistema'); return }
         cargarDatos()
       })
-  }, [])
-
-  // Revisa si el diseñador 3D dejó piezas de melamina esperando ser importadas.
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('melamina_piezas_pendientes')
-      if (raw) setImportPendiente(JSON.parse(raw))
-    } catch {
-      localStorage.removeItem('melamina_piezas_pendientes')
-    }
   }, [])
 
   const cargarDatos = async () => {
@@ -418,13 +399,9 @@ export default function ProductosConstructivos() {
 
     if (tabActiva === 'acero') {
       setFpCodigo(p.codigo_acero || '')
+      setFpDescripcion(p.descripcion || '')
       setFpLongitud(p.longitud_cm != null ? String(p.longitud_cm) : '')
       setFpCantidad(p.cantidad != null ? String(p.cantidad) : '')
-      // El prefijo "detalle del tubo (medida)" se regenera solo al guardar;
-      // aquí solo recuperamos el texto libre que el usuario haya escrito.
-      const descAcero = p.descripcion || ''
-      const sepAcero = descAcero.indexOf(' — ')
-      setFpDescripcion(sepAcero >= 0 ? descAcero.slice(sepAcero + 3) : descAcero)
     } else if (tabActiva === 'melamina') {
       setFpCodigo(p.codigo_melamina || '')
       setFpLargo(p.largo_cm != null ? String(p.largo_cm) : '')
@@ -464,15 +441,8 @@ export default function ProductosConstructivos() {
     if (tabActiva === 'acero') {
       const lon = parseFloat(fpLongitud)
       if (isNaN(lon) || lon <= 0) { setErrorModal('Longitud inválida'); setGuardando(false); return }
-      const acero = aceros.find(a => a.codigo_acero === fpCodigo)
-      // El detalle del tubo (catálogo de aceros) + la medida van siempre antes del
-      // texto libre que escriba el usuario — mismo criterio que en melamina, porque
-      // esta descripción es la que alimenta las tablas de planificación.
-      const medida = `${lon}cm`
-      const detalleTubo = acero?.detalle ? `${acero.detalle} (${medida})` : `(${medida})`
-      const descripcionFinal = [detalleTubo, fpDescripcion.trim()].filter(Boolean).join(' — ')
       const payload = {
-        codigo_acero: fpCodigo, descripcion: descripcionFinal || null, longitud_cm: lon, cantidad: cant,
+        codigo_acero: fpCodigo, descripcion: fpDescripcion || null, longitud_cm: lon, cantidad: cant,
       }
       const res = editando
         ? await supabase.from('variante_acero').update(payload).eq('id', piezaEditando.id)
@@ -516,13 +486,7 @@ export default function ProductosConstructivos() {
     }
 
     if (tabActiva === 'accesorios') {
-      const acc = accesorios.find(a => a.codigo_accesorio === fpCodigo)
-      const precioCompra = acc?.precio_compra || 0
-      const payload = {
-        codigo_accesorio: fpCodigo, descripcion: fpDescripcion || null, cantidad: cant,
-        costo_unitario: precioCompra,
-        costo_total: precioCompra * cant,
-      }
+      const payload = { codigo_accesorio: fpCodigo, descripcion: fpDescripcion || null, cantidad: cant }
       const res = editando
         ? await supabase.from('variante_accesorios').update(payload).eq('id', piezaEditando.id)
         : await supabase.from('variante_accesorios').insert({ variante_id: varianteSel!.id, ...payload })
@@ -555,86 +519,6 @@ export default function ProductosConstructivos() {
     await supabase.from(tabla).delete().eq('id', id)
     await recalcularVariante(varianteSel!.id)
     await seleccionarVariante(varianteSel!)
-  }
-
-  // ── Importar piezas de melamina desde el diseñador 3D ───────────────────────
-  const descartarImport = () => {
-    localStorage.removeItem('melamina_piezas_pendientes')
-    setImportPendiente(null)
-  }
-
-  const abrirModalImportar = () => {
-    if (!importPendiente?.piezas?.length) return
-    const filas = importPendiente.piezas.map((p: any, idx: number) => ({
-      id: idx,
-      incluir: true,
-      descripcion: p.descripcion,
-      cantidad: p.cantidad,
-      largo: p.largoCm,
-      ancho: p.anchoCm,
-      codigoMelamina: '',
-      sup: (p.canteadoLados || 0) >= 1,
-      inf: (p.canteadoLados || 0) >= 2,
-      izq: (p.canteadoCortos || 0) >= 1,
-      der: (p.canteadoCortos || 0) >= 2,
-    }))
-    setImportFilas(filas)
-    setImportPrecioTapacanto('')
-    setImportCodigoParaTodas('')
-    setImportError('')
-    setModalImportar(true)
-  }
-
-  const actualizarFilaImport = (id: number, cambios: any) => {
-    setImportFilas(prev => prev.map(f => f.id === id ? { ...f, ...cambios } : f))
-  }
-
-  const aplicarCodigoATodas = () => {
-    if (!importCodigoParaTodas) return
-    setImportFilas(prev => prev.map(f => ({ ...f, codigoMelamina: importCodigoParaTodas })))
-  }
-
-  const confirmarImportar = async () => {
-    if (!varianteSel) return
-    const filasValidas = importFilas.filter(f => f.incluir)
-    if (filasValidas.length === 0) { setImportError('Selecciona al menos una pieza para importar'); return }
-    if (filasValidas.some(f => !f.codigoMelamina)) { setImportError('Todas las piezas incluidas necesitan un código de melamina'); return }
-
-    setImportando(true)
-    setImportError('')
-    const precioTapa = parseFloat(importPrecioTapacanto) || 0
-
-    const payloads = filasValidas.map(f => {
-      const mel = melaminas.find(m => m.codigo_melamina === f.codigoMelamina)
-      const precioM2 = mel?.precio_compra || 0
-      const calc = calcularMelamina({
-        largoCm: f.largo, anchoCm: f.ancho, cantidad: f.cantidad, precioM2,
-        sup: f.sup, inf: f.inf, izq: f.izq, der: f.der,
-        precioTapacantoM: precioTapa,
-      })
-      const medida = `${f.largo}x${f.ancho}`
-      const descripcionFinal = [`${calc.notaCanteado} (${medida})`, f.descripcion].filter(Boolean).join(' — ')
-      return {
-        variante_id: varianteSel.id,
-        codigo_melamina: f.codigoMelamina,
-        descripcion: descripcionFinal,
-        largo_cm: f.largo, ancho_cm: f.ancho, cantidad: f.cantidad,
-        costo_unitario: calc.costoUnitario, costo_total: calc.costoTotal,
-      }
-    })
-
-    const { error } = await supabase.from('variante_melamina').insert(payloads)
-    if (error) { setImportError('Error al importar: ' + error.message); setImportando(false); return }
-
-    const { data } = await supabase.from('variante_melamina').select('*').eq('variante_id', varianteSel.id).order('id')
-    setPiezasMelamina(data || [])
-    await recalcularVariante(varianteSel.id)
-
-    descartarImport()
-    setImportando(false)
-    setModalImportar(false)
-    setExito(`${filasValidas.length} piezas importadas correctamente`)
-    setTimeout(() => setExito(''), 2000)
   }
 
   // ── Visor de planos (PDF) ────────────────────────────────────────────────
@@ -780,7 +664,7 @@ export default function ProductosConstructivos() {
     if (tabActiva === 'accesorios') {
       const acc = accesorios.find(a => a.codigo_accesorio === fpCodigo)
       if (!acc || !cant) return null
-      return `Preview: ${cant} × Bs.${acc.precio_compra} = ${fmt(cant * acc.precio_compra)}`
+      return `Preview: ${cant} × Bs.${acc.precio_cotizador} = ${fmt(cant * acc.precio_cotizador)}`
     }
     if (tabActiva === 'insumos') {
       const ins = insumos.find(i => i.codigo_insumos === fpCodigo)
@@ -809,9 +693,6 @@ export default function ProductosConstructivos() {
           .layout-split { flex-direction: column !important; height: auto !important; }
           .panel-lateral { width: 100% !important; border-left: none !important; border-top: 2px solid #eee; }
           .lista-productos { width: 100% !important; max-height: 45vh; }
-        }
-        @media (max-width: 640px) {
-          .fab-label { display: none; }
         }
         .tab-btn { background: none; border: none; padding: 10px 16px; cursor: pointer; font-size: 13px; font-weight: 500; color: #888; border-bottom: 2px solid transparent; transition: all 0.15s; }
         .tab-btn.activa { color: #087e0b; border-bottom-color: #087e0b; }
@@ -916,20 +797,6 @@ export default function ProductosConstructivos() {
               <div>
                 <label style={labelStyle}>Descripción / Referencia</label>
                 <input type="text" value={fpDescripcion} onChange={e => setFpDescripcion(e.target.value)} style={inputStyle} placeholder="Ej: Pata delantera izquierda" />
-                {tabActiva === 'acero' && parseFloat(fpLongitud) > 0 && (() => {
-                  const acero = aceros.find(a => a.codigo_acero === fpCodigo)
-                  const medida = `${parseFloat(fpLongitud)}cm`
-                  const detalleTubo = acero?.detalle ? `${acero.detalle} (${medida})` : `(${medida})`
-                  const texto = [detalleTubo, fpDescripcion.trim()].filter(Boolean).join(' — ')
-                  return <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#999' }}>Se guardará como: <strong style={{ color: '#666' }}>{texto}</strong></p>
-                })()}
-                {tabActiva === 'melamina' && parseFloat(fpLargo) > 0 && parseFloat(fpAncho) > 0 && (() => {
-                  const notaCanteado = [fpCanteadoSup && 'arriba', fpCanteadoInf && 'abajo', fpCanteadoIzq && 'izquierda', fpCanteadoDer && 'derecha'].filter(Boolean) as string[]
-                  const nota = notaCanteado.length === 4 ? 'Todo canteado' : notaCanteado.length === 0 ? 'Sin canteado' : `Canteado: ${notaCanteado.join(', ')}`
-                  const medida = `${parseFloat(fpLargo)}x${parseFloat(fpAncho)}`
-                  const texto = [`${nota} (${medida})`, fpDescripcion.trim()].filter(Boolean).join(' — ')
-                  return <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#999' }}>Se guardará como: <strong style={{ color: '#666' }}>{texto}</strong></p>
-                })()}
               </div>
 
               {/* Campos según tab */}
@@ -1033,102 +900,6 @@ export default function ProductosConstructivos() {
               <button onClick={() => { setModalPieza(false); setPiezaEditando(null) }} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid #ddd', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>Cancelar</button>
               <button onClick={guardarPieza} disabled={guardando} style={{ padding: '10px 24px', backgroundColor: guardando ? '#ccc' : '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: guardando ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold' }}>
                 {guardando ? 'Guardando...' : (piezaEditando ? 'Guardar cambios' : 'Agregar Pieza')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL IMPORTAR DESDE DISEÑO 3D */}
-      {modalImportar && varianteSel && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', boxSizing: 'border-box' }}>
-          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '920px', maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
-              <h2 style={{ margin: 0, fontSize: '18px' }}>🪵 Importar piezas desde diseño 3D</h2>
-              <button onClick={() => setModalImportar(false)} style={{ background: 'none', border: 'none', fontSize: '22px', cursor: 'pointer', color: '#999' }}>✕</button>
-            </div>
-
-            {/* Controles globales */}
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '16px', backgroundColor: '#fafafa', border: '1px solid #eee', borderRadius: '10px', padding: '12px 14px' }}>
-              <div style={{ flex: '1 1 220px' }}>
-                <label style={labelStyle}>Aplicar código de melamina a todas las filas</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <select value={importCodigoParaTodas} onChange={e => setImportCodigoParaTodas(e.target.value)} style={inputStyle}>
-                    <option value="">-- Selecciona --</option>
-                    {melaminas.map(m => <option key={m.id} value={m.codigo_melamina}>{m.codigo_melamina} — {m.detalle}</option>)}
-                  </select>
-                  <button type="button" onClick={aplicarCodigoATodas} style={{ padding: '9px 14px', backgroundColor: '#555', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', whiteSpace: 'nowrap' }}>
-                    Aplicar a todas
-                  </button>
-                </div>
-              </div>
-              <div style={{ flex: '0 1 220px' }}>
-                <label style={labelStyle}>Precio tapacanto (Bs./metro lineal)</label>
-                <input type="number" value={importPrecioTapacanto} onChange={e => setImportPrecioTapacanto(e.target.value)} style={inputStyle} placeholder="Ej: 3.50" min="0" step="0.01" />
-              </div>
-              <p style={{ margin: 0, fontSize: '11px', color: '#888', flex: '1 1 100%' }}>
-                El código puede ajustarse fila por fila si alguna pieza usa otro tablero (ej. el fondo del cajón suele ser más delgado). El costo se calcula con el precio de <strong>compra</strong> de cada código.
-              </p>
-            </div>
-
-            {/* Tabla de filas editable */}
-            <div style={{ overflowX: 'auto', border: '1px solid #eee', borderRadius: '10px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                <thead>
-                  <tr style={{ backgroundColor: '#f9f9f9' }}>
-                    <th style={{ ...thStyle, textAlign: 'center' }}></th>
-                    <th style={thStyle}>Descripción</th>
-                    <th style={{ ...thStyle, textAlign: 'right' }}>Largo</th>
-                    <th style={{ ...thStyle, textAlign: 'right' }}>Ancho</th>
-                    <th style={{ ...thStyle, textAlign: 'right' }}>Cant.</th>
-                    <th style={thStyle}>Código melamina</th>
-                    <th style={{ ...thStyle, textAlign: 'center' }}>Canteado (S/I/Iz/D)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {importFilas.map((f, i) => (
-                    <tr key={f.id} style={{ backgroundColor: f.incluir ? (i % 2 === 0 ? 'white' : '#fafafa') : '#f5f5f5', opacity: f.incluir ? 1 : 0.5 }}>
-                      <td style={{ ...tdStyle, textAlign: 'center' }}>
-                        <input type="checkbox" checked={f.incluir} onChange={e => actualizarFilaImport(f.id, { incluir: e.target.checked })} style={{ width: '15px', height: '15px' }} />
-                      </td>
-                      <td style={tdStyle}>{f.descripcion}</td>
-                      <td style={{ ...tdStyle, textAlign: 'right' }}>{f.largo}</td>
-                      <td style={{ ...tdStyle, textAlign: 'right' }}>{f.ancho}</td>
-                      <td style={{ ...tdStyle, textAlign: 'right' }}>{f.cantidad}</td>
-                      <td style={tdStyle}>
-                        <select value={f.codigoMelamina} onChange={e => actualizarFilaImport(f.id, { codigoMelamina: e.target.value })} style={{ ...inputStyle, padding: '5px 8px', fontSize: '12px' }} disabled={!f.incluir}>
-                          <option value="">-- Selecciona --</option>
-                          {melaminas.map(m => <option key={m.id} value={m.codigo_melamina}>{m.codigo_melamina}</option>)}
-                        </select>
-                      </td>
-                      <td style={{ ...tdStyle, textAlign: 'center' }}>
-                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
-                          <label title="Arriba" style={{ display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }}>
-                            <input type="checkbox" checked={f.sup} onChange={e => actualizarFilaImport(f.id, { sup: e.target.checked })} disabled={!f.incluir} /> S
-                          </label>
-                          <label title="Abajo" style={{ display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }}>
-                            <input type="checkbox" checked={f.inf} onChange={e => actualizarFilaImport(f.id, { inf: e.target.checked })} disabled={!f.incluir} /> I
-                          </label>
-                          <label title="Izquierda" style={{ display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }}>
-                            <input type="checkbox" checked={f.izq} onChange={e => actualizarFilaImport(f.id, { izq: e.target.checked })} disabled={!f.incluir} /> Iz
-                          </label>
-                          <label title="Derecha" style={{ display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }}>
-                            <input type="checkbox" checked={f.der} onChange={e => actualizarFilaImport(f.id, { der: e.target.checked })} disabled={!f.incluir} /> D
-                          </label>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {importError && <div style={{ marginTop: '14px', backgroundColor: '#ffebee', border: '1px solid #ffcdd2', borderRadius: '8px', padding: '10px 14px', color: '#c62828', fontSize: '13px' }}>{importError}</div>}
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
-              <button onClick={() => setModalImportar(false)} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid #ddd', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>Cancelar</button>
-              <button onClick={confirmarImportar} disabled={importando} style={{ padding: '10px 24px', backgroundColor: importando ? '#ccc' : '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: importando ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 'bold' }}>
-                {importando ? 'Importando...' : `Importar ${importFilas.filter(f => f.incluir).length} pieza(s)`}
               </button>
             </div>
           </div>
@@ -1401,30 +1172,6 @@ export default function ProductosConstructivos() {
                     )}
                   </div>
 
-                  {/* Aviso: piezas copiadas desde el diseñador 3D esperando importación */}
-                  {tabActiva === 'melamina' && importPendiente && (
-                    <div style={{ margin: '14px 16px 0', padding: '12px 16px', backgroundColor: '#fff8e1', border: '1px solid #ffe082', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                      <div>
-                        <p style={{ margin: 0, fontSize: '13px', fontWeight: 'bold', color: '#8d6e00' }}>📥 Hay {importPendiente.piezas?.length || 0} piezas copiadas desde el diseño 3D</p>
-                        {importPendiente.mueble && (
-                          <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#8d6e00' }}>
-                            Mueble: {importPendiente.mueble.anchoCm} × {importPendiente.mueble.altoCm} × {importPendiente.mueble.profundoCm} cm
-                          </p>
-                        )}
-                      </div>
-                      {puedeEditar && (
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <button onClick={abrirModalImportar} style={{ padding: '7px 14px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
-                            Importar
-                          </button>
-                          <button onClick={descartarImport} style={{ padding: '7px 14px', backgroundColor: 'transparent', color: '#8d6e00', border: '1px solid #ffca28', borderRadius: '20px', cursor: 'pointer', fontSize: '12px' }}>
-                            Descartar
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
                   {/* Contenido tab */}
                   <div style={{ overflowX: 'auto' }}>
                     {loadingPanel ? (
@@ -1637,27 +1384,6 @@ export default function ProductosConstructivos() {
           </div>
         )}
       </div>
-
-      {/* Botón flotante — acceso rápido al diseñador 3D */}
-      {puedeEditar && (
-        <a
-          href="/diseno-3d"
-          target="_blank"
-          rel="noopener noreferrer"
-          title="Diseñar mueble en 3D"
-          style={{
-            position: 'fixed', bottom: '26px', right: '26px', zIndex: 1500,
-            display: 'flex', alignItems: 'center', gap: '8px',
-            backgroundColor: '#087e0b', color: 'white', textDecoration: 'none',
-            padding: '14px 18px', borderRadius: '30px',
-            boxShadow: '0 6px 18px rgba(8,126,11,0.4)',
-            fontSize: '14px', fontWeight: 'bold',
-          }}
-        >
-          <span style={{ fontSize: '20px' }}>🧊</span>
-          <span className="fab-label">Diseñar en 3D</span>
-        </a>
-      )}
     </div>
   )
 }

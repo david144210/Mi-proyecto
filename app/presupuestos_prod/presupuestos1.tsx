@@ -36,7 +36,6 @@ interface MaterialPresupuesto {
   gastoReal: number
   tipo: 'variante' | 'manual'
   taller_destino?: string
-  id_planificado?: string // Identificador para rastrear de qué item planificado proviene
 }
 
 type EstadoWorkflow = 'creado' | 'revision_taller' | 'en_compras' | 'aprobado'
@@ -56,6 +55,7 @@ export default function GestorPresupuestosWorkflow() {
   const [pedidosSeleccionados, setPedidosSeleccionados] = useState<Pedido[]>([])
   const [materialesLote, setMaterialesLote] = useState<MaterialPresupuesto[]>([])
   // Materiales/piezas armados en la pantalla de Planificación para este mismo lote
+  // (columna materiales_planificados). Se muestran aparte y se pueden incorporar al presupuesto.
   const [materialesPlanificados, setMaterialesPlanificados] = useState<any[]>([])
   const [itemsPlanificadosExpandidos, setItemsPlanificadosExpandidos] = useState<Record<string, boolean>>({})
 
@@ -113,6 +113,10 @@ export default function GestorPresupuestosWorkflow() {
     }
   }, [fecha, nombreLote, usuario, talleresDisponibles])
 
+  // Al abrir la página, buscamos en Supabase el lote "activo" más reciente (el que sigue
+  // en proceso, no aprobado todavía) y lo cargamos automáticamente. Esto es lo que permite
+  // que el usuario de Presupuestos, en otra PC, recupere el trabajo que Planificación
+  // guardó, sin depender de un link ni de escribir la fecha/nombre exactos.
   const [autoDeteccionHecha, setAutoDeteccionHecha] = useState(false)
   useEffect(() => {
     if (!usuario || autoDeteccionHecha) return
@@ -133,6 +137,8 @@ export default function GestorPresupuestosWorkflow() {
     detectarLoteActivo()
   }, [usuario])
 
+  // Lista de lotes ya guardados en Supabase, para poder elegir uno exacto
+  // en vez de depender de escribir la fecha/nombre idénticos a mano.
   useEffect(() => {
     if (!usuario) return
     const cargarListaDeLotes = async () => {
@@ -195,6 +201,62 @@ export default function GestorPresupuestosWorkflow() {
     }
   }
 
+  // ➔ CARGAR VALORES DE costo_unitario DESDE UN JSON
+  const handleCargarJsonCostos = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = async (event) => {
+      try {
+        const jsonContent = event.target?.result as string
+        const data = JSON.parse(jsonContent)
+
+        const itemsArray = Array.isArray(data) ? data : (data.materiales || data.items || [])
+        if (!Array.isArray(itemsArray) || itemsArray.length === 0) {
+          alert('El archivo JSON no tiene un formato válido (debe ser un arreglo de objetos con codigo y costo_unitario).')
+          return
+        }
+
+        const costosMap: Record<string, number> = {}
+        itemsArray.forEach((item: any) => {
+          const cod = item.codigo || item.codigo_acero || item.codigo_melamina || item.codigo_accesorio || item.codigo_insumos || item.codigo_union
+          const costo = Number(item.costo_unitario ?? item.precio_unitario ?? item.precio ?? item.precio_compra ?? 0)
+          if (cod) {
+            costosMap[String(cod).trim()] = costo
+          }
+        })
+
+        let actualizadosCount = 0
+        const nuevosMateriales = materialesLote.map(m => {
+          const costoJson = costosMap[String(m.codigo).trim()]
+          if (costoJson !== undefined) {
+            actualizadosCount++
+            const precioUnitario = costoJson
+            const gastoReal = Number((m.cantidadComprar * precioUnitario).toFixed(2))
+            return {
+              ...m,
+              precioUnitario,
+              gastoReal
+            }
+          }
+          return m
+        })
+
+        setMaterialesLote(nuevosMateriales)
+        await persistirLoteEnBD(estadoWorkflow, pedidosSeleccionados, nuevosMateriales)
+        alert(`Se actualizaron los costos unitarios de ${actualizadosCount} materiales desde el JSON.`)
+      } catch (err) {
+        console.error(err)
+        alert('Error al leer o parsear el archivo JSON.')
+      } finally {
+        e.target.value = ''
+      }
+    }
+    reader.readAsText(file)
+  }
+
+  // ➔ DESCUENTO AUTOMÁTICO DE INVENTARIO Y RETAZOS EN ALMACENES AL APROBAR
   const descontarStockAlmacenes = async () => {
     try {
       for (const m of materialesLote) {
@@ -207,6 +269,7 @@ export default function GestorPresupuestosWorkflow() {
         if (!sucData) continue
         const sucursalId = sucData.id
 
+        // Si es melamina, descontar de retazos_melaminas basándose en stockActual
         if (m.detalle.startsWith('[Melamina]')) {
           let cantidadADescontar = m.stockActual
           if (cantidadADescontar > 0) {
@@ -242,6 +305,7 @@ export default function GestorPresupuestosWorkflow() {
             }
           }
         } else {
+          // Para aceros, accesorios, insumos, etc.
           const cantidadADescontar = m.stockActual
           if (cantidadADescontar <= 0) continue
 
@@ -380,10 +444,9 @@ export default function GestorPresupuestosWorkflow() {
     }
   }
 
-  const persistirLoteEnBD = async (nuevoEstado: EstadoWorkflow, nuevosPedidos: Pedido[], nuevosMateriales: MaterialPresupuesto[], nuevosPlanificados?: any[]) => {
+  const persistirLoteEnBD = async (nuevoEstado: EstadoWorkflow, nuevosPedidos: Pedido[], nuevosMateriales: MaterialPresupuesto[]) => {
     setSincronizando(true)
     try {
-      const planificadosAGUARDAR = nuevosPlanificados !== undefined ? nuevosPlanificados : materialesPlanificados
       const { error } = await supabase
         .from('lotes_produccion')
         .upsert({
@@ -392,7 +455,6 @@ export default function GestorPresupuestosWorkflow() {
           estado_workflow: nuevoEstado,
           pedidos_seleccionados: nuevosPedidos,
           materiales: nuevosMateriales,
-          materiales_planificados: planificadosAGUARDAR,
           updated_at: new Date().toISOString()
         }, { onConflict: 'fecha,nombre_lote' })
 
@@ -553,7 +615,7 @@ export default function GestorPresupuestosWorkflow() {
   const agregarOConsolidarMateriales = async (nuevosMateriales: MaterialPresupuesto[]) => {
     const actualizada = [...materialesLote]
     for (const nuevo of nuevosMateriales) {
-      const index = actualizada.findIndex(m => m.codigo === nuevo.codigo && m.detalle === nuevo.detalle && m.taller_destino === nuevo.taller_destino && m.id_planificado === nuevo.id_planificado)
+      const index = actualizada.findIndex(m => m.codigo === nuevo.codigo && m.detalle === nuevo.detalle && m.taller_destino === nuevo.taller_destino)
       if (index >= 0) {
         const nuevaReq = Number((actualizada[index].cantidadReq + nuevo.cantidadReq).toFixed(2))
         const stockActual = actualizada[index].stockActual
@@ -571,17 +633,12 @@ export default function GestorPresupuestosWorkflow() {
       }
     }
     setMaterialesLote(actualizada)
-    await persistirLoteEnBD(estadoWorkflow, pedidosSeleccionados, actualizada, materialesPlanificados)
+    await persistirLoteEnBD(estadoWorkflow, pedidosSeleccionados, actualizada)
   }
 
-  // INCORPORAR ITEM PLANIFICADO
-  const incorporarItemPlanificadoAlPresupuesto = async (item: any, idTemp: string) => {
+  const incorporarItemPlanificadoAlPresupuesto = async (item: any) => {
     if (estadoWorkflow !== 'creado') {
       alert('Solo se pueden incorporar materiales cuando el lote está en fase de Creación.')
-      return
-    }
-    if (item.incorporado) {
-      alert('Este item ya ha sido incorporado al presupuesto anteriormente.')
       return
     }
     const piezas = item.piezas_desglose || []
@@ -596,76 +653,27 @@ export default function GestorPresupuestosWorkflow() {
       const codigo = p.codigo_melamina || p.codigo_acero || p.codigo_accesorio || p.codigo_insumo || p.codigo_union || p.descripcion || 'SIN-CODIGO'
       const cantidad = Number(p.cantidad) || 0
 
-      let precioUnitario = Number(p.costo_unitario ?? p.precio_unitario ?? p.precio ?? 0)
-      if (precioUnitario === 0) {
-        precioUnitario = await obtenerPrecioBase(codigo)
-      }
-      
+      // Buscamos el precio unitario automáticamente en la base de datos
+      const precioUnitario = await obtenerPrecioBase(codigo)
       const gastoReal = Number((cantidad * precioUnitario).toFixed(2))
-
-      let tituloLimpio = item.titulo || ''
-      const descPieza = p.descripcion || p.tipo || ''
-      if (descPieza && tituloLimpio.includes(descPieza)) {
-        tituloLimpio = tituloLimpio.replace(descPieza, '').replace(/[\s—-]+$/, '').trim()
-      }
-
-      const detalleTexto = `[Planificado] ${tituloLimpio}`
 
       nuevosMateriales.push({
         id_fila: Math.random().toString(36).substr(2, 9),
         cod_venta: 0,
         codigo,
-        detalle: detalleTexto,
+        detalle: `[Planificado] ${item.titulo} - ${p.descripcion || p.tipo}`,
         cantidadReq: cantidad,
         stockActual: 0,
         cantidadComprar: cantidad,
         precioUnitario,
         gastoReal,
         tipo: 'manual',
-        taller_destino: item.taller_destino || tallerAsignacionTemp,
-        id_planificado: idTemp // Enlazamos con el identificador del planificado
+        taller_destino: item.taller_destino || tallerAsignacionTemp
       })
     }
 
-    // Marcar este item como incorporado en la lista de planificados
-    const nuevosPlanificados = materialesPlanificados.map((mp: any, idx: number) => {
-      const currentId = mp.id_temp || `plan-${idx}`
-      if (currentId === idTemp) {
-        return { ...mp, id_temp: idTemp, incorporado: true }
-      }
-      return { ...mp, id_temp: currentId }
-    })
-
-    setMaterialesPlanificados(nuevosPlanificados)
-    const actualizada = [...materialesLote, ...nuevosMateriales]
-    setMaterialesLote(actualizada)
-    await persistirLoteEnBD(estadoWorkflow, pedidosSeleccionados, actualizada, nuevosPlanificados)
-    alert(`Se incorporaron ${nuevosMateriales.length} piezas de "${item.titulo}" al presupuesto.`)
-  }
-
-  // DESHACER / ELIMINAR INCORPORACIÓN DE UN ITEM PLANIFICADO
-  const deshacerIncorporacionPlanificado = async (idTemp: string) => {
-    if (estadoWorkflow !== 'creado') {
-      alert('Solo se puede deshacer la incorporación cuando el lote está en fase de Creación.')
-      return
-    }
-
-    // Filtrar los materiales del lote removiendo aquellos que tengan el id_planificado correspondiente
-    const materialesRestantes = materialesLote.filter(m => m.id_planificado !== idTemp)
-
-    // Actualizar el estado de planificados marcando incorporado = false
-    const nuevosPlanificados = materialesPlanificados.map((mp: any, idx: number) => {
-      const currentId = mp.id_temp || `plan-${idx}`
-      if (currentId === idTemp) {
-        return { ...mp, id_temp: idTemp, incorporado: false }
-      }
-      return { ...mp, id_temp: currentId }
-    })
-
-    setMaterialesLote(materialesRestantes)
-    setMaterialesPlanificados(nuevosPlanificados)
-    await persistirLoteEnBD(estadoWorkflow, pedidosSeleccionados, materialesRestantes, nuevosPlanificados)
-    alert('Se ha deshecho la incorporación de este item planificado y se removieron sus piezas del presupuesto.')
+    await agregarOConsolidarMateriales(nuevosMateriales)
+    alert(`Se incorporaron ${nuevosMateriales.length} piezas de "${item.titulo}" al presupuesto con sus costos unitarios calculados automáticamente.`)
   }
 
   const toggleExpandPlanificado = (id_temp: string) => {
@@ -730,10 +738,9 @@ export default function GestorPresupuestosWorkflow() {
         if (componentes) nuevosMateriales.push(...componentes)
       }
     }
-    // Mantener los materiales planificados o manuales que no dependan exclusivamente de ventas si es necesario
-    let loteConsolidado: MaterialPresupuesto[] = [...materialesLote.filter(m => m.id_planificado)]
+    let loteConsolidado: MaterialPresupuesto[] = []
     for (const nuevo of nuevosMateriales) {
-      const index = loteConsolidado.findIndex(m => m.codigo === nuevo.codigo && m.detalle === nuevo.detalle && m.taller_destino === nuevo.taller_destino && !m.id_planificado)
+      const index = loteConsolidado.findIndex(m => m.codigo === nuevo.codigo && m.detalle === nuevo.detalle && m.taller_destino === nuevo.taller_destino)
       if (index >= 0) {
         const nuevaReq = Number((loteConsolidado[index].cantidadReq + nuevo.cantidadReq).toFixed(2))
         loteConsolidado[index].cantidadReq = nuevaReq
@@ -744,7 +751,7 @@ export default function GestorPresupuestosWorkflow() {
       }
     }
     setMaterialesLote(loteConsolidado)
-    await persistirLoteEnBD(estadoWorkflow, pedidosRestantes, loteConsolidado, materialesPlanificados)
+    await persistirLoteEnBD(estadoWorkflow, pedidosRestantes, loteConsolidado)
     setLoading(false)
   }
 
@@ -825,7 +832,7 @@ export default function GestorPresupuestosWorkflow() {
     })
 
     setMaterialesLote(nuevosMateriales)
-    await persistirLoteEnBD(estadoWorkflow, pedidosSeleccionados, nuevosMateriales, materialesPlanificados)
+    await persistirLoteEnBD(estadoWorkflow, pedidosSeleccionados, nuevosMateriales)
   }
 
   const eliminarFilaMaterial = async (id_fila: string) => {
@@ -835,7 +842,7 @@ export default function GestorPresupuestosWorkflow() {
     }
     const nuevos = materialesLote.filter(m => m.id_fila !== id_fila)
     setMaterialesLote(nuevos)
-    await persistirLoteEnBD(estadoWorkflow, pedidosSeleccionados, nuevos, materialesPlanificados)
+    await persistirLoteEnBD(estadoWorkflow, pedidosSeleccionados, nuevos)
   }
 
   const cambiarEstadoWorkflow = async (nuevoEstado: EstadoWorkflow) => {
@@ -846,7 +853,7 @@ export default function GestorPresupuestosWorkflow() {
     }
 
     setEstadoWorkflow(nuevoEstado)
-    await persistirLoteEnBD(nuevoEstado, pedidosSeleccionados, materialesLote, materialesPlanificados)
+    await persistirLoteEnBD(nuevoEstado, pedidosSeleccionados, materialesLote)
   }
 
   const materialesFiltrados = tallerFiltroActivo === 'TODOS' 
@@ -977,7 +984,7 @@ export default function GestorPresupuestosWorkflow() {
                   const sel = lotesGuardados.find(l => String(l.id) === e.target.value)
                   if (sel) { setFecha(sel.fecha); setNombreLote(sel.nombre_lote) }
                 }}
-                style={{ padding: '8px', borderRadius: '6px', border: 'none', width: '260px', backgroundColor: 'white', color: '#333' }}
+                style={{ padding: '8px', borderRadius: '6px', border: 'none', width: '260px' }}
               >
                 <option value="">-- Seleccionar de Supabase --</option>
                 {lotesGuardados.map(l => (
@@ -988,6 +995,17 @@ export default function GestorPresupuestosWorkflow() {
               </select>
             </div>
           )}
+
+          {/* ➔ CARGAR COSTOS DESDE JSON */}
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', color: '#C5A059' }}>Cargar Costos (JSON)</label>
+            <input 
+              type="file" 
+              accept=".json"
+              onChange={handleCargarJsonCostos}
+              style={{ fontSize: '11px', color: 'white', padding: '4px' }}
+            />
+          </div>
 
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '12px' }}>
             <span style={{ padding: '6px 10px', borderRadius: '4px', backgroundColor: estadoWorkflow === 'creado' ? '#C5A059' : '#333', color: estadoWorkflow === 'creado' ? '#0B1E36' : 'white', fontWeight: 'bold' }}>1. Creación</span> →
@@ -1102,92 +1120,71 @@ export default function GestorPresupuestosWorkflow() {
               </div>
             </div>
 
-            {/* Materiales planificados desde la pantalla de Planificación */}
-            <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
-              <h2 style={{ fontSize: '18px', color: '#0B1E36', borderBottom: '2px solid #C5A059', paddingBottom: '10px', marginBottom: '10px' }}>
-                📋 Materiales Planificados ({materialesPlanificados.length})
-              </h2>
-              <p style={{ fontSize: '11px', color: '#666', marginBottom: '10px' }}>
-                Piezas armadas desde la pantalla de Planificación para este mismo lote. Puedes incorporarlas al presupuesto y deshacer la acción si hubo algún error.
-              </p>
-              {materialesPlanificados.length === 0 && (
-                <p style={{ fontSize: '13px', fontStyle: 'italic', color: '#999' }}>No hay materiales planificados registrados o cargados.</p>
-              )}
-              {materialesPlanificados.map((item: any, idx: number) => {
-                const idTemp = item.id_temp || `plan-${idx}`
-                const expandido = itemsPlanificadosExpandidos[idTemp] || false
-                const yaIncorporado = item.incorporado === true
-                return (
-                  <div key={idTemp} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px', marginBottom: '10px', background: yaIncorporado ? '#f0fdf4' : '#f8fafc' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <strong style={{ fontSize: '13px' }}>{item.titulo}</strong>
-                        <div style={{ fontSize: '11px', color: '#666' }}>
-                          Destino: {item.taller_destino} · {(item.piezas_desglose || []).length} piezas
-                          {yaIncorporado && <span style={{ marginLeft: '8px', color: '#16a34a', fontWeight: 'bold' }}>✓ Incorporado</span>}
+            {/* Materiales planificados desde la pantalla de Planificación (mismo lote: fecha + nombre) */}
+            {materialesPlanificados.length > 0 && (
+              <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
+                <h2 style={{ fontSize: '18px', color: '#0B1E36', borderBottom: '2px solid #C5A059', paddingBottom: '10px', marginBottom: '10px' }}>
+                  📋 Materiales Planificados ({materialesPlanificados.length})
+                </h2>
+                <p style={{ fontSize: '11px', color: '#666', marginBottom: '10px' }}>
+                  Piezas armadas desde la pantalla de Planificación para este mismo lote (incluye stock y pedidos especiales, no solo ventas). Incorpóralas al presupuesto para poder descontar almacén y aprobar la compra.
+                </p>
+                {materialesPlanificados.map((item: any, idx: number) => {
+                  const idTemp = item.id_temp || `plan-${idx}`
+                  const expandido = itemsPlanificadosExpandidos[idTemp] || false
+                  return (
+                    <div key={idTemp} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px', marginBottom: '10px', background: '#f8fafc' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <strong style={{ fontSize: '13px' }}>{item.titulo}</strong>
+                          <div style={{ fontSize: '11px', color: '#666' }}>
+                            Destino: {item.taller_destino} · {(item.piezas_desglose || []).length} piezas
+                          </div>
                         </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button
-                          onClick={() => toggleExpandPlanificado(idTemp)}
-                          style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#0B1E36', fontSize: '11px', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                        >
-                          {expandido ? 'Ocultar ▲' : 'Ver piezas ▼'}
-                        </button>
-                        {estadoWorkflow === 'creado' && (
-                          yaIncorporado ? (
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            onClick={() => toggleExpandPlanificado(idTemp)}
+                            style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#0B1E36', fontSize: '11px', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                          >
+                            {expandido ? 'Ocultar ▲' : 'Ver piezas ▼'}
+                          </button>
+                          {estadoWorkflow === 'creado' && (
                             <button
-                              onClick={() => deshacerIncorporacionPlanificado(idTemp)}
-                              style={{ background: '#fee2e2', color: '#dc2626', border: '1px solid #f87171', fontSize: '11px', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                            >
-                              ✕ Quitar incorporación
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => incorporarItemPlanificadoAlPresupuesto(item, idTemp)}
+                              onClick={() => incorporarItemPlanificadoAlPresupuesto(item)}
                               style={{ background: '#C5A059', color: '#0B1E36', border: 'none', fontSize: '11px', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
                             >
                               + Incorporar al presupuesto
                             </button>
-                          )
-                        )}
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    {expandido && (
-                      <div style={{ marginTop: '8px', maxHeight: '180px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '4px' }}>
-                        <table style={{ width: '100%', fontSize: '10px', borderCollapse: 'collapse' }}>
-                          <thead>
-                            <tr style={{ background: '#e2e8f0', textAlign: 'left' }}>
-                              <th style={{ padding: '4px 6px' }}>Tipo</th>
-                              <th style={{ padding: '4px 6px' }}>Descripción</th>
-                              <th style={{ padding: '4px 6px', textAlign: 'center' }}>Cant.</th>
-                              <th style={{ padding: '4px 6px', textAlign: 'right' }}>Costo Unit.</th>
-                              <th style={{ padding: '4px 6px', textAlign: 'right' }}>Subtotal</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(item.piezas_desglose || []).map((pieza: any, pIdx: number) => {
-                              const cant = Number(pieza.cantidad) || 0
-                              const pUnit = Number(pieza.costo_unitario ?? pieza.precio_unitario ?? pieza.precio ?? 0)
-                              const subtotalPieza = cant * pUnit
-                              return (
+                      {expandido && (
+                        <div style={{ marginTop: '8px', maxHeight: '160px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '4px' }}>
+                          <table style={{ width: '100%', fontSize: '10px', borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr style={{ background: '#e2e8f0', textAlign: 'left' }}>
+                                <th style={{ padding: '4px 6px' }}>Tipo</th>
+                                <th style={{ padding: '4px 6px' }}>Descripción</th>
+                                <th style={{ padding: '4px 6px' }}>Cant.</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(item.piezas_desglose || []).map((pieza: any, pIdx: number) => (
                                 <tr key={pIdx} style={{ borderBottom: '1px solid #eee' }}>
-                                  <td style={{ padding: '4px 6px', fontWeight: 'bold' }}>{pieza.tipo || '-'}</td>
-                                  <td style={{ padding: '4px 6px' }}>{pieza.descripcion || pieza.codigo_melamina || pieza.codigo_acero || '-'}</td>
-                                  <td style={{ padding: '4px 6px', textAlign: 'center' }}>{cant}</td>
-                                  <td style={{ padding: '4px 6px', textAlign: 'right' }}>{pUnit > 0 ? `Bs. ${pUnit.toFixed(2)}` : 'Auto'}</td>
-                                  <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 'bold' }}>{pUnit > 0 ? `Bs. ${subtotalPieza.toFixed(2)}` : '-'}</td>
+                                  <td style={{ padding: '4px 6px', fontWeight: 'bold' }}>{pieza.tipo}</td>
+                                  <td style={{ padding: '4px 6px' }}>{pieza.descripcion || '-'}</td>
+                                  <td style={{ padding: '4px 6px' }}>{pieza.cantidad}</td>
                                 </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
 
             {/* Adición Manual */}
             {estadoWorkflow === 'creado' && (

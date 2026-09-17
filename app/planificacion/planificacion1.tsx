@@ -214,19 +214,13 @@ export default function PlanificacionPage() {
       ])
 
       setPiezasVarianteActual([
-        ...(melres.data || []).map(m => {
-          const codigoMel = m.codigo_melamina || ''
-          const nombreMel = catalogoMelaminas.find(cat => cat.codigo_melamina === codigoMel)?.detalle || codigoMel
-          const descBase = m.descripcion || 'Melamina'
-          const descripcionFinal = descBase && descBase !== codigoMel && !descBase.includes(nombreMel) ? `${descBase} - ${nombreMel}` : nombreMel
-          return {
-            tipo: 'Melamina',
-            descripcion: descripcionFinal,
-            color: codigoMel,
-            cantidad: Number(m.cantidad) || 1,
-            costo_unitario: Number(m.costo_unitario ?? m.costo) || 0
-          }
-        }),
+        ...(melres.data || []).map(m => ({
+          tipo: 'Melamina',
+          descripcion: m.descripcion || '',
+          color: m.codigo_melamina || '',
+          cantidad: Number(m.cantidad) || 1,
+          costo_unitario: Number(m.costo_unitario ?? m.costo) || 0
+        })),
         ...(acerres.data || []).map(a => ({
           tipo: 'Acero',
           descripcion: a.descripcion || a.codigo_acero,
@@ -254,7 +248,7 @@ export default function PlanificacionPage() {
       ])
     }
     cargarPiezasVariante()
-  }, [varianteIdSeleccionada, catalogoMelaminas])
+  }, [varianteIdSeleccionada])
 
   const cambiarDiaBusqueda = (dias: number) => {
     const [anio, mes, dia] = fechaBusquedaVentas.split('-').map(Number)
@@ -355,16 +349,10 @@ export default function PlanificacionPage() {
 
   const actualizarPiezaManualItem = (itemIndex: number, piezaIndex: number, campo: string, valor: any) => {
     const actualizado = [...itemsConfigVenta]
-    let piezaActual = { ...actualizado[itemIndex].piezasManuales[piezaIndex] }
-    
-    piezaActual[campo] = campo === 'cantidad' || campo === 'costo_unitario' ? (valor === '' ? 0 : Number(valor)) : valor
-
-    if (campo === 'color' && piezaActual.tipo === 'Melamina') {
-      const nombreMel = catalogoMelaminas.find(cat => cat.codigo_melamina === valor)?.detalle || valor
-      piezaActual.descripcion = nombreMel ? `Melamina - ${nombreMel}` : piezaActual.descripcion
+    actualizado[itemIndex].piezasManuales[piezaIndex] = {
+      ...actualizado[itemIndex].piezasManuales[piezaIndex],
+      [campo]: campo === 'cantidad' || campo === 'costo_unitario' ? (valor === '' ? 0 : Number(valor)) : valor
     }
-
-    actualizado[itemIndex].piezasManuales[piezaIndex] = piezaActual
     setItemsConfigVenta(actualizado)
   }
 
@@ -378,16 +366,10 @@ export default function PlanificacionPage() {
     setItemsPlanificados(prev => prev.map(item => {
       if (item.id_temp !== idTemp) return item
       const nuevasPiezas = [...item.piezas_desglose]
-      let piezaActual = { ...nuevasPiezas[piezaIdx] }
-
-      piezaActual[campo] = campo === 'cantidad' || campo === 'costo_unitario' ? (valor === '' ? 0 : Number(valor)) : valor
-
-      if (campo === 'color' && piezaActual.tipo === 'Melamina') {
-        const nombreMel = catalogoMelaminas.find(cat => cat.codigo_melamina === valor)?.detalle || valor
-        piezaActual.descripcion = nombreMel ? `Melamina - ${nombreMel}` : piezaActual.descripcion
+      nuevasPiezas[piezaIdx] = {
+        ...nuevasPiezas[piezaIdx],
+        [campo]: campo === 'cantidad' || campo === 'costo_unitario' ? (valor === '' ? 0 : Number(valor)) : valor
       }
-
-      nuevasPiezas[piezaIdx] = piezaActual
       return { ...item, piezas_desglose: nuevasPiezas }
     }))
   }
@@ -440,19 +422,13 @@ export default function PlanificacionPage() {
               supabase.from('variante_uniones').select('*').eq('variante_id', vId)
             ])
 
-            const mapMelamina = (rows: any[]) => (rows || []).map(x => {
-              const codigoMel = x.codigo_melamina || ''
-              const nombreMel = catalogoMelaminas.find(cat => cat.codigo_melamina === codigoMel)?.detalle || codigoMel
-              const descBase = x.descripcion || 'Melamina'
-              const descripcionFinal = descBase && descBase !== codigoMel && !descBase.includes(nombreMel) ? `${descBase} - ${nombreMel}` : nombreMel
-              return {
-                tipo: 'Melamina',
-                cantidad: (Number(x.cantidad) || 1) * mult,
-                descripcion: descripcionFinal,
-                color: codigoMel,
-                costo_unitario: Number(x.costo_unitario ?? x.costo) || 0
-              }
-            })
+            const mapMelamina = (rows: any[]) => (rows || []).map(x => ({
+              tipo: 'Melamina',
+              cantidad: (Number(x.cantidad) || 1) * mult,
+              descripcion: x.descripcion || '',
+              color: x.codigo_melamina || '',
+              costo_unitario: Number(x.costo_unitario ?? x.costo) || 0
+            }))
 
             const mapPiezas = (rows: any[], tipo: string) => (rows || []).map(x => {
               let codigoCampo = `codigo_${tipo.toLowerCase()}`

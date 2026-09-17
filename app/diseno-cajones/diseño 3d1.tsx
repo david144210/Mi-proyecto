@@ -581,46 +581,6 @@ const exportarModeloGLB = () => {
     window.location.href = '/optimizador-cortes'
   }
 
-  // ── Enviar lista de piezas a la BOM de melamina (Detalles Constructivos) ──
-  // Traduce el texto libre de "canteado" que usa este diseñador a dos contadores:
-  // "lados" = cantos que corren a lo largo de la dimensión LARGO de la pieza
-  // (equivalen a los checkboxes arriba/abajo en la pantalla de melamina) y
-  // "cortos" = cantos que corren a lo largo del ANCHO (equivalen a izquierda/derecha).
-  // No intenta adivinar el lado exacto (arriba vs. abajo, izquierda vs. derecha):
-  // eso no cambia el costo, solo importa cuántos cantos de cada tipo hay.
-  const CANTEADO_A_LADOS: Record<string, { lados: number; cortos: number }> = {
-    'Sin canteado': { lados: 0, cortos: 0 },
-    '1 Canto largo (frente)': { lados: 1, cortos: 0 },
-    '1 Canto corto (frente)': { lados: 0, cortos: 1 },
-    '1 Canto (frente)': { lados: 1, cortos: 0 },
-    '4 Lados (perímetro)': { lados: 2, cortos: 2 },
-    '1 Canto superior': { lados: 1, cortos: 0 },
-  }
-
-  const enviarAMelamina = () => {
-    if (listaPiezasAgrupada.length === 0) return
-    const piezas = listaPiezasAgrupada.map(p => {
-      const equiv = CANTEADO_A_LADOS[p.canteado] || { lados: 0, cortos: 0 }
-      return {
-        descripcion: `${p.pieza} — ${p.seccion}`,
-        cantidad: p.cantidad,
-        largoCm: Number(p.largo.toFixed(1)),
-        anchoCm: Number(p.ancho.toFixed(1)),
-        canteadoTexto: p.canteado,
-        canteadoLados: equiv.lados,
-        canteadoCortos: equiv.cortos,
-      }
-    })
-    const payload = {
-      origen: 'diseno-3d',
-      generadoEn: new Date().toISOString(),
-      mueble: { anchoCm, altoCm, profundoCm, colorId },
-      piezas,
-    }
-    localStorage.setItem('melamina_piezas_pendientes', JSON.stringify(payload))
-    alert(`✅ ${piezas.length} tipos de pieza copiados.\n\nVe a "Detalles Constructivos" → selecciona el producto y la variante → pestaña Melamina → botón "Importar desde diseño 3D".`)
-  }
-
   const agregarColumna = () => {
     const anchoDefault = anchoRestante > 20 ? Math.max(20, anchoRestante - espesorCm) : 30
     setColumnas([...columnas, { id: nextColId, anchoCm: Math.round(anchoDefault * 10) / 10, secciones: [] }])
@@ -1041,19 +1001,6 @@ const exportarModeloGLB = () => {
                 <h2 style={{ margin: 0, fontSize: '16px' }}>✂️ Lista de piezas y canteado</h2>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <button onClick={copiarListaPiezas} style={{ ...btnMini, padding: '6px 12px' }}>📋 Copiar</button>
-                  <button
-                    onClick={enviarAMelamina}
-                    disabled={listaPiezasAgrupada.length === 0}
-                    style={{
-                      ...btnMini, padding: '6px 12px',
-                      backgroundColor: listaPiezasAgrupada.length === 0 ? '#eee' : '#087e0b',
-                      color: listaPiezasAgrupada.length === 0 ? '#aaa' : 'white',
-                      border: 'none', fontWeight: 'bold',
-                      cursor: listaPiezasAgrupada.length === 0 ? 'not-allowed' : 'pointer',
-                    }}
-                  >
-                    🪵 Enviar a Melamina
-                  </button>
                   <button onClick={enviarAlOptimizador} style={{ ...btnMini, padding: '6px 12px', backgroundColor: '#d4af37', color: '#0f3460', fontWeight: 'bold' }}>🖨️ Optimizar Cortes</button>
                   <button
                     onClick={enviarAlCotizador}
