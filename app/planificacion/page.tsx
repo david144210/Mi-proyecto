@@ -452,7 +452,7 @@ export default function PlanificacionPage() {
               supabase.from('variante_uniones').select('*').eq('variante_id', vId)
             ])
 
-            const mapMelamina = (rows: any[]) => (rows || []).map(x => {
+            const mapMelamina = (rows: any[] | null) => (rows || []).map(x => {
               const codigoMel = x.codigo_melamina || ''
               const nombreMel = catalogoMelaminas.find(cat => cat.codigo_melamina === codigoMel)?.detalle || codigoMel
               const descBase = x.descripcion || 'Melamina'
@@ -466,7 +466,7 @@ export default function PlanificacionPage() {
               }
             })
 
-            const mapPiezas = (rows: any[], tipo: string) => (rows || []).map(x => {
+            const mapPiezas = (rows: any[] | null, tipo: string) => (rows || []).map(x => {
               let codigoCampo = `codigo_${tipo.toLowerCase()}`
               if (tipo === 'Unión') codigoCampo = 'codigo_union'
               return {
