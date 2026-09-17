@@ -422,7 +422,7 @@ export default function PlanificacionPage() {
               supabase.from('variante_uniones').select('*').eq('variante_id', vId)
             ])
 
-            const mapMelamina = (rows: any[]) => (rows || []).map(x => ({
+            const mapMelamina = (rows: any[] | null) => (rows || []).map(x => ({
               tipo: 'Melamina',
               cantidad: (Number(x.cantidad) || 1) * mult,
               descripcion: x.descripcion || '',
@@ -430,7 +430,7 @@ export default function PlanificacionPage() {
               costo_unitario: Number(x.costo_unitario ?? x.costo) || 0
             }))
 
-            const mapPiezas = (rows: any[], tipo: string) => (rows || []).map(x => {
+            const mapPiezas = (rows: any[] | null, tipo: string) => (rows || []).map(x => {
               let codigoCampo = `codigo_${tipo.toLowerCase()}`
               if (tipo === 'Unión') codigoCampo = 'codigo_union'
               return {
