@@ -353,11 +353,17 @@ export default function PlanificacionPage() {
     setItemsConfigVenta(actualizado)
   }
 
-  const actualizarPiezaManualItem = (itemIndex: number, piezaIndex: number, campo: string, valor: any) => {
+  const actualizarPiezaManualItem = (itemIndex: number, piezaIndex: number, campo: keyof PiezaDesglose, valor: string) => {
     const actualizado = [...itemsConfigVenta]
     let piezaActual = { ...actualizado[itemIndex].piezasManuales[piezaIndex] }
-    
-    piezaActual[campo] = campo === 'cantidad' || campo === 'costo_unitario' ? (valor === '' ? 0 : Number(valor)) : valor
+
+    if (campo === 'cantidad') {
+      piezaActual.cantidad = valor === '' ? 0 : Number(valor)
+    } else if (campo === 'costo_unitario') {
+      piezaActual.costo_unitario = valor === '' ? 0 : Number(valor)
+    } else {
+      piezaActual[campo] = valor
+    }
 
     if (campo === 'color' && piezaActual.tipo === 'Melamina') {
       const nombreMel = catalogoMelaminas.find(cat => cat.codigo_melamina === valor)?.detalle || valor
@@ -374,13 +380,19 @@ export default function PlanificacionPage() {
     setItemsConfigVenta(actualizado)
   }
 
-  const actualizarPiezaItemPlanificado = (idTemp: string, piezaIdx: number, campo: string, valor: any) => {
+  const actualizarPiezaItemPlanificado = (idTemp: string, piezaIdx: number, campo: keyof PiezaDesglose, valor: string) => {
     setItemsPlanificados(prev => prev.map(item => {
       if (item.id_temp !== idTemp) return item
       const nuevasPiezas = [...item.piezas_desglose]
       let piezaActual = { ...nuevasPiezas[piezaIdx] }
 
-      piezaActual[campo] = campo === 'cantidad' || campo === 'costo_unitario' ? (valor === '' ? 0 : Number(valor)) : valor
+      if (campo === 'cantidad') {
+        piezaActual.cantidad = valor === '' ? 0 : Number(valor)
+      } else if (campo === 'costo_unitario') {
+        piezaActual.costo_unitario = valor === '' ? 0 : Number(valor)
+      } else {
+        piezaActual[campo] = valor
+      }
 
       if (campo === 'color' && piezaActual.tipo === 'Melamina') {
         const nombreMel = catalogoMelaminas.find(cat => cat.codigo_melamina === valor)?.detalle || valor
