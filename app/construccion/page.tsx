@@ -120,6 +120,19 @@ const pct = (costo: number, precio: number | null) =>
 // (arriba/abajo usan el largo, izquierda/derecha usan el ancho), multiplicado
 // por la cantidad de piezas, y esa longitud total se multiplica por el precio
 // de tapacanto por metro que se ingresa a mano.
+// Texto del tapacanto indicando la MEDIDA (no el lado). Ej: "Canteado: 1 largo (72.5 cm) + 1 ancho (45 cm)"
+// arriba/abajo = cantos de largo, izquierda/derecha = cantos de ancho.
+function notaCanteadoConMedidas(sup: boolean, inf: boolean, izq: boolean, der: boolean, largoCm: number, anchoCm: number) {
+  const nL = (sup ? 1 : 0) + (inf ? 1 : 0)
+  const nA = (izq ? 1 : 0) + (der ? 1 : 0)
+  if (nL + nA === 4) return 'Todo canteado'
+  if (nL + nA === 0) return 'Sin canteado'
+  const partes: string[] = []
+  if (nL) partes.push(`${nL} ${nL === 1 ? 'largo' : 'largos'} (${largoCm} cm)`)
+  if (nA) partes.push(`${nA} ${nA === 1 ? 'ancho' : 'anchos'} (${anchoCm} cm)`)
+  return `Canteado: ${partes.join(' + ')}`
+}
+
 function calcularMelamina(params: {
   largoCm: number
   anchoCm: number
@@ -143,11 +156,7 @@ function calcularMelamina(params: {
   const costoTotal = costoUnitario * cantidad
   const longitudCanteadoTotal = longCanteadoUnit * cantidad
 
-  const lados = [sup && 'arriba', inf && 'abajo', izq && 'izquierda', der && 'derecha'].filter(Boolean) as string[]
-  const notaCanteado =
-    lados.length === 4 ? 'Todo canteado' :
-    lados.length === 0 ? 'Sin canteado' :
-    `Canteado: ${lados.join(', ')}`
+  const notaCanteado = notaCanteadoConMedidas(sup, inf, izq, der, largoCm, anchoCm)
 
   return { areaCostoUnit, longCanteadoUnit, tapacantoCostoUnit, costoUnitario, costoTotal, longitudCanteadoTotal, notaCanteado }
 }
@@ -171,6 +180,14 @@ function parseDetalleMelamina(desc: string | null) {
   if (/^sin canteado$/i.test(prefijo)) return { ...vacio, resto }
   const m = prefijo.match(/^canteado:\s*(.+)$/i)
   if (m) {
+    const nLargo = m[1].match(/(\d+)\s*largos?/i)
+    const nAncho = m[1].match(/(\d+)\s*anchos?/i)
+    if (nLargo || nAncho) {
+      const l = nLargo ? parseInt(nLargo[1]) : 0
+      const a = nAncho ? parseInt(nAncho[1]) : 0
+      return { sup: l >= 1, inf: l >= 2, izq: a >= 1, der: a >= 2, resto }
+    }
+    // Formato antiguo: "Canteado: arriba, izquierda"
     const partes = m[1].split(',').map(s => s.trim().toLowerCase())
     return {
       sup: partes.includes('arriba'), inf: partes.includes('abajo'),
@@ -573,10 +590,10 @@ export default function ProductosConstructivos() {
       largo: p.largoCm,
       ancho: p.anchoCm,
       codigoMelamina: '',
-      sup: (p.canteadoLados || 0) >= 1,
-      inf: (p.canteadoLados || 0) >= 2,
-      izq: (p.canteadoCortos || 0) >= 1,
-      der: (p.canteadoCortos || 0) >= 2,
+      sup: (p.canteado?.cantosLargo ?? p.canteadoLados ?? 0) >= 1,
+      inf: (p.canteado?.cantosLargo ?? p.canteadoLados ?? 0) >= 2,
+      izq: (p.canteado?.cantosAncho ?? p.canteadoCortos ?? 0) >= 1,
+      der: (p.canteado?.cantosAncho ?? p.canteadoCortos ?? 0) >= 2,
     }))
     setImportFilas(filas)
     setImportPrecioTapacanto('')
@@ -924,8 +941,7 @@ export default function ProductosConstructivos() {
                   return <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#999' }}>Se guardará como: <strong style={{ color: '#666' }}>{texto}</strong></p>
                 })()}
                 {tabActiva === 'melamina' && parseFloat(fpLargo) > 0 && parseFloat(fpAncho) > 0 && (() => {
-                  const notaCanteado = [fpCanteadoSup && 'arriba', fpCanteadoInf && 'abajo', fpCanteadoIzq && 'izquierda', fpCanteadoDer && 'derecha'].filter(Boolean) as string[]
-                  const nota = notaCanteado.length === 4 ? 'Todo canteado' : notaCanteado.length === 0 ? 'Sin canteado' : `Canteado: ${notaCanteado.join(', ')}`
+                  const nota = notaCanteadoConMedidas(fpCanteadoSup, fpCanteadoInf, fpCanteadoIzq, fpCanteadoDer, parseFloat(fpLargo), parseFloat(fpAncho))
                   const medida = `${parseFloat(fpLargo)}x${parseFloat(fpAncho)}`
                   const texto = [`${nota} (${medida})`, fpDescripcion.trim()].filter(Boolean).join(' — ')
                   return <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#999' }}>Se guardará como: <strong style={{ color: '#666' }}>{texto}</strong></p>
@@ -965,7 +981,7 @@ export default function ProductosConstructivos() {
 
                   <div style={{ border: '1px solid #eee', borderRadius: '10px', padding: '12px 14px', backgroundColor: '#fafafa' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <label style={{ ...labelStyle, margin: 0 }}>Tapacanto — lados canteados</label>
+                      <label style={{ ...labelStyle, margin: 0 }}>Tapacanto — cantos (se cobra por la medida)</label>
                       <button type="button"
                         onClick={() => {
                           const todos = fpCanteadoSup && fpCanteadoInf && fpCanteadoIzq && fpCanteadoDer
@@ -978,19 +994,19 @@ export default function ProductosConstructivos() {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px' }}>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
                         <input type="checkbox" checked={fpCanteadoSup} onChange={e => setFpCanteadoSup(e.target.checked)} style={{ width: '15px', height: '15px' }} />
-                        Arriba
+                        Largo 1{parseFloat(fpLargo) > 0 ? ` — ${parseFloat(fpLargo)} cm` : ''}
                       </label>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
                         <input type="checkbox" checked={fpCanteadoInf} onChange={e => setFpCanteadoInf(e.target.checked)} style={{ width: '15px', height: '15px' }} />
-                        Abajo
+                        Largo 2{parseFloat(fpLargo) > 0 ? ` — ${parseFloat(fpLargo)} cm` : ''}
                       </label>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
                         <input type="checkbox" checked={fpCanteadoIzq} onChange={e => setFpCanteadoIzq(e.target.checked)} style={{ width: '15px', height: '15px' }} />
-                        Izquierda
+                        Ancho 1{parseFloat(fpAncho) > 0 ? ` — ${parseFloat(fpAncho)} cm` : ''}
                       </label>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
                         <input type="checkbox" checked={fpCanteadoDer} onChange={e => setFpCanteadoDer(e.target.checked)} style={{ width: '15px', height: '15px' }} />
-                        Derecha
+                        Ancho 2{parseFloat(fpAncho) > 0 ? ` — ${parseFloat(fpAncho)} cm` : ''}
                       </label>
                     </div>
                     <div style={{ marginTop: '10px' }}>
@@ -1082,7 +1098,7 @@ export default function ProductosConstructivos() {
                     <th style={{ ...thStyle, textAlign: 'right' }}>Ancho</th>
                     <th style={{ ...thStyle, textAlign: 'right' }}>Cant.</th>
                     <th style={thStyle}>Código melamina</th>
-                    <th style={{ ...thStyle, textAlign: 'center' }}>Canteado (S/I/Iz/D)</th>
+                    <th style={{ ...thStyle, textAlign: 'center' }}>Tapacanto (cm)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1103,17 +1119,17 @@ export default function ProductosConstructivos() {
                       </td>
                       <td style={{ ...tdStyle, textAlign: 'center' }}>
                         <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
-                          <label title="Arriba" style={{ display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }}>
-                            <input type="checkbox" checked={f.sup} onChange={e => actualizarFilaImport(f.id, { sup: e.target.checked })} disabled={!f.incluir} /> S
+                          <label title="Canto de largo" style={{ display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={f.sup} onChange={e => actualizarFilaImport(f.id, { sup: e.target.checked })} disabled={!f.incluir} /> {f.largo}
                           </label>
-                          <label title="Abajo" style={{ display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }}>
-                            <input type="checkbox" checked={f.inf} onChange={e => actualizarFilaImport(f.id, { inf: e.target.checked })} disabled={!f.incluir} /> I
+                          <label title="Canto de largo" style={{ display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={f.inf} onChange={e => actualizarFilaImport(f.id, { inf: e.target.checked })} disabled={!f.incluir} /> {f.largo}
                           </label>
-                          <label title="Izquierda" style={{ display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }}>
-                            <input type="checkbox" checked={f.izq} onChange={e => actualizarFilaImport(f.id, { izq: e.target.checked })} disabled={!f.incluir} /> Iz
+                          <label title="Canto de ancho" style={{ display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={f.izq} onChange={e => actualizarFilaImport(f.id, { izq: e.target.checked })} disabled={!f.incluir} /> {f.ancho}
                           </label>
-                          <label title="Derecha" style={{ display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }}>
-                            <input type="checkbox" checked={f.der} onChange={e => actualizarFilaImport(f.id, { der: e.target.checked })} disabled={!f.incluir} /> D
+                          <label title="Canto de ancho" style={{ display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={f.der} onChange={e => actualizarFilaImport(f.id, { der: e.target.checked })} disabled={!f.incluir} /> {f.ancho}
                           </label>
                         </div>
                       </td>

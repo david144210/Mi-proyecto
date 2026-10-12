@@ -445,7 +445,7 @@ export default function Cotizador() {
       const subtotal = calcSubtotalMelamina(p.largo, p.ancho, p.cantidad, mat.precio_cotizador)
       const pieza = {
         id: nid,
-        material: `${mat.detalle} — ${p.pieza}`,
+        material: `${mat.detalle} — ${p.pieza}${p.canteado?.cmPorPieza > 0 ? ` · tapacanto ${p.canteado.cmPorPieza} cm` : ''}`,
         largo: p.largo,
         ancho: p.ancho,
         cantidad: p.cantidad,
@@ -1270,6 +1270,7 @@ export default function Cotizador() {
                     <th style={{ padding: '8px 10px', textAlign: 'center' }}>Cant.</th>
                     <th style={{ padding: '8px 10px', textAlign: 'center' }}>Largo</th>
                     <th style={{ padding: '8px 10px', textAlign: 'center' }}>Ancho</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'center' }}>Tapacanto (cm)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1279,6 +1280,7 @@ export default function Cotizador() {
                       <td style={{ padding: '6px 10px', borderTop: '1px solid #f0f0f0', textAlign: 'center' }}>{p.cantidad}</td>
                       <td style={{ padding: '6px 10px', borderTop: '1px solid #f0f0f0', textAlign: 'center' }}>{p.largo.toFixed(1)}</td>
                       <td style={{ padding: '6px 10px', borderTop: '1px solid #f0f0f0', textAlign: 'center' }}>{p.ancho.toFixed(1)}</td>
+                      <td style={{ padding: '6px 10px', borderTop: '1px solid #f0f0f0', textAlign: 'center' }}>{p.canteado?.cmPorPieza > 0 ? p.canteado.cmPorPieza : '—'}</td>
                     </tr>
                   ))}
                 </tbody>

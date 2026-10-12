@@ -36,6 +36,41 @@ const COLORES = [
   { id: 'natural', nombre: 'Haya Natural', hex: 0xd9bd8f },
 ]
 
+// Cantidad de cantos con tapacanto según la dimensión a la que son paralelos:
+//   largo -> cantos que miden lo mismo que el LARGO de la pieza
+//   ancho -> cantos que miden lo mismo que el ANCHO de la pieza
+interface Cantos {
+  largo: number
+  ancho: number
+}
+
+const SIN_CANTOS: Cantos = { largo: 0, ancho: 0 }
+const UN_CANTO_LARGO: Cantos = { largo: 1, ancho: 0 }
+const PERIMETRO: Cantos = { largo: 2, ancho: 2 }
+
+// Texto legible (solo para mostrar en pantalla / copiar)
+const textoCantos = (c: Cantos) =>
+  c.largo === 0 && c.ancho === 0
+    ? 'Sin canteado'
+    : [c.largo ? `${c.largo} de largo` : '', c.ancho ? `${c.ancho} de ancho` : '']
+        .filter(Boolean)
+        .join(' + ')
+
+// Medida del tapacanto en cm
+const cmCantoPorPieza = (p: { largo: number; ancho: number; cantos: Cantos }) =>
+  p.cantos.largo * p.largo + p.cantos.ancho * p.ancho
+
+// Bloque de canteado que viaja en el JSON (cotizador y melamina)
+const canteadoParaEnvio = (p: PiezaCorte) => {
+  const cmPorPieza = Number(cmCantoPorPieza(p).toFixed(1))
+  return {
+    cantosLargo: p.cantos.largo,          // nº de cantos con la medida del largo
+    cantosAncho: p.cantos.ancho,          // nº de cantos con la medida del ancho
+    cmPorPieza,                           // cm de tapacanto por 1 pieza
+    cmTotal: Number((cmPorPieza * p.cantidad).toFixed(1)), // cm de tapacanto de todas las piezas
+  }
+}
+
 interface PiezaCorte {
   pieza: string
   cantidad: number
@@ -43,7 +78,7 @@ interface PiezaCorte {
   ancho: number
   espesor: number
   seccion: string
-  canteado: string
+  cantos: Cantos
 }
 
 const MIN_MM = 0
@@ -63,13 +98,13 @@ export default function DisenoCajones() {
 
   // ---- Espesores de tablero (editables, en mm) ----
   const [espesorSelCuerpo, setEspesorSelCuerpo] = useState<'15' | '18' | 'custom'>('15')
-  const [espesorMM, setEspesorMM] = useState(18)
+  const [espesorMM, setEspesorMM] = useState(15)
 
   const [espesorSelFondo, setEspesorSelFondo] = useState<'3' | '6' | '9' | '15' | '18' | 'custom'>('6')
-  const [espesorFondoMM, setEspesorFondoMM] = useState(6)
+  const [espesorFondoMM, setEspesorFondoMM] = useState(15)
 
   const [espesorSelBase, setEspesorSelBase] = useState<'3' | '6' | '9' | 'custom'>('6')
-  const [espesorBaseCajonMM, setEspesorBaseCajonMM] = useState(6)
+  const [espesorBaseCajonMM, setEspesorBaseCajonMM] = useState(3)
 
   const espesorCm = espesorMM / 10
   const espesorFondoCm = espesorFondoMM / 10
@@ -424,7 +459,7 @@ const exportarModeloGLB = () => {
       ancho: profundoCm, 
       espesor: espesorCm, 
       seccion: 'Cuerpo',
-      canteado: '1 Canto largo (frente)' 
+      cantos: UN_CANTO_LARGO,
     })
     
     piezas.push({ 
@@ -434,7 +469,7 @@ const exportarModeloGLB = () => {
       ancho: profundoCm, 
       espesor: espesorCm, 
       seccion: 'Cuerpo',
-      canteado: '1 Canto corto (frente)' 
+      cantos: UN_CANTO_LARGO, // el frente de piso/techo mide el ancho del mueble = largo
     })
 
     piezas.push({ 
@@ -444,7 +479,7 @@ const exportarModeloGLB = () => {
       ancho: alturaInterior > 0 ? alturaInterior : altoCm, 
       espesor: espesorFondoCm, 
       seccion: 'Cuerpo',
-      canteado: 'Sin canteado' 
+      cantos: SIN_CANTOS,
     })
 
     if (columnas.length > 1) {
@@ -455,7 +490,7 @@ const exportarModeloGLB = () => {
         ancho: profundoCm, 
         espesor: espesorCm, 
         seccion: 'Cuerpo',
-        canteado: '1 Canto largo (frente)' 
+        cantos: UN_CANTO_LARGO,
       })
     }
 
@@ -471,7 +506,7 @@ const exportarModeloGLB = () => {
             ancho: profundoCm - espesorFondoCm - 1,
             espesor: espesorCm,
             seccion: nombreSeccion,
-            canteado: '1 Canto (frente)',
+            cantos: UN_CANTO_LARGO,
           })
         }
 
@@ -483,7 +518,7 @@ const exportarModeloGLB = () => {
             ancho: sec.alturaCm - holguraFrenteCajon, 
             espesor: espesorCm, 
             seccion: nombreSeccion,
-            canteado: '4 Lados (perímetro)' 
+            cantos: PERIMETRO,
           })
           
           const defAltoCaja = sec.alturaCajaCm !== undefined ? sec.alturaCajaCm : Math.max(5, sec.alturaCm - holguraRielAlto)
@@ -494,9 +529,9 @@ const exportarModeloGLB = () => {
           const largoCostado = defProfCaja
           const largoRespaldo = anchoCajaExterna - (2 * espesorCm)
 
-          piezas.push({ pieza: 'Costado de caja', cantidad: 2, largo: largoCostado, ancho: altoCaja, espesor: espesorCm, seccion: nombreSeccion, canteado: '1 Canto superior' })
-          piezas.push({ pieza: 'Contrafrente/Posterior cajón', cantidad: 2, largo: largoRespaldo, ancho: altoCaja, espesor: espesorCm, seccion: nombreSeccion, canteado: '1 Canto superior' })
-          piezas.push({ pieza: 'Fondo de cajón (Clavado)', cantidad: 1, largo: anchoCajaExterna, ancho: largoCostado, espesor: espesorBaseCajonCm, seccion: nombreSeccion, canteado: 'Sin canteado' })
+          piezas.push({ pieza: 'Costado de caja', cantidad: 2, largo: largoCostado, ancho: altoCaja, espesor: espesorCm, seccion: nombreSeccion, cantos: UN_CANTO_LARGO,})
+          piezas.push({ pieza: 'Contrafrente/Posterior cajón', cantidad: 2, largo: largoRespaldo, ancho: altoCaja, espesor: espesorCm, seccion: nombreSeccion, cantos: UN_CANTO_LARGO,})
+          piezas.push({ pieza: 'Fondo de cajón (Clavado)', cantidad: 1, largo: anchoCajaExterna, ancho: largoCostado, espesor: espesorBaseCajonCm, seccion: nombreSeccion, cantos: SIN_CANTOS,})
         
         } else if (sec.tipo === 'puerta') {
           piezas.push({
@@ -506,7 +541,7 @@ const exportarModeloGLB = () => {
             ancho: sec.alturaCm - holguraPuerta,
             espesor: espesorCm,
             seccion: nombreSeccion,
-            canteado: '4 Lados (perímetro)',
+            cantos: PERIMETRO,
           })
         } else if (sec.tipo === 'repisa') {
           piezas.push({
@@ -516,7 +551,7 @@ const exportarModeloGLB = () => {
             ancho: profundoCm - espesorFondoCm - 1,
             espesor: espesorCm,
             seccion: nombreSeccion,
-            canteado: '1 Canto (frente)',
+            cantos: UN_CANTO_LARGO,
           })
         }
       })
@@ -528,7 +563,7 @@ const exportarModeloGLB = () => {
   const agruparPiezas = (piezas: PiezaCorte[]): PiezaCorte[] => {
     const mapa = new Map<string, PiezaCorte>()
     piezas.forEach(p => {
-      const key = `${p.pieza}|${p.seccion}|${p.largo.toFixed(1)}|${p.ancho.toFixed(1)}|${p.espesor}|${p.canteado}`
+      const key = `${p.pieza}|${p.seccion}|${p.largo.toFixed(1)}|${p.ancho.toFixed(1)}|${p.espesor}|${p.cantos.largo}-${p.cantos.ancho}`
       const existente = mapa.get(key)
       if (existente) existente.cantidad += p.cantidad
       else mapa.set(key, { ...p })
@@ -544,7 +579,7 @@ const exportarModeloGLB = () => {
     const texto = [
       `LISTA DE PIEZAS — ${anchoCm}×${altoCm}×${profundoCm} cm`,
       '',
-      ...listaPiezasAgrupada.map(p => `${p.cantidad} x ${p.pieza} (${p.seccion}) — ${p.largo.toFixed(1)} x ${p.ancho.toFixed(1)} cm (esp. ${p.espesor} cm) [Canteado: ${p.canteado}]`),
+      ...listaPiezasAgrupada.map(p => `${p.cantidad} x ${p.pieza} (${p.seccion}) — ${p.largo.toFixed(1)} x ${p.ancho.toFixed(1)} cm (esp. ${p.espesor} cm) [Canteado: ${textoCantos(p.cantos)} = ${cmCantoPorPieza(p).toFixed(1)} cm c/u]`),
       '',
       `Área total aprox.: ${areaTotalM2.toFixed(2)} m²`,
     ].join('\n')
@@ -559,7 +594,9 @@ const exportarModeloGLB = () => {
         largo: p.largo,
         ancho: p.ancho,
         espesor: p.espesor,
+        canteado: canteadoParaEnvio(p),
       })),
+      totalCantoCm: Number(listaPiezasAgrupada.reduce((a, p) => a + cmCantoPorPieza(p) * p.cantidad, 0).toFixed(1)),
       mueble: { anchoCm, altoCm, profundoCm, colorId },
     }
     localStorage.setItem('cot_piezas_pendientes', JSON.stringify(payload))
@@ -582,39 +619,27 @@ const exportarModeloGLB = () => {
   }
 
   // ── Enviar lista de piezas a la BOM de melamina (Detalles Constructivos) ──
-  // Traduce el texto libre de "canteado" que usa este diseñador a dos contadores:
-  // "lados" = cantos que corren a lo largo de la dimensión LARGO de la pieza
-  // (equivalen a los checkboxes arriba/abajo en la pantalla de melamina) y
-  // "cortos" = cantos que corren a lo largo del ANCHO (equivalen a izquierda/derecha).
-  // No intenta adivinar el lado exacto (arriba vs. abajo, izquierda vs. derecha):
-  // eso no cambia el costo, solo importa cuántos cantos de cada tipo hay.
-  const CANTEADO_A_LADOS: Record<string, { lados: number; cortos: number }> = {
-    'Sin canteado': { lados: 0, cortos: 0 },
-    '1 Canto largo (frente)': { lados: 1, cortos: 0 },
-    '1 Canto corto (frente)': { lados: 0, cortos: 1 },
-    '1 Canto (frente)': { lados: 1, cortos: 0 },
-    '4 Lados (perímetro)': { lados: 2, cortos: 2 },
-    '1 Canto superior': { lados: 1, cortos: 0 },
-  }
-
+  // El canteado ya no se manda como texto: se manda cuántos cantos hay y cuánto mide el tapacanto.
   const enviarAMelamina = () => {
     if (listaPiezasAgrupada.length === 0) return
     const piezas = listaPiezasAgrupada.map(p => {
-      const equiv = CANTEADO_A_LADOS[p.canteado] || { lados: 0, cortos: 0 }
+      const canteado = canteadoParaEnvio(p)
       return {
         descripcion: `${p.pieza} — ${p.seccion}`,
         cantidad: p.cantidad,
         largoCm: Number(p.largo.toFixed(1)),
         anchoCm: Number(p.ancho.toFixed(1)),
-        canteadoTexto: p.canteado,
-        canteadoLados: equiv.lados,
-        canteadoCortos: equiv.cortos,
+        canteado,
+        // compatibilidad con la pantalla de melamina actual (cantidad de cantos)
+        canteadoLados: p.cantos.largo,
+        canteadoCortos: p.cantos.ancho,
       }
     })
     const payload = {
       origen: 'diseno-3d',
       generadoEn: new Date().toISOString(),
       mueble: { anchoCm, altoCm, profundoCm, colorId },
+      totalCantoCm: Number(piezas.reduce((a, x) => a + x.canteado.cmTotal, 0).toFixed(1)),
       piezas,
     }
     localStorage.setItem('melamina_piezas_pendientes', JSON.stringify(payload))
@@ -1104,7 +1129,7 @@ const exportarModeloGLB = () => {
                             <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0f0f0', color: '#666' }}>{p.seccion}</td>
                             <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>{p.cantidad}</td>
                             <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0f0f0', textAlign: 'center', whiteSpace: 'nowrap' }}>{p.largo.toFixed(1)} × {p.ancho.toFixed(1)} cm</td>
-                            <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0f0f0', color: '#333', fontWeight: '500' }}>{p.canteado}</td>
+                            <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0f0f0', color: '#333', fontWeight: '500' }}>{textoCantos(p.cantos)} <span style={{ color: '#888' }}>({cmCantoPorPieza(p).toFixed(1)} cm)</span></td>
                           </tr>
                         )
                       })}
