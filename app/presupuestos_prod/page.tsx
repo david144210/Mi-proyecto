@@ -507,7 +507,7 @@ export default function GestorPresupuestosWorkflow() {
 
       // Lo planificado aparece directo en la lista de materiales (solo en fase de Creación,
       // después las filas quedan congeladas con lo que se editó en cada fase).
-      if (estadoActual === 'creado' && planificadosGuardados.length > 0) {
+      if (estadoActual === 'creado' && (planificadosGuardados.length > 0 || materialesGuardados.some((m: any) => m.id_planificado))) {
         const materialesSync = await sincronizarDesdePlanificados(planificadosGuardados, materialesGuardados)
         setMaterialesLote(materialesSync)
         if (JSON.stringify(materialesSync) !== JSON.stringify(materialesGuardados)) {

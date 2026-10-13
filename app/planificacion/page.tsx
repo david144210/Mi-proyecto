@@ -766,6 +766,14 @@ export default function PlanificacionPage() {
     }
     if (nombreLimpio !== nombreLote) setNombreLote(nombreLimpio)
 
+    if (itemsPlanificados.length === 0) {
+      if (!loteIdActual) {
+        alert('No hay nada que guardar: el lote está vacío y todavía no existe en Supabase.')
+        return
+      }
+      if (!confirm('El lote quedará vacío: se quitará de Supabase todo lo que tenía planificado y esos pedidos quedarán libres para volver a planificarse. ¿Continuar?')) return
+    }
+
     const costoTotalLote = itemsPlanificados.reduce((acc, item) => {
       const piezas = (item.piezas_desglose || []).filter(p => p.tipo !== 'Unión')
       const subtotalItem = piezas.reduce((sum, p) => sum + ((Number(p.cantidad) || 1) * (Number(p.costo_unitario) || 0)), 0)
@@ -993,8 +1001,8 @@ export default function PlanificacionPage() {
                               </div>
                             )}
                           </div>
-                          <button disabled={procesandoPlan || completo} onClick={() => abrirConfiguracionVenta(v)} style={{ background: completo ? '#d1d5db' : '#C5A059', color: '#0B1E36', border: 'none', padding: '5px 10px', borderRadius: '4px', fontWeight: 'bold', cursor: completo ? 'not-allowed' : 'pointer', fontSize: '12px' }}>
-                            {completo ? 'Completo' : hechos > 0 ? '+ Añadir resto' : '+ Añadir'}
+                          <button disabled={procesandoPlan} onClick={() => abrirConfiguracionVenta(v)} style={{ background: completo ? '#e0e7ff' : '#C5A059', color: '#0B1E36', border: 'none', padding: '5px 10px', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>
+                            {completo ? '↩ Revisar / quitar' : hechos > 0 ? '+ Añadir resto' : '+ Añadir'}
                           </button>
                         </div>
                       )
@@ -1035,7 +1043,10 @@ export default function PlanificacionPage() {
             <div style={{ flex: '1.5', minWidth: '320px', background: '#f8fafc', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
               <h3 style={{ fontSize: '15px', color: '#0B1E36', borderBottom: '2px solid #C5A059', paddingBottom: '8px', marginBottom: '15px' }}>Items en el Lote ({itemsPlanificados.length})</h3>
               {itemsPlanificados.length === 0 ? (
-                <p style={{ color: '#888', fontSize: '13px' }}>Aún no hay elementos agregados al lote.</p>
+                <p style={{ color: '#888', fontSize: '13px' }}>
+                  Aún no hay elementos agregados al lote.
+                  {loteIdActual ? ' Este lote existe en Supabase: si quitaste items, presiona "Guardar lote vacío" para que los pedidos queden libres.' : ''}
+                </p>
               ) : (
                 <div>
                   {itemsPlanificados.map(item => {
@@ -1200,10 +1211,12 @@ export default function PlanificacionPage() {
                       </div>
                     )
                   })}
-                  <button onClick={guardarLoteEnSupabase} disabled={procesandoPlan} style={{ width: '100%', background: '#16a34a', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', marginTop: '15px' }}>
-                    💾 Sincronizar Lote en Base de Datos
-                  </button>
                 </div>
+              )}
+              {(itemsPlanificados.length > 0 || loteIdActual) && (
+                <button onClick={guardarLoteEnSupabase} disabled={procesandoPlan} style={{ width: '100%', background: itemsPlanificados.length === 0 ? '#dc2626' : '#16a34a', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', marginTop: '15px' }}>
+                  {itemsPlanificados.length === 0 ? '💾 Guardar lote vacío (quita lo planificado en Supabase)' : '💾 Sincronizar Lote en Base de Datos'}
+                </button>
               )}
             </div>
           </div>
