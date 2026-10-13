@@ -3,12 +3,158 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 
+// Longitud comercial fija de todo tubo/perfil de acero (cm)
+const LONGITUD_BARRA_CM = 600
+
+// Cada pieza conserva los valores reales de la variante (códigos y medidas),
+// no solo el texto descriptivo, para que Presupuestos pueda sumar tubos,
+// centralizar melaminas y descontar de almacén por código.
 interface PiezaDesglose {
-  tipo: string
+  tipo: string // 'Melamina' | 'Acero' | 'Accesorio' | 'Insumo'
   descripcion: string
-  color?: string
+  color?: string // código de melamina (lo usa el selector de la tabla)
   cantidad: number
   costo_unitario?: number
+  codigo?: string // código genérico del catálogo (según el tipo)
+  codigo_acero?: string
+  longitud_cm?: number
+  codigo_melamina?: string
+  largo_cm?: number
+  ancho_cm?: number
+  codigo_accesorio?: string
+  codigo_insumo?: string
+  variante_id?: number
+}
+
+// Convierte las filas crudas de una variante en piezas separadas por tipo.
+// Las uniones NO se incluyen: son un valor de costo por punto del cotizador,
+// no un material que se compre o se descuente de almacén.
+const piezasDesdeVariante = (
+  rows: { m: any[] | null; a: any[] | null; ac: any[] | null; i: any[] | null },
+  mult: number,
+  catalogoMelaminas: any[],
+  varianteId: number
+): PiezaDesglose[] => {
+  const costo = (x: any) => Number(x.costo_unitario ?? x.costo) || 0
+
+  const melaminas: PiezaDesglose[] = (rows.m || []).map(x => {
+    const codigoMel = x.codigo_melamina || ''
+    const nombreMel = catalogoMelaminas.find(cat => cat.codigo_melamina === codigoMel)?.detalle || codigoMel
+    const descBase = x.descripcion || 'Melamina'
+    const descripcion = descBase && descBase !== codigoMel && !descBase.includes(nombreMel) ? `${descBase} - ${nombreMel}` : nombreMel
+    return {
+      tipo: 'Melamina', descripcion, color: codigoMel, codigo: codigoMel, codigo_melamina: codigoMel,
+      largo_cm: Number(x.largo_cm) || 0, ancho_cm: Number(x.ancho_cm) || 0,
+      cantidad: (Number(x.cantidad) || 1) * mult, costo_unitario: costo(x), variante_id: varianteId
+    }
+  })
+
+  const aceros: PiezaDesglose[] = (rows.a || []).map(x => ({
+    tipo: 'Acero', descripcion: x.descripcion || x.codigo_acero, codigo: x.codigo_acero, codigo_acero: x.codigo_acero,
+    longitud_cm: Number(x.longitud_cm ?? x.largo_cm) || 0,
+    cantidad: (Number(x.cantidad) || 1) * mult, costo_unitario: costo(x), variante_id: varianteId
+  }))
+
+  const accesorios: PiezaDesglose[] = (rows.ac || []).map(x => ({
+    tipo: 'Accesorio', descripcion: x.descripcion || x.codigo_accesorio, codigo: x.codigo_accesorio, codigo_accesorio: x.codigo_accesorio,
+    cantidad: (Number(x.cantidad) || 1) * mult, costo_unitario: costo(x), variante_id: varianteId
+  }))
+
+  const insumos: PiezaDesglose[] = (rows.i || []).map(x => ({
+    tipo: 'Insumo', descripcion: x.descripcion || x.codigo_insumo, codigo: x.codigo_insumo, codigo_insumo: x.codigo_insumo,
+    cantidad: (Number(x.cantidad) || 1) * mult, costo_unitario: costo(x), variante_id: varianteId
+  }))
+
+  return [...melaminas, ...aceros, ...accesorios, ...insumos]
+}
+
+// Agrupa las piezas en tubos / melaminas / accesorios / insumos por separado.
+// - Tubos: suma los cortes del mismo código (ej. varias piezas de 120cm) y calcula
+//   las barras comerciales = ceil(total_cm / 600).
+// - Melaminas: se envían pieza por pieza (con largo y ancho); la centralización
+//   se hace en Presupuestos.
+// - Accesorios e insumos: suma simple por código.
+const agruparMateriales = (piezas: PiezaDesglose[]) => {
+  const aceros = new Map<string, { codigo_acero: string; descripcion: string; cortes: Map<number, number>; total_cm: number }>()
+  const melaminas: any[] = []
+  const accesorios = new Map<string, { codigo_accesorio: string; descripcion: string; cantidad: number }>()
+  const insumos = new Map<string, { codigo_insumo: string; descripcion: string; cantidad: number }>()
+
+  for (const p of piezas || []) {
+    const cant = Number(p.cantidad) || 0
+    if (p.tipo === 'Acero') {
+      const codigo = p.codigo_acero || p.codigo || ''
+      const key = codigo || `SIN-CODIGO|${p.descripcion}`
+      const largo = Number(p.longitud_cm) || 0
+      const g = aceros.get(key) || { codigo_acero: codigo, descripcion: p.descripcion, cortes: new Map<number, number>(), total_cm: 0 }
+      g.cortes.set(largo, (g.cortes.get(largo) || 0) + cant)
+      g.total_cm += largo * cant
+      aceros.set(key, g)
+    } else if (p.tipo === 'Melamina') {
+      melaminas.push({
+        codigo_melamina: p.codigo_melamina || p.color || p.codigo || '',
+        descripcion: p.descripcion,
+        largo_cm: Number(p.largo_cm) || 0,
+        ancho_cm: Number(p.ancho_cm) || 0,
+        cantidad: cant
+      })
+    } else if (p.tipo === 'Accesorio') {
+      const codigo = p.codigo_accesorio || p.codigo || ''
+      const key = codigo || `SIN-CODIGO|${p.descripcion}`
+      const g = accesorios.get(key) || { codigo_accesorio: codigo, descripcion: p.descripcion, cantidad: 0 }
+      g.cantidad += cant
+      accesorios.set(key, g)
+    } else if (p.tipo === 'Insumo') {
+      const codigo = p.codigo_insumo || p.codigo || ''
+      const key = codigo || `SIN-CODIGO|${p.descripcion}`
+      const g = insumos.get(key) || { codigo_insumo: codigo, descripcion: p.descripcion, cantidad: 0 }
+      g.cantidad += cant
+      insumos.set(key, g)
+    }
+    // tipo 'Unión' u otros: se ignoran a propósito
+  }
+
+  return {
+    aceros: [...aceros.values()].map(g => ({
+      codigo_acero: g.codigo_acero,
+      descripcion: g.descripcion,
+      cortes: [...g.cortes.entries()].map(([longitud_cm, cantidad]) => ({ longitud_cm, cantidad })),
+      total_cm: g.total_cm,
+      barras_necesarias: Math.ceil(g.total_cm / LONGITUD_BARRA_CM - 1e-9)
+    })),
+    melaminas,
+    accesorios: [...accesorios.values()],
+    insumos: [...insumos.values()]
+  }
+}
+
+// Aplica un cambio de la tabla de edición a una pieza, manteniendo sincronizados
+// los campos de código/medida según el tipo.
+const aplicarCambioPieza = (pieza: PiezaDesglose, campo: keyof PiezaDesglose, valor: string, catalogoMelaminas: any[]): PiezaDesglose => {
+  const p: any = { ...pieza }
+  const numericos = ['cantidad', 'costo_unitario', 'longitud_cm', 'largo_cm', 'ancho_cm']
+  if (numericos.includes(campo as string)) {
+    p[campo] = valor === '' ? 0 : Number(valor)
+  } else {
+    p[campo] = valor
+  }
+
+  if (campo === 'color' && p.tipo === 'Melamina') {
+    p.codigo = valor
+    p.codigo_melamina = valor
+    const nombreMel = catalogoMelaminas.find(cat => cat.codigo_melamina === valor)?.detalle || valor
+    p.descripcion = nombreMel ? `Melamina - ${nombreMel}` : p.descripcion
+  }
+
+  if (campo === 'tipo' || campo === 'codigo') {
+    const cod = p.codigo || p.color || ''
+    p.codigo_acero = p.tipo === 'Acero' ? cod : undefined
+    p.codigo_melamina = p.tipo === 'Melamina' ? cod : undefined
+    p.codigo_accesorio = p.tipo === 'Accesorio' ? cod : undefined
+    p.codigo_insumo = p.tipo === 'Insumo' ? cod : undefined
+    if (p.tipo === 'Melamina') p.color = cod
+  }
+  return p
 }
 
 interface ItemPlanificacion {
@@ -205,50 +351,20 @@ export default function PlanificacionPage() {
         return
       }
       const vId = parseInt(varianteIdSeleccionada)
-      const [melres, acerres, accres, insres, unires] = await Promise.all([
+      const [melres, acerres, accres, insres] = await Promise.all([
         supabase.from('variante_melamina').select('*').eq('variante_id', vId),
         supabase.from('variante_acero').select('*').eq('variante_id', vId),
         supabase.from('variante_accesorios').select('*').eq('variante_id', vId),
-        supabase.from('variante_insumos').select('*').eq('variante_id', vId),
-        supabase.from('variante_uniones').select('*').eq('variante_id', vId)
+        supabase.from('variante_insumos').select('*').eq('variante_id', vId)
       ])
 
-      setPiezasVarianteActual([
-        ...(melres.data || []).map(m => ({
-          tipo: 'Melamina',
-          descripcion: m.descripcion || '',
-          color: m.codigo_melamina || '',
-          cantidad: Number(m.cantidad) || 1,
-          costo_unitario: Number(m.costo_unitario ?? m.costo) || 0
-        })),
-        ...(acerres.data || []).map(a => ({
-          tipo: 'Acero',
-          descripcion: a.descripcion || a.codigo_acero,
-          cantidad: Number(a.cantidad) || 1,
-          costo_unitario: Number(a.costo_unitario ?? a.costo) || 0
-        })),
-        ...(accres.data || []).map(ac => ({
-          tipo: 'Accesorio',
-          descripcion: ac.descripcion || ac.codigo_accesorio,
-          cantidad: Number(ac.cantidad) || 1,
-          costo_unitario: Number(ac.costo_unitario ?? ac.costo) || 0
-        })),
-        ...(insres.data || []).map(i => ({
-          tipo: 'Insumo',
-          descripcion: i.descripcion || i.codigo_insumo,
-          cantidad: Number(i.cantidad) || 1,
-          costo_unitario: Number(i.costo_unitario ?? i.costo) || 0
-        })),
-        ...(unires.data || []).map(u => ({
-          tipo: 'Unión',
-          descripcion: u.descripcion || u.codigo_union,
-          cantidad: Number(u.cantidad) || 1,
-          costo_unitario: Number(u.costo_unitario ?? u.costo) || 0
-        }))
-      ])
+      setPiezasVarianteActual(piezasDesdeVariante(
+        { m: melres.data, a: acerres.data, ac: accres.data, i: insres.data },
+        1, catalogoMelaminas, vId
+      ))
     }
     cargarPiezasVariante()
-  }, [varianteIdSeleccionada])
+  }, [varianteIdSeleccionada, catalogoMelaminas])
 
   const cambiarDiaBusqueda = (dias: number) => {
     const [anio, mes, dia] = fechaBusquedaVentas.split('-').map(Number)
@@ -347,12 +463,10 @@ export default function PlanificacionPage() {
     setItemsConfigVenta(actualizado)
   }
 
-  const actualizarPiezaManualItem = (itemIndex: number, piezaIndex: number, campo: string, valor: any) => {
+  const actualizarPiezaManualItem = (itemIndex: number, piezaIndex: number, campo: keyof PiezaDesglose, valor: string) => {
     const actualizado = [...itemsConfigVenta]
-    actualizado[itemIndex].piezasManuales[piezaIndex] = {
-      ...actualizado[itemIndex].piezasManuales[piezaIndex],
-      [campo]: campo === 'cantidad' || campo === 'costo_unitario' ? (valor === '' ? 0 : Number(valor)) : valor
-    }
+    const piezaActual = aplicarCambioPieza(actualizado[itemIndex].piezasManuales[piezaIndex], campo, valor, catalogoMelaminas)
+    actualizado[itemIndex].piezasManuales[piezaIndex] = piezaActual
     setItemsConfigVenta(actualizado)
   }
 
@@ -362,14 +476,11 @@ export default function PlanificacionPage() {
     setItemsConfigVenta(actualizado)
   }
 
-  const actualizarPiezaItemPlanificado = (idTemp: string, piezaIdx: number, campo: string, valor: any) => {
+  const actualizarPiezaItemPlanificado = (idTemp: string, piezaIdx: number, campo: keyof PiezaDesglose, valor: string) => {
     setItemsPlanificados(prev => prev.map(item => {
       if (item.id_temp !== idTemp) return item
       const nuevasPiezas = [...item.piezas_desglose]
-      nuevasPiezas[piezaIdx] = {
-        ...nuevasPiezas[piezaIdx],
-        [campo]: campo === 'cantidad' || campo === 'costo_unitario' ? (valor === '' ? 0 : Number(valor)) : valor
-      }
+      nuevasPiezas[piezaIdx] = aplicarCambioPieza(nuevasPiezas[piezaIdx], campo, valor, catalogoMelaminas)
       return { ...item, piezas_desglose: nuevasPiezas }
     }))
   }
@@ -414,40 +525,19 @@ export default function PlanificacionPage() {
         } else {
           const vId = itemConf.varianteSeleccionadaId ? parseInt(itemConf.varianteSeleccionadaId) : null
           if (vId) {
-            const [m, a, ac, i, u] = await Promise.all([
+            const [m, a, ac, i] = await Promise.all([
               supabase.from('variante_melamina').select('*').eq('variante_id', vId),
               supabase.from('variante_acero').select('*').eq('variante_id', vId),
               supabase.from('variante_accesorios').select('*').eq('variante_id', vId),
-              supabase.from('variante_insumos').select('*').eq('variante_id', vId),
-              supabase.from('variante_uniones').select('*').eq('variante_id', vId)
+              supabase.from('variante_insumos').select('*').eq('variante_id', vId)
             ])
-
-            const mapMelamina = (rows: any[] | null) => (rows || []).map(x => ({
-              tipo: 'Melamina',
-              cantidad: (Number(x.cantidad) || 1) * mult,
-              descripcion: x.descripcion || '',
-              color: x.codigo_melamina || '',
-              costo_unitario: Number(x.costo_unitario ?? x.costo) || 0
-            }))
-
-            const mapPiezas = (rows: any[] | null, tipo: string) => (rows || []).map(x => {
-              let codigoCampo = `codigo_${tipo.toLowerCase()}`
-              if (tipo === 'Unión') codigoCampo = 'codigo_union'
-              return {
-                tipo,
-                cantidad: (Number(x.cantidad) || 1) * mult,
-                descripcion: x.descripcion || x[codigoCampo],
-                costo_unitario: Number(x.costo_unitario ?? x.costo) || 0
-              }
-            })
 
             piezasDesgloseVenta = [
               ...piezasDesgloseVenta,
-              ...mapMelamina(m.data),
-              ...mapPiezas(a.data, 'Acero'),
-              ...mapPiezas(ac.data, 'Accesorio'),
-              ...mapPiezas(i.data, 'Insumo'),
-              ...mapPiezas(u.data, 'Unión')
+              ...piezasDesdeVariante(
+                { m: m.data, a: a.data, ac: ac.data, i: i.data },
+                mult, catalogoMelaminas, vId
+              )
             ]
           }
         }
@@ -522,10 +612,18 @@ export default function PlanificacionPage() {
     if (nombreLimpio !== nombreLote) setNombreLote(nombreLimpio)
 
     const costoTotalLote = itemsPlanificados.reduce((acc, item) => {
-      const piezas = item.piezas_desglose || []
+      const piezas = (item.piezas_desglose || []).filter(p => p.tipo !== 'Unión')
       const subtotalItem = piezas.reduce((sum, p) => sum + ((Number(p.cantidad) || 1) * (Number(p.costo_unitario) || 0)), 0)
       return acc + subtotalItem
     }, 0)
+
+    // Lo que se envía a Presupuestos: piezas con sus valores reales de variante y,
+    // además, los materiales ya separados (tubos con barras calculadas, melaminas,
+    // accesorios e insumos). Se recalcula siempre desde las piezas para no desfasarse.
+    const itemsParaGuardar = itemsPlanificados.map(item => {
+      const piezasSinUniones = (item.piezas_desglose || []).filter(p => p.tipo !== 'Unión')
+      return { ...item, piezas_desglose: piezasSinUniones, materiales: agruparMateriales(piezasSinUniones) }
+    })
 
     setProcesandoPlan(true)
     try {
@@ -543,7 +641,7 @@ export default function PlanificacionPage() {
           .from('lotes_produccion')
           .update({
             estado_workflow: existing.estado_workflow || 'creado',
-            materiales_planificados: itemsPlanificados,
+            materiales_planificados: itemsParaGuardar,
             updated_at: new Date().toISOString()
           })
           .eq('id', existing.id)
@@ -555,7 +653,7 @@ export default function PlanificacionPage() {
             fecha: fechaLote,
             nombre_lote: nombreLimpio,
             estado_workflow: 'creado',
-            materiales_planificados: itemsPlanificados,
+            materiales_planificados: itemsParaGuardar,
             updated_at: new Date().toISOString()
           })
           .select('id')
@@ -750,7 +848,7 @@ export default function PlanificacionPage() {
                                     <tr style={{ background: '#e2e8f0', textAlign: 'left', color: '#0B1E36' }}>
                                       <th style={{ padding: '4px 6px', width: '75px' }}>Tipo</th>
                                       <th style={{ padding: '4px 6px' }}>Detalle de Pieza</th>
-                                      <th style={{ padding: '4px 6px' }}>Código Melamina</th>
+                                      <th style={{ padding: '4px 6px' }}>Código / Medida</th>
                                       <th style={{ padding: '4px 6px', width: '40px' }}>Cant.</th>
                                       <th style={{ padding: '4px 6px', width: '55px' }}>Costo Unit.</th>
                                       <th style={{ padding: '4px 6px', width: '25px' }}></th>
@@ -769,7 +867,7 @@ export default function PlanificacionPage() {
                                             <option value="Acero">Acero</option>
                                             <option value="Accesorio">Accesorio</option>
                                             <option value="Insumo">Insumo</option>
-                                            <option value="Unión">Unión</option>
+                                            {pieza.tipo === 'Unión' && <option value="Unión">Unión (no se envía)</option>}
                                           </select>
                                         </td>
                                         <td style={{ padding: '4px 6px' }}>
@@ -799,8 +897,28 @@ export default function PlanificacionPage() {
                                                 )
                                               })}
                                             </select>
-                                          ) : (
+                                          ) : pieza.tipo === 'Unión' ? (
                                             <span style={{ fontSize: '10px', color: '#888', fontStyle: 'italic' }}>N/A</span>
+                                          ) : (
+                                            <div style={{ display: 'flex', gap: '3px' }}>
+                                              <input
+                                                type="text"
+                                                value={pieza.codigo || ''}
+                                                onChange={e => actualizarPiezaItemPlanificado(item.id_temp, pIdx, 'codigo', e.target.value)}
+                                                placeholder="Código"
+                                                style={{ width: '100%', fontSize: '10px', padding: '2px 4px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#ffffff', color: '#000000' }}
+                                              />
+                                              {pieza.tipo === 'Acero' && (
+                                                <input
+                                                  type="number"
+                                                  value={pieza.longitud_cm ?? 0}
+                                                  onChange={e => actualizarPiezaItemPlanificado(item.id_temp, pIdx, 'longitud_cm', e.target.value)}
+                                                  title="Longitud del corte en cm"
+                                                  placeholder="cm"
+                                                  style={{ width: '46px', fontSize: '10px', padding: '2px 4px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#ffffff', color: '#000000' }}
+                                                />
+                                              )}
+                                            </div>
                                           )}
                                         </td>
                                         <td style={{ padding: '4px 6px' }}>
@@ -835,6 +953,21 @@ export default function PlanificacionPage() {
                             ) : (
                               <p style={{ fontSize: '11px', color: '#888', fontStyle: 'italic', margin: '4px 0' }}>No hay piezas constructivas registradas.</p>
                             )}
+
+                            {(() => {
+                              const resumen = agruparMateriales(item.piezas_desglose || [])
+                              if (resumen.aceros.length === 0) return null
+                              return (
+                                <div style={{ marginTop: '8px', padding: '6px 8px', background: '#eef2f7', borderRadius: '4px', fontSize: '10px', color: '#0B1E36' }}>
+                                  <strong>🔩 Tubos a utilizar (barras de {LONGITUD_BARRA_CM}cm):</strong>
+                                  {resumen.aceros.map((g, gi) => (
+                                    <div key={gi} style={{ marginTop: '2px' }}>
+                                      {g.codigo_acero || g.descripcion}: {g.cortes.map(c => `${c.cantidad}×${c.longitud_cm}cm`).join(' + ')} = {g.total_cm}cm → <strong>{g.barras_necesarias} barra(s)</strong>
+                                    </div>
+                                  ))}
+                                </div>
+                              )
+                            })()}
                           </div>
                         )}
                       </div>
@@ -927,7 +1060,6 @@ export default function PlanificacionPage() {
                           <option value="Acero">Acero</option>
                           <option value="Accesorio">Accesorio</option>
                           <option value="Insumo">Insumo</option>
-                          <option value="Unión">Unión</option>
                         </select>
                         
                         <input
@@ -956,7 +1088,25 @@ export default function PlanificacionPage() {
                             })}
                           </select>
                         ) : (
-                          <span style={{ fontSize: '10px', color: '#888', fontStyle: 'italic', textAlign: 'center' }}>N/A</span>
+                          <div style={{ display: 'flex', gap: '3px' }}>
+                            <input
+                              type="text"
+                              placeholder="Código"
+                              value={pieza.codigo || ''}
+                              onChange={e => actualizarPiezaManualItem(idx, pIdx, 'codigo', e.target.value)}
+                              style={{ width: '100%', padding: '4px', fontSize: '10px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#ffffff', color: '#000000' }}
+                            />
+                            {pieza.tipo === 'Acero' && (
+                              <input
+                                type="number"
+                                placeholder="cm"
+                                title="Longitud del corte en cm"
+                                value={pieza.longitud_cm ?? 0}
+                                onChange={e => actualizarPiezaManualItem(idx, pIdx, 'longitud_cm', e.target.value)}
+                                style={{ width: '46px', padding: '4px', fontSize: '10px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#ffffff', color: '#000000' }}
+                              />
+                            )}
+                          </div>
                         )}
 
                         <input

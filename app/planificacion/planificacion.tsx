@@ -6,10 +6,9 @@ import { supabase } from '../../lib/supabase'
 interface PiezaDesglose {
   tipo: string
   descripcion: string
+  color?: string
   cantidad: number
-  largo_cm?: number
-  ancho_cm?: number
-  longitud_cm?: number
+  costo_unitario?: number
 }
 
 interface ItemPlanificacion {
@@ -47,6 +46,7 @@ export default function PlanificacionPage() {
   const [tipoIngreso, setTipoIngreso] = useState<'venta' | 'stock' | 'especial'>('venta')
   const [pedidosVenta, setPedidosVenta] = useState<any[]>([])
   const [catalogoProductos, setCatalogoProductos] = useState<any[]>([])
+  const [catalogoMelaminas, setCatalogoMelaminas] = useState<any[]>([])
 
   const [productoStockCod, setProductoStockCod] = useState('')
   const [variantesProducto, setVariantesProducto] = useState<any[]>([])
@@ -61,10 +61,13 @@ export default function PlanificacionPage() {
   const [itemsPlanificados, setItemsPlanificados] = useState<ItemPlanificacion[]>([])
   const [procesandoPlan, setProcesandoPlan] = useState(false)
 
-  // Estado para controlar qué items del lote muestran el desglose expandido
+  const [loteIdActual, setLoteIdActual] = useState<number | null>(null)
+  const [estadoWorkflowLote, setEstadoWorkflowLote] = useState<string>('creado')
+  const [cargandoLote, setCargandoLote] = useState(false)
+  const [lotesGuardados, setLotesGuardados] = useState<any[]>([])
+
   const [itemsExpandidos, setItemsExpandidos] = useState<Record<string, boolean>>({})
 
-  // Estado para el Modal de Configuración de Venta
   const [ventaEnConfiguracion, setVentaEnConfiguracion] = useState<any | null>(null)
   const [itemsConfigVenta, setItemsConfigVenta] = useState<ItemConfigVenta[]>([])
 
@@ -89,14 +92,94 @@ export default function PlanificacionPage() {
       setTalleres(sucData.map(s => s.nombre))
       setTallerSeleccionado(sucData[0].nombre)
     }
-    const { data: prodData } = await supabase.from('productos').select('codigo, nombre')
-    if (prodData) setCatalogoProductos(prodData)
+
+    const [prodRes, melRes] = await Promise.all([
+      supabase.from('productos').select('codigo, nombre'),
+      supabase.from('melaminas').select('*')
+    ])
+
+    if (prodRes.data) setCatalogoProductos(prodRes.data)
+    if (melRes.data) setCatalogoMelaminas(melRes.data)
+
     cargarVentasPorFecha(fechaBusquedaVentas)
   }
 
   useEffect(() => {
     if (usuario) cargarVentasPorFecha(fechaBusquedaVentas)
   }, [fechaBusquedaVentas])
+
+  const [autoDeteccionHecha, setAutoDeteccionHecha] = useState(false)
+  useEffect(() => {
+    if (!usuario || autoDeteccionHecha) return
+    const detectarLoteActivo = async () => {
+      const { data } = await supabase
+        .from('lotes_produccion')
+        .select('fecha, nombre_lote')
+        .neq('estado_workflow', 'aprobado')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (data) {
+        setFechaLote(data.fecha)
+        setNombreLote(data.nombre_lote)
+      }
+      setAutoDeteccionHecha(true)
+    }
+    detectarLoteActivo()
+  }, [usuario])
+
+  useEffect(() => {
+    if (!usuario) return
+    cargarLoteExistente(fechaLote, nombreLote)
+  }, [usuario, fechaLote, nombreLote])
+
+  useEffect(() => {
+    if (!usuario) return
+    cargarListaDeLotes()
+  }, [usuario])
+
+  const cargarListaDeLotes = async () => {
+    const { data } = await supabase
+      .from('lotes_produccion')
+      .select('id, fecha, nombre_lote, estado_workflow, updated_at')
+      .order('updated_at', { ascending: false })
+      .limit(30)
+    setLotesGuardados(data || [])
+  }
+
+  const cargarLoteExistente = async (fec: string, nombre: string) => {
+    const nombreLimpio = nombre.trim()
+    if (!nombreLimpio) return
+    setCargandoLote(true)
+    try {
+      const { data, error } = await supabase
+        .from('lotes_produccion')
+        .select('id, estado_workflow, materiales_planificados')
+        .eq('fecha', fec)
+        .eq('nombre_lote', nombreLimpio)
+        .maybeSingle()
+
+      if (error) throw error
+
+      if (data) {
+        setLoteIdActual(data.id)
+        setEstadoWorkflowLote(data.estado_workflow || 'creado')
+        const itemsRecuperados = (data.materiales_planificados || []).map((item: any, idx: number) => ({
+          ...item,
+          id_temp: item.id_temp || `rec-${idx}-${Math.random().toString(36).substr(2, 6)}`
+        }))
+        setItemsPlanificados(itemsRecuperados)
+      } else {
+        setLoteIdActual(null)
+        setEstadoWorkflowLote('creado')
+        setItemsPlanificados([])
+      }
+    } catch (err: any) {
+      console.error('Error al recuperar el lote guardado:', err?.message || err)
+    } finally {
+      setCargandoLote(false)
+    }
+  }
 
   useEffect(() => {
     const cargarVariantes = async () => {
@@ -131,15 +214,47 @@ export default function PlanificacionPage() {
       ])
 
       setPiezasVarianteActual([
-        ...(melres.data || []).map(m => ({ tipo: 'Melamina', ...m, descripcion: m.descripcion || m.codigo_melamina })),
-        ...(acerres.data || []).map(a => ({ tipo: 'Acero', ...a, descripcion: a.descripcion || a.codigo_acero })),
-        ...(accres.data || []).map(ac => ({ tipo: 'Accesorio', ...ac, descripcion: ac.descripcion || ac.codigo_accesorio })),
-        ...(insres.data || []).map(i => ({ tipo: 'Insumo', ...i, descripcion: i.descripcion || i.codigo_insumo })),
-        ...(unires.data || []).map(u => ({ tipo: 'Unión', ...u, descripcion: u.descripcion || u.codigo_union }))
+        ...(melres.data || []).map(m => {
+          const codigoMel = m.codigo_melamina || ''
+          const nombreMel = catalogoMelaminas.find(cat => cat.codigo_melamina === codigoMel)?.detalle || codigoMel
+          const descBase = m.descripcion || 'Melamina'
+          const descripcionFinal = descBase && descBase !== codigoMel && !descBase.includes(nombreMel) ? `${descBase} - ${nombreMel}` : nombreMel
+          return {
+            tipo: 'Melamina',
+            descripcion: descripcionFinal,
+            color: codigoMel,
+            cantidad: Number(m.cantidad) || 1,
+            costo_unitario: Number(m.costo_unitario ?? m.costo) || 0
+          }
+        }),
+        ...(acerres.data || []).map(a => ({
+          tipo: 'Acero',
+          descripcion: a.descripcion || a.codigo_acero,
+          cantidad: Number(a.cantidad) || 1,
+          costo_unitario: Number(a.costo_unitario ?? a.costo) || 0
+        })),
+        ...(accres.data || []).map(ac => ({
+          tipo: 'Accesorio',
+          descripcion: ac.descripcion || ac.codigo_accesorio,
+          cantidad: Number(ac.cantidad) || 1,
+          costo_unitario: Number(ac.costo_unitario ?? ac.costo) || 0
+        })),
+        ...(insres.data || []).map(i => ({
+          tipo: 'Insumo',
+          descripcion: i.descripcion || i.codigo_insumo,
+          cantidad: Number(i.cantidad) || 1,
+          costo_unitario: Number(i.costo_unitario ?? i.costo) || 0
+        })),
+        ...(unires.data || []).map(u => ({
+          tipo: 'Unión',
+          descripcion: u.descripcion || u.codigo_union,
+          cantidad: Number(u.cantidad) || 1,
+          costo_unitario: Number(u.costo_unitario ?? u.costo) || 0
+        }))
       ])
     }
     cargarPiezasVariante()
-  }, [varianteIdSeleccionada])
+  }, [varianteIdSeleccionada, catalogoMelaminas])
 
   const cambiarDiaBusqueda = (dias: number) => {
     const [anio, mes, dia] = fechaBusquedaVentas.split('-').map(Number)
@@ -231,19 +346,31 @@ export default function PlanificacionPage() {
     actualizado[index].piezasManuales.push({
       tipo: 'Melamina',
       descripcion: '',
+      color: '',
       cantidad: 1,
-      largo_cm: 0,
-      ancho_cm: 0
+      costo_unitario: 0
     })
     setItemsConfigVenta(actualizado)
   }
 
-  const actualizarPiezaManualItem = (itemIndex: number, piezaIndex: number, campo: string, valor: any) => {
+  const actualizarPiezaManualItem = (itemIndex: number, piezaIndex: number, campo: keyof PiezaDesglose, valor: string) => {
     const actualizado = [...itemsConfigVenta]
-    actualizado[itemIndex].piezasManuales[piezaIndex] = {
-      ...actualizado[itemIndex].piezasManuales[piezaIndex],
-      [campo]: valor
+    let piezaActual = { ...actualizado[itemIndex].piezasManuales[piezaIndex] }
+
+    if (campo === 'cantidad') {
+      piezaActual.cantidad = valor === '' ? 0 : Number(valor)
+    } else if (campo === 'costo_unitario') {
+      piezaActual.costo_unitario = valor === '' ? 0 : Number(valor)
+    } else {
+      piezaActual[campo] = valor
     }
+
+    if (campo === 'color' && piezaActual.tipo === 'Melamina') {
+      const nombreMel = catalogoMelaminas.find(cat => cat.codigo_melamina === valor)?.detalle || valor
+      piezaActual.descripcion = nombreMel ? `Melamina - ${nombreMel}` : piezaActual.descripcion
+    }
+
+    actualizado[itemIndex].piezasManuales[piezaIndex] = piezaActual
     setItemsConfigVenta(actualizado)
   }
 
@@ -251,6 +378,52 @@ export default function PlanificacionPage() {
     const actualizado = [...itemsConfigVenta]
     actualizado[itemIndex].piezasManuales.splice(piezaIndex, 1)
     setItemsConfigVenta(actualizado)
+  }
+
+  const actualizarPiezaItemPlanificado = (idTemp: string, piezaIdx: number, campo: keyof PiezaDesglose, valor: string) => {
+    setItemsPlanificados(prev => prev.map(item => {
+      if (item.id_temp !== idTemp) return item
+      const nuevasPiezas = [...item.piezas_desglose]
+      let piezaActual = { ...nuevasPiezas[piezaIdx] }
+
+      if (campo === 'cantidad') {
+        piezaActual.cantidad = valor === '' ? 0 : Number(valor)
+      } else if (campo === 'costo_unitario') {
+        piezaActual.costo_unitario = valor === '' ? 0 : Number(valor)
+      } else {
+        piezaActual[campo] = valor
+      }
+
+      if (campo === 'color' && piezaActual.tipo === 'Melamina') {
+        const nombreMel = catalogoMelaminas.find(cat => cat.codigo_melamina === valor)?.detalle || valor
+        piezaActual.descripcion = nombreMel ? `Melamina - ${nombreMel}` : piezaActual.descripcion
+      }
+
+      nuevasPiezas[piezaIdx] = piezaActual
+      return { ...item, piezas_desglose: nuevasPiezas }
+    }))
+  }
+
+  const eliminarPiezaItemPlanificado = (idTemp: string, piezaIdx: number) => {
+    setItemsPlanificados(prev => prev.map(item => {
+      if (item.id_temp !== idTemp) return item
+      const nuevasPiezas = [...item.piezas_desglose]
+      nuevasPiezas.splice(piezaIdx, 1)
+      return { ...item, piezas_desglose: nuevasPiezas }
+    }))
+  }
+
+  const agregarPiezaItemPlanificado = (idTemp: string) => {
+    setItemsPlanificados(prev => prev.map(item => {
+      if (item.id_temp !== idTemp) return item
+      return {
+        ...item,
+        piezas_desglose: [
+          ...item.piezas_desglose,
+          { tipo: 'Melamina', descripcion: '', color: '', cantidad: 1, costo_unitario: 0 }
+        ]
+      }
+    }))
   }
 
   const confirmarAgregarVentaConVariantes = async () => {
@@ -279,13 +452,38 @@ export default function PlanificacionPage() {
               supabase.from('variante_uniones').select('*').eq('variante_id', vId)
             ])
 
+            const mapMelamina = (rows: any[] | null) => (rows || []).map(x => {
+              const codigoMel = x.codigo_melamina || ''
+              const nombreMel = catalogoMelaminas.find(cat => cat.codigo_melamina === codigoMel)?.detalle || codigoMel
+              const descBase = x.descripcion || 'Melamina'
+              const descripcionFinal = descBase && descBase !== codigoMel && !descBase.includes(nombreMel) ? `${descBase} - ${nombreMel}` : nombreMel
+              return {
+                tipo: 'Melamina',
+                cantidad: (Number(x.cantidad) || 1) * mult,
+                descripcion: descripcionFinal,
+                color: codigoMel,
+                costo_unitario: Number(x.costo_unitario ?? x.costo) || 0
+              }
+            })
+
+            const mapPiezas = (rows: any[] | null, tipo: string) => (rows || []).map(x => {
+              let codigoCampo = `codigo_${tipo.toLowerCase()}`
+              if (tipo === 'Unión') codigoCampo = 'codigo_union'
+              return {
+                tipo,
+                cantidad: (Number(x.cantidad) || 1) * mult,
+                descripcion: x.descripcion || x[codigoCampo],
+                costo_unitario: Number(x.costo_unitario ?? x.costo) || 0
+              }
+            })
+
             piezasDesgloseVenta = [
               ...piezasDesgloseVenta,
-              ...(m.data || []).map(x => ({ tipo: 'Melamina', ...x, cantidad: (x.cantidad || 1) * mult, descripcion: x.descripcion || x.codigo_melamina })),
-              ...(a.data || []).map(x => ({ tipo: 'Acero', ...x, cantidad: (x.cantidad || 1) * mult, descripcion: x.descripcion || x.codigo_acero })),
-              ...(ac.data || []).map(x => ({ tipo: 'Accesorio', ...x, cantidad: (x.cantidad || 1) * mult, descripcion: x.descripcion || x.codigo_accesorio })),
-              ...(i.data || []).map(x => ({ tipo: 'Insumo', ...x, cantidad: (x.cantidad || 1) * mult, descripcion: x.descripcion || x.codigo_insumo })),
-              ...(u.data || []).map(x => ({ tipo: 'Unión', ...x, cantidad: (x.cantidad || 1) * mult, descripcion: x.descripcion || x.codigo_union }))
+              ...mapMelamina(m.data),
+              ...mapPiezas(a.data, 'Acero'),
+              ...mapPiezas(ac.data, 'Accesorio'),
+              ...mapPiezas(i.data, 'Insumo'),
+              ...mapPiezas(u.data, 'Unión')
             ]
           }
         }
@@ -352,44 +550,63 @@ export default function PlanificacionPage() {
   }
 
   const guardarLoteEnSupabase = async () => {
+    const nombreLimpio = nombreLote.trim()
+    if (!nombreLimpio) {
+      alert('Ponle un nombre al lote antes de guardar.')
+      return
+    }
+    if (nombreLimpio !== nombreLote) setNombreLote(nombreLimpio)
+
+    const costoTotalLote = itemsPlanificados.reduce((acc, item) => {
+      const piezas = item.piezas_desglose || []
+      const subtotalItem = piezas.reduce((sum, p) => sum + ((Number(p.cantidad) || 1) * (Number(p.costo_unitario) || 0)), 0)
+      return acc + subtotalItem
+    }, 0)
+
     setProcesandoPlan(true)
     try {
       const { data: existing } = await supabase
         .from('lotes_produccion')
-        .select('id')
+        .select('id, estado_workflow')
         .eq('fecha', fechaLote)
-        .eq('nombre_lote', nombreLote)
+        .eq('nombre_lote', nombreLimpio)
         .maybeSingle()
 
       let error;
+      let idResultante = existing?.id ?? null
       if (existing) {
         const { error: err } = await supabase
           .from('lotes_produccion')
           .update({
-            estado_workflow: 'creado',
-            pedidos_seleccionados: itemsPlanificados,
+            estado_workflow: existing.estado_workflow || 'creado',
+            materiales_planificados: itemsPlanificados,
             updated_at: new Date().toISOString()
           })
           .eq('id', existing.id)
         error = err;
       } else {
-        const { error: err } = await supabase
+        const { data: inserted, error: err } = await supabase
           .from('lotes_produccion')
           .insert({
             fecha: fechaLote,
-            nombre_lote: nombreLote,
+            nombre_lote: nombreLimpio,
             estado_workflow: 'creado',
-            pedidos_seleccionados: itemsPlanificados,
+            materiales_planificados: itemsPlanificados,
             updated_at: new Date().toISOString()
           })
+          .select('id')
+          .single()
         error = err;
+        idResultante = inserted?.id ?? null
       }
 
       if (error) throw error
-      alert('¡Lote y desglose guardados correctamente!')
-    } catch (err) {
+      setLoteIdActual(idResultante)
+      cargarListaDeLotes()
+      alert(`¡Lote guardado correctamente!\nCosto Total calculado: $${costoTotalLote.toFixed(2)}`)
+    } catch (err: any) {
       console.error(err)
-      alert('Error al guardar la planificación.')
+      alert('Error al guardar la planificación: ' + (err?.message || 'revisa la consola.'))
     } finally {
       setProcesandoPlan(false)
     }
@@ -430,7 +647,36 @@ export default function PlanificacionPage() {
                 {talleres.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
+            {lotesGuardados.length > 0 && (
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold' }}>Abrir lote existente:</label>
+                <select
+                  value=""
+                  onChange={e => {
+                    const sel = lotesGuardados.find(l => String(l.id) === e.target.value)
+                    if (sel) { setFechaLote(sel.fecha); setNombreLote(sel.nombre_lote) }
+                  }}
+                  style={{ padding: '6px', borderRadius: '4px', border: '1px solid #ccc', marginTop: '4px', width: '260px' }}
+                >
+                  <option value="">-- Seleccionar de Supabase --</option>
+                  {lotesGuardados.map(l => (
+                    <option key={l.id} value={l.id}>
+                      {l.fecha} · {l.nombre_lote} ({l.estado_workflow})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
+
+          {cargandoLote && (
+            <p style={{ fontSize: '12px', color: '#666', margin: '0 0 10px 0' }}>Recuperando lote guardado desde Supabase...</p>
+          )}
+          {!cargandoLote && loteIdActual && (
+            <p style={{ fontSize: '12px', color: '#16a34a', margin: '0 0 10px 0' }}>
+              ✓ Lote existente recuperado ({itemsPlanificados.length} items) · Estado: <strong>{estadoWorkflowLote}</strong>
+            </p>
+          )}
 
           <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
             {/* Panel Izquierdo: Inputs */}
@@ -443,7 +689,7 @@ export default function PlanificacionPage() {
 
               {tipoIngreso === 'venta' && (
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '5px' }}>Fecha de Entrega (Pendientes / En Proceso):</label>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '5px' }}>Fecha de Entrega:</label>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '15px' }}>
                     <button onClick={() => cambiarDiaBusqueda(-1)} style={{ background: '#0B1E36', color: '#C5A059', border: 'none', padding: '6px 10px', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>
                       ← Día Anterior
@@ -514,40 +760,108 @@ export default function PlanificacionPage() {
                               onClick={() => toggleExpandItem(item.id_temp)}
                               style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#0B1E36', fontSize: '11px', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
                             >
-                              {expandido ? 'Ocultar componentes ▲' : `Ver componentes (${item.piezas_desglose?.length || 0}) ▼`}
+                              {expandido ? 'Ocultar componentes ▲' : `Ver y Editar componentes (${item.piezas_desglose?.length || 0}) ▼`}
                             </button>
                             <button onClick={() => setItemsPlanificados(prev => prev.filter(i => i.id_temp !== item.id_temp))} style={{ background: 'none', border: 'none', color: '#ef4444', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}>✕</button>
                           </div>
                         </div>
                         <div style={{ fontSize: '11px', color: '#555', marginTop: '4px' }}>Destino: {item.taller_destino}</div>
 
-                        {/* Desglose desplegable para verificación de componentes */}
                         {expandido && (
                           <div style={{ marginTop: '10px', borderTop: '1px dashed #cbd5e1', paddingTop: '8px' }}>
-                            <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#0B1E36', marginBottom: '6px' }}>📋 Desglose de Componentes / Piezas:</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                              <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#0B1E36' }}>✏️ Editar Componentes / Piezas:</div>
+                              <button
+                                onClick={() => agregarPiezaItemPlanificado(item.id_temp)}
+                                style={{ background: '#C5A059', color: '#0B1E36', border: 'none', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}
+                              >
+                                + Añadir Pieza
+                              </button>
+                            </div>
+
                             {item.piezas_desglose && item.piezas_desglose.length > 0 ? (
-                              <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#f8fafc' }}>
+                              <div style={{ maxHeight: '240px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#f8fafc', padding: '4px' }}>
                                 <table style={{ width: '100%', fontSize: '10px', borderCollapse: 'collapse' }}>
                                   <thead>
                                     <tr style={{ background: '#e2e8f0', textAlign: 'left', color: '#0B1E36' }}>
-                                      <th style={{ padding: '4px 6px' }}>Tipo</th>
-                                      <th style={{ padding: '4px 6px' }}>Descripción</th>
-                                      <th style={{ padding: '4px 6px' }}>Cant.</th>
-                                      <th style={{ padding: '4px 6px' }}>Medidas</th>
+                                      <th style={{ padding: '4px 6px', width: '75px' }}>Tipo</th>
+                                      <th style={{ padding: '4px 6px' }}>Detalle de Pieza</th>
+                                      <th style={{ padding: '4px 6px' }}>Código Melamina</th>
+                                      <th style={{ padding: '4px 6px', width: '40px' }}>Cant.</th>
+                                      <th style={{ padding: '4px 6px', width: '55px' }}>Costo Unit.</th>
+                                      <th style={{ padding: '4px 6px', width: '25px' }}></th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {item.piezas_desglose.map((pieza, pIdx) => (
                                       <tr key={pIdx} style={{ borderBottom: '1px solid #eee' }}>
-                                        <td style={{ padding: '4px 6px', fontWeight: 'bold' }}>{pieza.tipo}</td>
-                                        <td style={{ padding: '4px 6px' }}>{pieza.descripcion || '-'}</td>
-                                        <td style={{ padding: '4px 6px' }}>{pieza.cantidad}</td>
                                         <td style={{ padding: '4px 6px' }}>
-                                          {[
-                                            pieza.largo_cm && `L: ${pieza.largo_cm}cm`, 
-                                            pieza.ancho_cm && `A: ${pieza.ancho_cm}cm`, 
-                                            pieza.longitud_cm && `Long: ${pieza.longitud_cm}cm`
-                                          ].filter(Boolean).join(' | ') || '-'}
+                                          <select
+                                            value={pieza.tipo}
+                                            onChange={e => actualizarPiezaItemPlanificado(item.id_temp, pIdx, 'tipo', e.target.value)}
+                                            style={{ fontSize: '10px', padding: '2px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#ffffff', color: '#000000' }}
+                                          >
+                                            <option value="Melamina">Melamina</option>
+                                            <option value="Acero">Acero</option>
+                                            <option value="Accesorio">Accesorio</option>
+                                            <option value="Insumo">Insumo</option>
+                                            <option value="Unión">Unión</option>
+                                          </select>
+                                        </td>
+                                        <td style={{ padding: '4px 6px' }}>
+                                          <input
+                                            type="text"
+                                            value={pieza.descripcion || ''}
+                                            onChange={e => actualizarPiezaItemPlanificado(item.id_temp, pIdx, 'descripcion', e.target.value)}
+                                            placeholder="Ej. Lateral, Puerta..."
+                                            style={{ width: '100%', fontSize: '10px', padding: '2px 4px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#ffffff', color: '#000000' }}
+                                          />
+                                        </td>
+                                        <td style={{ padding: '4px 6px' }}>
+                                          {pieza.tipo === 'Melamina' ? (
+                                            <select
+                                              value={pieza.color || ''}
+                                              onChange={e => actualizarPiezaItemPlanificado(item.id_temp, pIdx, 'color', e.target.value)}
+                                              style={{ width: '100%', fontSize: '10px', padding: '2px 4px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#ffffff', color: '#000000' }}
+                                            >
+                                              <option value="" style={{ color: '#000', background: '#fff' }}>-- Seleccionar Melamina --</option>
+                                              {catalogoMelaminas.map((mel, mIdx) => {
+                                                const codigoMel = mel.codigo_melamina || ''
+                                                const descMel = mel.detalle || codigoMel || `Melamina #${mIdx + 1}`
+                                                return (
+                                                  <option key={mIdx} value={codigoMel} style={{ color: '#000', background: '#fff' }}>
+                                                    {codigoMel} - {descMel}
+                                                  </option>
+                                                )
+                                              })}
+                                            </select>
+                                          ) : (
+                                            <span style={{ fontSize: '10px', color: '#888', fontStyle: 'italic' }}>N/A</span>
+                                          )}
+                                        </td>
+                                        <td style={{ padding: '4px 6px' }}>
+                                          <input
+                                            type="number"
+                                            value={pieza.cantidad ?? 1}
+                                            onChange={e => actualizarPiezaItemPlanificado(item.id_temp, pIdx, 'cantidad', e.target.value)}
+                                            style={{ width: '38px', fontSize: '10px', padding: '2px 4px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#ffffff', color: '#000000' }}
+                                          />
+                                        </td>
+                                        <td style={{ padding: '4px 6px' }}>
+                                          <input
+                                            type="number"
+                                            value={pieza.costo_unitario ?? 0}
+                                            onChange={e => actualizarPiezaItemPlanificado(item.id_temp, pIdx, 'costo_unitario', e.target.value)}
+                                            style={{ width: '52px', fontSize: '10px', padding: '2px 4px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#ffffff', color: '#000000' }}
+                                          />
+                                        </td>
+                                        <td style={{ padding: '4px 6px', textAlign: 'center' }}>
+                                          <button
+                                            onClick={() => eliminarPiezaItemPlanificado(item.id_temp, pIdx)}
+                                            style={{ background: 'none', border: 'none', color: '#ef4444', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}
+                                          >
+                                            ✕
+                                          </button>
                                         </td>
                                       </tr>
                                     ))}
@@ -555,7 +869,7 @@ export default function PlanificacionPage() {
                                 </table>
                               </div>
                             ) : (
-                              <p style={{ fontSize: '11px', color: '#888', fontStyle: 'italic', margin: '4px 0' }}>No hay piezas constructivas registradas para este item.</p>
+                              <p style={{ fontSize: '11px', color: '#888', fontStyle: 'italic', margin: '4px 0' }}>No hay piezas constructivas registradas.</p>
                             )}
                           </div>
                         )}
@@ -572,15 +886,15 @@ export default function PlanificacionPage() {
         </div>
       </div>
 
-      {/* Modal para selección de variantes o registro manual de piezas */}
+      {/* Modal para selección de variantes */}
       {ventaEnConfiguracion && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
-          <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', maxWidth: '700px', width: '100%', boxShadow: '0 4px 20px rgba(0,0,0,0.15)', maxHeight: '90vh', overflowY: 'auto' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', maxWidth: '800px', width: '100%', boxShadow: '0 4px 20px rgba(0,0,0,0.15)', maxHeight: '90vh', overflowY: 'auto' }}>
             <h2 style={{ color: '#0B1E36', fontSize: '18px', margin: '0 0 10px 0', borderBottom: '2px solid #C5A059', paddingBottom: '8px' }}>
               Configurar Componentes para Venta #{ventaEnConfiguracion.cod_venta}
             </h2>
             <p style={{ fontSize: '12px', color: '#666', marginBottom: '20px' }}>
-              Cliente: <strong>{ventaEnConfiguracion.cliente_nombre}</strong>. Selecciona una variante existente o registra las piezas de forma manual / créala en <a href="/construccion" target="_blank" style={{ color: '#0B1E36', fontWeight: 'bold' }}>/construccion</a>.
+              Cliente: <strong>{ventaEnConfiguracion.cliente_nombre}</strong>. Selecciona una variante o registra las piezas manualmente.
             </p>
 
             {itemsConfigVenta.map((item, idx) => (
@@ -604,12 +918,9 @@ export default function PlanificacionPage() {
                     {item.variantesDisponibles.length === 0 ? (
                       <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', padding: '10px', borderRadius: '6px', marginBottom: '6px' }}>
                         <div style={{ fontSize: '11px', color: '#9f1239', fontWeight: 'bold', marginBottom: '4px' }}>⚠️ No existen variantes para este producto.</div>
-                        <div style={{ fontSize: '11px', color: '#666', display: 'flex', gap: '10px', alignItems: 'center' }}>
-                          <span>Puedes crearlas en <a href="/construccion" target="_blank" style={{ color: '#0B1E36', fontWeight: 'bold' }}>/construccion</a> o:</span>
-                          <button onClick={() => toggleModoManualItemConfig(idx)} style={{ background: '#0B1E36', color: '#C5A059', border: 'none', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>
-                            Añadir piezas manualmente aquí
-                          </button>
-                        </div>
+                        <button onClick={() => toggleModoManualItemConfig(idx)} style={{ background: '#0B1E36', color: '#C5A059', border: 'none', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>
+                          Añadir piezas manualmente aquí
+                        </button>
                       </div>
                     ) : (
                       <div>
@@ -617,10 +928,10 @@ export default function PlanificacionPage() {
                         <select
                           value={item.varianteSeleccionadaId}
                           onChange={e => actualizarVarianteItemConfig(idx, e.target.value)}
-                          style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '12px' }}
+                          style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '12px', backgroundColor: '#ffffff', color: '#000000' }}
                         >
                           {item.variantesDisponibles.map(v => (
-                            <option key={v.id} value={v.id}>
+                            <option key={v.id} value={v.id} style={{ color: '#000', background: '#fff' }}>
                               {v.nombre_variante || `Variante #${v.id}`}
                             </option>
                           ))}
@@ -642,11 +953,11 @@ export default function PlanificacionPage() {
                     )}
 
                     {item.piezasManuales.map((pieza, pIdx) => (
-                      <div key={pIdx} style={{ display: 'grid', gridTemplateColumns: '90px 1fr 60px 70px 30px', gap: '6px', alignItems: 'center', marginBottom: '6px' }}>
+                      <div key={pIdx} style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr 45px 55px 20px', gap: '6px', alignItems: 'center', marginBottom: '6px' }}>
                         <select
                           value={pieza.tipo}
                           onChange={e => actualizarPiezaManualItem(idx, pIdx, 'tipo', e.target.value)}
-                          style={{ padding: '4px', fontSize: '11px', borderRadius: '4px', border: '1px solid #ccc' }}
+                          style={{ padding: '4px', fontSize: '10px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#ffffff', color: '#000000' }}
                         >
                           <option value="Melamina">Melamina</option>
                           <option value="Acero">Acero</option>
@@ -654,26 +965,49 @@ export default function PlanificacionPage() {
                           <option value="Insumo">Insumo</option>
                           <option value="Unión">Unión</option>
                         </select>
+                        
                         <input
                           type="text"
-                          placeholder="Descripción (ej. Lateral izquierdo)"
+                          placeholder="Detalle (Ej. Lateral)"
                           value={pieza.descripcion}
                           onChange={e => actualizarPiezaManualItem(idx, pIdx, 'descripcion', e.target.value)}
-                          style={{ padding: '4px', fontSize: '11px', borderRadius: '4px', border: '1px solid #ccc' }}
+                          style={{ padding: '4px', fontSize: '10px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#ffffff', color: '#000000' }}
                         />
+
+                        {pieza.tipo === 'Melamina' ? (
+                          <select
+                            value={pieza.color || ''}
+                            onChange={e => actualizarPiezaManualItem(idx, pIdx, 'color', e.target.value)}
+                            style={{ padding: '4px', fontSize: '10px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#ffffff', color: '#000000' }}
+                          >
+                            <option value="" style={{ color: '#000', background: '#fff' }}>-- Melamina --</option>
+                            {catalogoMelaminas.map((mel, mIdx) => {
+                              const codigoMel = mel.codigo_melamina || ''
+                              const descMel = mel.detalle || codigoMel || `Melamina #${mIdx + 1}`
+                              return (
+                                <option key={mIdx} value={codigoMel} style={{ color: '#000', background: '#fff' }}>
+                                  {codigoMel} - {descMel}
+                                </option>
+                              )
+                            })}
+                          </select>
+                        ) : (
+                          <span style={{ fontSize: '10px', color: '#888', fontStyle: 'italic', textAlign: 'center' }}>N/A</span>
+                        )}
+
                         <input
                           type="number"
                           placeholder="Cant"
                           value={pieza.cantidad}
                           onChange={e => actualizarPiezaManualItem(idx, pIdx, 'cantidad', e.target.value)}
-                          style={{ padding: '4px', fontSize: '11px', borderRadius: '4px', border: '1px solid #ccc' }}
+                          style={{ padding: '4px', fontSize: '10px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#ffffff', color: '#000000' }}
                         />
                         <input
-                          type="text"
-                          placeholder="Medidas"
-                          value={pieza.largo_cm || ''}
-                          onChange={e => actualizarPiezaManualItem(idx, pIdx, 'largo_cm', e.target.value)}
-                          style={{ padding: '4px', fontSize: '11px', borderRadius: '4px', border: '1px solid #ccc' }}
+                          type="number"
+                          placeholder="Costo"
+                          value={pieza.costo_unitario ?? 0}
+                          onChange={e => actualizarPiezaManualItem(idx, pIdx, 'costo_unitario', e.target.value)}
+                          style={{ padding: '4px', fontSize: '10px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#ffffff', color: '#000000' }}
                         />
                         <button onClick={() => eliminarPiezaManualItem(idx, pIdx)} style={{ background: 'none', border: 'none', color: '#ef4444', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}>✕</button>
                       </div>
