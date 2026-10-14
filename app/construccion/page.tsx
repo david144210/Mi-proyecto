@@ -267,6 +267,7 @@ export default function ProductosConstructivos() {
   const [fpLargo, setFpLargo] = useState('')
   const [fpAncho, setFpAncho] = useState('')
   const [fpCantidad, setFpCantidad] = useState('')
+  const [fpPuntos, setFpPuntos] = useState('') // solo para calcular electrodos; no se guarda
   // Canteado (tapacanto) — solo aplica a melamina
   const [fpCanteadoSup, setFpCanteadoSup] = useState(false)
   const [fpCanteadoInf, setFpCanteadoInf] = useState(false)
@@ -363,6 +364,43 @@ export default function ProductosConstructivos() {
     setLoadingPanel(false)
   }, [])
 
+  // ── Insumos con fórmula ────────────────────────────────────────────────────
+  // Cada insumo del catálogo puede tener: base_calculo ('puntos' | 'metros_tubo') y
+  // rendimiento (cuántos puntos o metros de tubo rinde UNA unidad del insumo).
+  // cantidad = base ÷ rendimiento. Sin base_calculo, la cantidad se ingresa directamente.
+  const longitudTuboM = piezasAcero.reduce((a, p) => a + (Number(p.longitud_cm) || 0) * (Number(p.cantidad) || 0), 0) / 100
+
+  const insumoTieneFormula = (ins: any) => !!ins && !!ins.base_calculo && Number(ins.rendimiento) > 0
+
+  const cantidadPorFormula = (ins: any, puntos: number): number | null => {
+    if (!insumoTieneFormula(ins)) return null
+    const base = ins.base_calculo === 'puntos' ? puntos : ins.base_calculo === 'metros_tubo' ? longitudTuboM : 0
+    if (!(base > 0)) return null
+    return Number((base / Number(ins.rendimiento)).toFixed(3))
+  }
+
+  // Recalcula los insumos que dependen de la longitud de tubo (pintura, solvente, etc.)
+  // cuando cambian las piezas de acero. Los de puntos no se recalculan porque el dato
+  // de puntos no se guarda.
+  const recalcularInsumosPorTubo = async () => {
+    if (!varianteSel) return
+    let actualizados = 0
+    for (const p of piezasInsumos) {
+      const ins = insumos.find(i => i.codigo_insumos === p.codigo_insumo)
+      if (!ins || ins.base_calculo !== 'metros_tubo') continue
+      const nueva = cantidadPorFormula(ins, 0)
+      if (nueva === null || nueva === Number(p.cantidad)) continue
+      await supabase.from('variante_insumos').update({ cantidad: nueva }).eq('id', p.id)
+      actualizados++
+    }
+    await recalcularVariante(varianteSel.id)
+    const { data } = await supabase.from('variante_insumos').select('*').eq('variante_id', varianteSel.id).order('id')
+    setPiezasInsumos(data || [])
+    alert(actualizados > 0
+      ? `Se actualizaron ${actualizados} insumo(s) según ${longitudTuboM.toFixed(2)} m de tubo.`
+      : 'Los insumos por longitud de tubo ya estaban al día.')
+  }
+
   const recalcularVariante = async (varianteId: number) => {
     await supabase.rpc('recalcular_costos_variante', { p_variante_id: varianteId })
     const { data } = await supabase.from('producto_variantes').select('*').eq('id', varianteId).single()
@@ -424,13 +462,14 @@ export default function ProductosConstructivos() {
   // ── Nueva / Editar pieza ─────────────────────────────────────────────────
   const abrirModalPieza = () => {
     setPiezaEditando(null)
-    setFpCodigo(''); setFpDescripcion(''); setFpLongitud(''); setFpLargo(''); setFpAncho(''); setFpCantidad('')
+    setFpCodigo(''); setFpDescripcion(''); setFpLongitud(''); setFpLargo(''); setFpAncho(''); setFpCantidad(''); setFpPuntos('')
     setFpCanteadoSup(false); setFpCanteadoInf(false); setFpCanteadoIzq(false); setFpCanteadoDer(false); setFpPrecioTapacanto('')
     setErrorModal(''); setExito(''); setModalPieza(true)
   }
 
   const abrirModalPiezaEditar = (p: any) => {
     setPiezaEditando(p)
+    setFpPuntos('')
     setErrorModal(''); setExito('')
 
     if (tabActiva === 'acero') {
@@ -548,9 +587,9 @@ export default function ProductosConstructivos() {
     }
 
     if (tabActiva === 'insumos') {
-      // TODO: implementar fórmula de consumo por insumo
-      // Por ahora se registra la cantidad directamente
-      // La fórmula dependerá del tipo de insumo (ej: pintura = longitud_total_tubo / consumo)
+      // La cantidad puede venir de una fórmula (puntos o longitud de tubo) o ingresarse
+      // directamente. Siempre se guarda solo la cantidad: Planificación y Presupuestos
+      // leen esta fila igual que antes.
       const payload = { codigo_insumo: fpCodigo, descripcion: fpDescripcion || null, cantidad: cant }
       const res = editando
         ? await supabase.from('variante_insumos').update(payload).eq('id', piezaEditando.id)
@@ -802,8 +841,7 @@ export default function ProductosConstructivos() {
     if (tabActiva === 'insumos') {
       const ins = insumos.find(i => i.codigo_insumos === fpCodigo)
       if (!ins || !cant) return null
-      // TODO: usar fórmula de consumo cuando esté implementada
-      return `Preview: ${cant} × Bs.${ins.precio_cotizador} = ${fmt(cant * ins.precio_cotizador)} (fórmula pendiente)`
+      return `Preview: ${cant} × Bs.${ins.precio_cotizador} = ${fmt(cant * ins.precio_cotizador)}`
     }
     return null
   }
@@ -921,7 +959,13 @@ export default function ProductosConstructivos() {
                 <label style={labelStyle}>
                   {tabActiva === 'acero' ? 'Código acero' : tabActiva === 'melamina' ? 'Código melamina' : tabActiva === 'accesorios' ? 'Código accesorio' : 'Código insumo'} *
                 </label>
-                <select value={fpCodigo} onChange={e => setFpCodigo(e.target.value)} style={inputStyle}>
+                <select value={fpCodigo} onChange={e => {
+                  setFpCodigo(e.target.value)
+                  if (tabActiva === 'insumos') {
+                    const c = cantidadPorFormula(insumos.find(i => i.codigo_insumos === e.target.value), parseFloat(fpPuntos) || 0)
+                    if (c !== null) setFpCantidad(String(c))
+                  }
+                }} style={inputStyle}>
                   <option value="">-- Selecciona --</option>
                   {tabActiva === 'acero' && aceros.map(a => <option key={a.id} value={a.codigo_acero}>{a.codigo_acero} — {a.detalle}</option>)}
                   {tabActiva === 'melamina' && melaminas.map(m => <option key={m.id} value={m.codigo_melamina}>{m.codigo_melamina} — {m.detalle}</option>)}
@@ -1022,13 +1066,49 @@ export default function ProductosConstructivos() {
                 </>
               )}
 
+              {tabActiva === 'insumos' && (() => {
+                const ins = insumos.find(i => i.codigo_insumos === fpCodigo)
+                if (!insumoTieneFormula(ins)) return null
+                return (
+                  <div style={{ backgroundColor: '#f0f7ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '10px 14px', fontSize: '12px', color: '#1e40af' }}>
+                    {ins.base_calculo === 'puntos' ? (
+                      <>
+                        <label style={labelStyle}>Puntos de soldadura por mueble</label>
+                        <input
+                          type="number" min="0" step="1" value={fpPuntos}
+                          onChange={e => {
+                            setFpPuntos(e.target.value)
+                            const c = cantidadPorFormula(ins, parseFloat(e.target.value) || 0)
+                            setFpCantidad(c !== null ? String(c) : '')
+                          }}
+                          style={inputStyle} placeholder="Ej: 40"
+                        />
+                        <p style={{ margin: '6px 0 0' }}>
+                          1 unidad rinde {ins.rendimiento} puntos → cantidad = puntos ÷ {ins.rendimiento}. Los puntos no se guardan, solo la cantidad.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p style={{ margin: 0 }}><strong>Longitud total de tubo de esta variante: {longitudTuboM.toFixed(2)} m</strong></p>
+                        <p style={{ margin: '6px 0 0' }}>1 unidad rinde {ins.rendimiento} m de tubo → cantidad = metros ÷ {ins.rendimiento}.</p>
+                        {longitudTuboM === 0 && (
+                          <p style={{ margin: '6px 0 0', color: '#b91c1c' }}>Esta variante todavía no tiene piezas de acero registradas.</p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )
+              })()}
+
               {(tabActiva === 'accesorios' || tabActiva === 'insumos') && (
                 <div>
                   <label style={labelStyle}>Cantidad *</label>
                   <input type="number" value={fpCantidad} onChange={e => setFpCantidad(e.target.value)} style={inputStyle} placeholder="Ej: 4" min="0" step="0.01" />
                   {tabActiva === 'insumos' && (
-                    <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#f57f17', fontStyle: 'italic' }}>
-                      ⚠️ Fórmula de consumo pendiente — se registra cantidad directamente
+                    <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#6b7280', fontStyle: 'italic' }}>
+                      {insumoTieneFormula(insumos.find(i => i.codigo_insumos === fpCodigo))
+                        ? 'Calculada por fórmula; puedes ajustarla si hace falta.'
+                        : 'Este insumo no tiene fórmula: ingresa la cantidad directamente.'}
                     </p>
                   )}
                 </div>
@@ -1559,6 +1639,16 @@ export default function ProductosConstructivos() {
                               </tbody>
                             </table>
                           )
+                        )}
+
+                        {tabActiva === 'insumos' && puedeEditar && piezasInsumos.some(p => insumos.find(i => i.codigo_insumos === p.codigo_insumo)?.base_calculo === 'metros_tubo') && (
+                          <div style={{ padding: '10px 16px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', borderBottom: '1px solid #eee' }}>
+                            <button onClick={recalcularInsumosPorTubo}
+                              style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #1a73e8', background: 'white', color: '#1a73e8', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}>
+                              🔄 Recalcular insumos por longitud de tubo ({longitudTuboM.toFixed(2)} m)
+                            </button>
+                            <span style={{ fontSize: '11px', color: '#888' }}>Los de soldadura (por puntos) no se recalculan.</span>
+                          </div>
                         )}
 
                         {/* INSUMOS */}

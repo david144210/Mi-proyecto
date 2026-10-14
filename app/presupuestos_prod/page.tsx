@@ -37,6 +37,7 @@ interface MaterialPresupuesto {
   tipo: 'variante' | 'manual'
   taller_destino?: string
   id_planificado?: string // Identificador para rastrear de qué item planificado proviene
+  comprado?: boolean // Control visual de compras: true = ya se compró (verde), si no = pendiente (azul)
 }
 
 type EstadoWorkflow = 'creado' | 'revision_taller' | 'en_compras' | 'aprobado'
@@ -446,7 +447,8 @@ export default function GestorPresupuestosWorkflow() {
         gastoReal: Number((comprar * precio).toFixed(2)),
         tipo: 'variante',
         taller_destino: r.taller,
-        id_planificado: idAuto
+        id_planificado: idAuto,
+        ...(previo?.comprado ? { comprado: true } : {})
       })
     }
     return [...filasManualesYPedidos, ...nuevasFilas]
@@ -656,6 +658,14 @@ export default function GestorPresupuestosWorkflow() {
     await persistirLoteEnBD(estadoWorkflow, pedidosSeleccionados, nuevosMateriales, materialesPlanificados)
   }
 
+  // Marca una fila como comprada / pendiente. Es solo un control visual y no cambia cantidades ni montos.
+  const alternarComprado = async (id_fila: string) => {
+    if (estadoWorkflow !== 'en_compras' && estadoWorkflow !== 'aprobado') return
+    const nuevos = materialesLote.map(m => m.id_fila === id_fila ? { ...m, comprado: !m.comprado } : m)
+    setMaterialesLote(nuevos)
+    await persistirLoteEnBD(estadoWorkflow, pedidosSeleccionados, nuevos, materialesPlanificados)
+  }
+
   const eliminarFilaMaterial = async (id_fila: string) => {
     if (estadoWorkflow !== 'creado') {
       alert('Solo se pueden eliminar filas en fase de Creación.')
@@ -705,6 +715,7 @@ export default function GestorPresupuestosWorkflow() {
             h1 { color: #0B1E36; font-size: 20px; border-bottom: 2px solid #C5A059; padding-bottom: 8px; }
             .info { margin-bottom: 15px; font-size: 13px; }
             table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; }
+            * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
             th { background-color: #0B1E36; color: white; }
             .text-right { text-align: right; }
@@ -729,11 +740,12 @@ export default function GestorPresupuestosWorkflow() {
                 <th class="text-right">P. Unit. (Bs)</th>
                 <th class="text-right">Subtotal (Bs)</th>
                 ${estadoWorkflow === 'aprobado' ? '<th class="text-right">Gasto Real (Bs)</th>' : ''}
+                ${mostrarComprado ? '<th class="text-center">Estado</th>' : ''}
               </tr>
             </thead>
             <tbody>
               ${materialesFiltrados.map(m => `
-                <tr>
+                <tr${colorFila(m) ? ` style="background-color: ${colorFila(m)}"` : ''}>
                   <td>${m.codigo}</td>
                   <td>${m.detalle}</td>
                   <td class="text-center">${m.cantidadReq}</td>
@@ -742,6 +754,7 @@ export default function GestorPresupuestosWorkflow() {
                   <td class="text-right">${Number(m.precioUnitario).toFixed(2)}</td>
                   <td class="text-right">${(m.cantidadComprar * m.precioUnitario).toFixed(2)}</td>
                   ${estadoWorkflow === 'aprobado' ? `<td class="text-right"><strong>${Number(m.gastoReal || 0).toFixed(2)}</strong></td>` : ''}
+                  ${mostrarComprado ? `<td class="text-center">${Number(m.cantidadComprar) > 0 ? (m.comprado ? 'Comprado' : 'Pendiente') : 'En almacén'}</td>` : ''}
                 </tr>
               `).join('')}
             </tbody>
@@ -766,6 +779,16 @@ export default function GestorPresupuestosWorkflow() {
     .filter(({ item }: { item: any }) => item.taller_destino === tallerFiltroActivo)
 
   const granTotal = materialesFiltrados.reduce((acc, m) => acc + (Number(m.cantidadComprar) * Number(m.precioUnitario)), 0)
+
+  // Control de compras: verde = comprado, azul = falta comprar (solo en fases de compras).
+  // Las filas sin nada por comprar (cubiertas por stock) quedan sin color.
+  const mostrarComprado = estadoWorkflow === 'en_compras' || estadoWorkflow === 'aprobado'
+  const filasPorComprar = materialesFiltrados.filter(m => Number(m.cantidadComprar) > 0)
+  const filasCompradas = filasPorComprar.filter(m => m.comprado)
+  const filasPendientes = filasPorComprar.filter(m => !m.comprado)
+  const montoPendiente = filasPendientes.reduce((acc, m) => acc + Number(m.cantidadComprar) * Number(m.precioUnitario), 0)
+  const colorFila = (m: MaterialPresupuesto) =>
+    !mostrarComprado || !(Number(m.cantidadComprar) > 0) ? undefined : (m.comprado ? '#dcfce7' : '#dbeafe')
 
   // Totales por categoría. Las filas de acero que NO vienen de Planificación están en metros
   // lineales (flujo de pedidos / manual), por eso se convierten a barras dividiendo entre 6.
@@ -1056,6 +1079,18 @@ export default function GestorPresupuestosWorkflow() {
                 </div>
               )}
 
+              {mostrarComprado && (
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '10px', fontSize: '12px' }}>
+                  <span style={{ background: '#dcfce7', color: '#166534', padding: '4px 10px', borderRadius: '12px', fontWeight: 'bold' }}>
+                    ✅ Comprados: {filasCompradas.length} de {filasPorComprar.length}
+                  </span>
+                  <span style={{ background: '#dbeafe', color: '#1e40af', padding: '4px 10px', borderRadius: '12px', fontWeight: 'bold' }}>
+                    🛒 Faltan: {filasPendientes.length} (Bs. {montoPendiente.toFixed(2)})
+                  </span>
+                  <span style={{ color: '#888' }}>Verde = comprado · Azul = pendiente · Sin color = cubierto por almacén</span>
+                </div>
+              )}
+
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                   <thead>
@@ -1069,15 +1104,16 @@ export default function GestorPresupuestosWorkflow() {
                       {estadoWorkflow === 'aprobado' && (
                         <th style={{ padding: '8px', textAlign: 'right', color: '#16a34a' }}>Gasto Real</th>
                       )}
+                      {mostrarComprado && <th style={{ padding: '8px', textAlign: 'center' }}>Comprado</th>}
                       <th style={{ padding: '8px', textAlign: 'center' }}>Acción</th>
                     </tr>
                   </thead>
                   <tbody>
                     {materialesFiltrados.length === 0 && (
-                      <tr><td colSpan={estadoWorkflow === 'aprobado' ? 8 : 7} style={{ padding: '20px', textAlign: 'center', color: '#999' }}>No hay materiales registrados para este taller.</td></tr>
+                      <tr><td colSpan={(estadoWorkflow === 'aprobado' ? 8 : 7) + (mostrarComprado ? 1 : 0)} style={{ padding: '20px', textAlign: 'center', color: '#999' }}>No hay materiales registrados para este taller.</td></tr>
                     )}
                     {materialesFiltrados.map((item) => (
-                      <tr key={item.id_fila} style={{ borderBottom: '1px solid #eee' }}>
+                      <tr key={item.id_fila} style={{ borderBottom: '1px solid #eee', backgroundColor: colorFila(item) }}>
                         <td style={{ padding: '8px' }}>
                           <span style={{ fontSize: '10px', backgroundColor: '#e2e8f0', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>{item.taller_destino}</span><br/>
                           <strong>{item.codigo}</strong><br/>
@@ -1141,6 +1177,25 @@ export default function GestorPresupuestosWorkflow() {
                             />
                           </td>
                         )}
+                        {mostrarComprado && (
+                          <td style={{ padding: '8px', textAlign: 'center' }}>
+                            {Number(item.cantidadComprar) > 0 ? (
+                              <button
+                                onClick={() => alternarComprado(item.id_fila)}
+                                style={{
+                                  padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer',
+                                  border: item.comprado ? '1px solid #16a34a' : '1px solid #2563eb',
+                                  background: item.comprado ? '#16a34a' : 'white',
+                                  color: item.comprado ? 'white' : '#2563eb'
+                                }}
+                              >
+                                {item.comprado ? '✅ Comprado' : '🛒 Pendiente'}
+                              </button>
+                            ) : (
+                              <span style={{ fontSize: '10px', color: '#999', fontStyle: 'italic' }}>en almacén</span>
+                            )}
+                          </td>
+                        )}
                         <td style={{ padding: '8px', textAlign: 'center' }}>
                           {estadoWorkflow === 'creado' && (
                             <button onClick={() => eliminarFilaMaterial(item.id_fila)} style={{ background: 'none', border: 'none', color: '#ef4444', fontWeight: 'bold', cursor: 'pointer', fontSize: '15px' }}>✕</button>
@@ -1157,14 +1212,14 @@ export default function GestorPresupuestosWorkflow() {
                           <td style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', fontSize: '13px', color: '#0B1E36' }}>
                             Bs. {granTotal.toFixed(2)}
                           </td>
-                          <td colSpan={2} style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', fontSize: '14px', color: '#16a34a', backgroundColor: '#ecfdf5' }}>
+                          <td colSpan={mostrarComprado ? 3 : 2} style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', fontSize: '14px', color: '#16a34a', backgroundColor: '#ecfdf5' }}>
                             Bs. {granTotalReal.toFixed(2)}
                           </td>
                         </>
                       ) : (
                         <>
                           <td colSpan={5} style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', fontSize: '13px', color: '#0B1E36' }}>TOTAL ESTIMADO ({tallerFiltroActivo}):</td>
-                          <td colSpan={2} style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', fontSize: '13px', color: '#0B1E36' }}>
+                          <td colSpan={mostrarComprado ? 3 : 2} style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', fontSize: '13px', color: '#0B1E36' }}>
                             Bs. {granTotal.toFixed(2)}
                           </td>
                         </>

@@ -41,6 +41,75 @@ interface MaterialPresupuesto {
 
 type EstadoWorkflow = 'creado' | 'revision_taller' | 'en_compras' | 'aprobado'
 
+// Longitud comercial fija de todo tubo/perfil de acero (cm)
+const LONGITUD_BARRA_CM = 600
+// Las filas generadas automáticamente desde Planificación llevan este prefijo en id_planificado
+const PREFIJO_AUTO = 'AUTO|'
+
+interface RequerimientoPlanificado {
+  tipo: 'acero' | 'melamina' | 'accesorio' | 'insumo'
+  taller: string
+  codigo: string
+  descripcion: string
+  cantidad: number   // acero: barras comerciales; melamina: piezas; accesorio/insumo: unidades
+  totalCm?: number   // solo acero
+  sinMedida?: number // acero: piezas sin longitud registrada (lotes viejos)
+  largo?: number     // solo melamina
+  ancho?: number     // solo melamina
+}
+
+// Suma TODO lo planificado del lote por taller:
+//  - Tubos: suma los cortes de un mismo código (de todos los items) y calcula barras = ceil(cm_totales / 600)
+//  - Melaminas: suma piezas iguales (mismo código y mismas medidas)
+//  - Accesorios e insumos: suma por código
+// Las uniones se ignoran: son un costo por punto del cotizador, no un material.
+const consolidarPiezasPlanificadas = (planificados: any[]): RequerimientoPlanificado[] => {
+  const mapa = new Map<string, RequerimientoPlanificado>()
+
+  for (const item of planificados || []) {
+    const taller = item.taller_destino || 'SIN-TALLER'
+    for (const p of item.piezas_desglose || []) {
+      const cant = Number(p.cantidad) || 0
+      if (cant <= 0) continue
+
+      if (p.tipo === 'Acero') {
+        const codigo = p.codigo_acero || p.codigo || p.descripcion || 'SIN-CODIGO'
+        const key = `acero|${taller}|${codigo}`
+        const largo = Number(p.longitud_cm ?? p.largo_cm) || 0
+        const g = mapa.get(key) || { tipo: 'acero' as const, taller, codigo, descripcion: p.descripcion || codigo, cantidad: 0, totalCm: 0, sinMedida: 0 }
+        if (largo > 0) g.totalCm = (g.totalCm || 0) + largo * cant
+        else g.sinMedida = (g.sinMedida || 0) + cant
+        mapa.set(key, g)
+      } else if (p.tipo === 'Melamina') {
+        const codigo = p.codigo_melamina || p.color || p.codigo || p.descripcion || 'SIN-CODIGO'
+        const largo = Number(p.largo_cm) || 0
+        const ancho = Number(p.ancho_cm) || 0
+        const key = `melamina|${taller}|${codigo}|${largo}|${ancho}`
+        const g = mapa.get(key) || { tipo: 'melamina' as const, taller, codigo, descripcion: p.descripcion || codigo, cantidad: 0, largo, ancho }
+        g.cantidad += cant
+        mapa.set(key, g)
+      } else if (p.tipo === 'Accesorio' || p.tipo === 'Insumo') {
+        const tipo = p.tipo === 'Accesorio' ? 'accesorio' as const : 'insumo' as const
+        const codigo = (tipo === 'accesorio' ? p.codigo_accesorio : p.codigo_insumo) || p.codigo || p.descripcion || 'SIN-CODIGO'
+        const key = `${tipo}|${taller}|${codigo}`
+        const g = mapa.get(key) || { tipo, taller, codigo, descripcion: p.descripcion || codigo, cantidad: 0 }
+        g.cantidad += cant
+        mapa.set(key, g)
+      }
+    }
+  }
+
+  const orden = { acero: 0, melamina: 1, accesorio: 2, insumo: 3 }
+  const lista = [...mapa.values()]
+  for (const g of lista) {
+    if (g.tipo === 'acero') {
+      const barras = (g.totalCm || 0) > 0 ? Math.ceil((g.totalCm || 0) / LONGITUD_BARRA_CM - 1e-9) : 0
+      g.cantidad = barras + (g.sinMedida || 0)
+    }
+  }
+  return lista.sort((a, b) => a.taller.localeCompare(b.taller) || orden[a.tipo] - orden[b.tipo] || a.codigo.localeCompare(b.codigo))
+}
+
 // ── Página ────────────────────────────────────────────────────
 export default function GestorPresupuestosWorkflow() {
   const [usuario, setUsuario] = useState<any>(null)
@@ -49,10 +118,10 @@ export default function GestorPresupuestosWorkflow() {
   const [loading, setLoading] = useState(true)
   const [sincronizando, setSincronizando] = useState(false)
   const [lotesGuardados, setLotesGuardados] = useState<any[]>([])
+  const [errorLotes, setErrorLotes] = useState('')
 
   const [estadoWorkflow, setEstadoWorkflow] = useState<EstadoWorkflow>('creado')
 
-  const [pedidosPendientes, setPedidosPendientes] = useState<Pedido[]>([])
   const [pedidosSeleccionados, setPedidosSeleccionados] = useState<Pedido[]>([])
   const [materialesLote, setMaterialesLote] = useState<MaterialPresupuesto[]>([])
   // Materiales/piezas armados en la pantalla de Planificación para este mismo lote
@@ -60,8 +129,11 @@ export default function GestorPresupuestosWorkflow() {
   const [itemsPlanificadosExpandidos, setItemsPlanificadosExpandidos] = useState<Record<string, boolean>>({})
 
   const [talleresDisponibles, setTalleresDisponibles] = useState<string[]>([])
-  const [tallerFiltroActivo, setTallerFiltroActivo] = useState<string>('TODOS')
+  const [tallerFiltroActivo, setTallerFiltroActivo] = useState<string>('')
   const [tallerAsignacionTemp, setTallerAsignacionTemp] = useState<string>('')
+  useEffect(() => {
+    if (tallerFiltroActivo) setTallerAsignacionTemp(tallerFiltroActivo)
+  }, [tallerFiltroActivo])
 
   // Catálogo y adición manual
   const [manualTipo, setManualTipo] = useState<'acero' | 'melamina' | 'accesorio' | 'insumo'>('acero')
@@ -72,8 +144,6 @@ export default function GestorPresupuestosWorkflow() {
   const [manualPrecio, setManualPrecio] = useState('')
 
   // Selección de variantes
-  const [variantesDisponiblesMap, setVariantesDisponiblesMap] = useState<Record<string, any[]>>({})
-  const [variantesSeleccionadas, setVariantesSeleccionadas] = useState<Record<number, number>>({})
 
   useEffect(() => {
     const carnetGuardado = localStorage.getItem('carnet')
@@ -88,6 +158,7 @@ export default function GestorPresupuestosWorkflow() {
         const nombres = sucData.map(s => s.nombre)
         setTalleresDisponibles(nombres)
         setTallerAsignacionTemp(nombres[0])
+        setTallerFiltroActivo(nombres[0])
       }
 
       const { data: userData } = await supabase
@@ -133,16 +204,26 @@ export default function GestorPresupuestosWorkflow() {
     detectarLoteActivo()
   }, [usuario])
 
+  // Lista de todos los lotes guardados en Supabase (de cualquier fecha y estado).
+  // Se vuelve a leer al abrir el selector para ver lo que otros usuarios crearon después.
+  const cargarListaDeLotes = async () => {
+    const { data, error } = await supabase
+      .from('lotes_produccion')
+      .select('id, fecha, nombre_lote, estado_workflow, updated_at')
+      .order('fecha', { ascending: false })
+      .order('updated_at', { ascending: false })
+      .limit(300)
+    if (error) {
+      console.error('No se pudo leer la lista de lotes:', error.message)
+      setErrorLotes('No se pudo leer la lista de lotes: ' + error.message)
+      return
+    }
+    setErrorLotes('')
+    setLotesGuardados(data || [])
+  }
+
   useEffect(() => {
     if (!usuario) return
-    const cargarListaDeLotes = async () => {
-      const { data } = await supabase
-        .from('lotes_produccion')
-        .select('id, fecha, nombre_lote, estado_workflow, updated_at')
-        .order('updated_at', { ascending: false })
-        .limit(30)
-      setLotesGuardados(data || [])
-    }
     cargarListaDeLotes()
   }, [usuario])
 
@@ -172,28 +253,6 @@ export default function GestorPresupuestosWorkflow() {
     }
     cargarCatalogo()
   }, [manualTipo])
-
-  const obtenerPrecioBase = async (codigo: string): Promise<number> => {
-    try {
-      const [acero, melamina, accesorio, insumo, union] = await Promise.all([
-        supabase.from('aceros').select('precio_compra').eq('codigo_acero', codigo).maybeSingle(),
-        supabase.from('melaminas').select('precio_compra').eq('codigo_melamina', codigo).maybeSingle(),
-        supabase.from('accesorios').select('precio_compra').eq('codigo_accesorio', codigo).maybeSingle(),
-        supabase.from('insumos').select('precio_compra').eq('codigo_insumos', codigo).maybeSingle(),
-        supabase.from('uniones').select('precio').eq('codigo_union', codigo).maybeSingle()
-      ])
-
-      return Number(
-        acero.data?.precio_compra ||
-        melamina.data?.precio_compra ||
-        accesorio.data?.precio_compra ||
-        insumo.data?.precio_compra ||
-        union.data?.precio || 0
-      )
-    } catch {
-      return 0
-    }
-  }
 
   const descontarStockAlmacenes = async () => {
     try {
@@ -275,6 +334,148 @@ export default function GestorPresupuestosWorkflow() {
     }
   }
 
+  // Construye la lista de materiales del lote DIRECTAMENTE desde lo planificado
+  // (que a su vez sale de las variantes seleccionadas): tubos, melaminas, accesorios
+  // e insumos ya sumados, con precio de catálogo y stock sugerido del almacén del taller.
+  // Conserva lo que el usuario ya editó (stock, precio) y las filas manuales/de pedidos.
+  const sincronizarDesdePlanificados = async (
+    planificados: any[],
+    actuales: MaterialPresupuesto[],
+    reiniciarStock = false
+  ): Promise<MaterialPresupuesto[]> => {
+    const requeridos = consolidarPiezasPlanificadas(planificados)
+    // Se descartan filas auto previas y las del antiguo flujo "Incorporar" (id_planificado con id de item)
+    const filasManualesYPedidos = actuales.filter(m => !m.id_planificado)
+    if (requeridos.length === 0) return filasManualesYPedidos
+
+    const previos = new Map<string, MaterialPresupuesto>()
+    actuales.forEach(m => { if (m.id_planificado?.startsWith(PREFIJO_AUTO)) previos.set(m.id_planificado, m) })
+
+    const codigosDe = (t: string) => [...new Set(requeridos.filter(r => r.tipo === t).map(r => r.codigo))]
+    const consulta = (tabla: string, cols: string, col: string, codigos: string[]): any =>
+      codigos.length > 0 ? supabase.from(tabla).select(cols).in(col, codigos) : Promise.resolve({ data: [] as any[] })
+
+    const [cA, cM, cAc, cI, sucs] = await Promise.all([
+      consulta('aceros', 'codigo_acero, detalle, precio_compra', 'codigo_acero', codigosDe('acero')),
+      consulta('melaminas', 'codigo_melamina, detalle, precio_cotizador', 'codigo_melamina', codigosDe('melamina')),
+      consulta('accesorios', 'codigo_accesorio, detalle, precio_compra', 'codigo_accesorio', codigosDe('accesorio')),
+      consulta('insumos', 'codigo_insumos, detalle, precio_compra', 'codigo_insumos', codigosDe('insumo')),
+      supabase.from('sucursales').select('id, nombre')
+    ])
+
+    const catAcero = new Map<string, any>((cA.data || []).map((x: any) => [x.codigo_acero, x]))
+    const catMel = new Map<string, any>((cM.data || []).map((x: any) => [x.codigo_melamina, x]))
+    const catAcc = new Map<string, any>((cAc.data || []).map((x: any) => [x.codigo_accesorio, x]))
+    const catIns = new Map<string, any>((cI.data || []).map((x: any) => [x.codigo_insumos, x]))
+    const sucPorNombre = new Map<string, number>((sucs.data || []).map((x: any) => [x.nombre, x.id]))
+
+    const stockSugerido = async (r: RequerimientoPlanificado): Promise<number> => {
+      const sucId = sucPorNombre.get(r.taller)
+      if (!sucId) return 0
+      if (r.tipo === 'melamina') {
+        const { data: retazos } = await supabase
+          .from('retazos_melaminas')
+          .select('cantidad')
+          .eq('sucursal_id', sucId)
+          .eq('codigo_melamina', r.codigo)
+          .gte('largo_cm', r.largo || 0)
+          .gte('ancho_cm', r.ancho || 0)
+          .order('largo_cm', { ascending: true })
+        let acumulado = 0
+        for (const ret of retazos || []) {
+          if (acumulado >= r.cantidad) break
+          acumulado += Math.min(Number(ret.cantidad) || 0, r.cantidad - acumulado)
+        }
+        return acumulado
+      }
+      const cfg = r.tipo === 'acero' ? { t: 'stock_aceros', c: 'codigo_acero' }
+        : r.tipo === 'accesorio' ? { t: 'stock_accesorios', c: 'codigo_accesorio' }
+        : { t: 'stock_insumos', c: 'codigo_insumos' }
+      const { data } = await supabase.from(cfg.t).select('cantidad').eq('sucursal_id', sucId).eq(cfg.c, r.codigo).maybeSingle()
+      return Math.min(r.cantidad, Math.max(0, Number(data?.cantidad) || 0))
+    }
+
+    const nuevasFilas: MaterialPresupuesto[] = []
+    for (const r of requeridos) {
+      const idAuto = `${PREFIJO_AUTO}${r.tipo}|${r.taller}|${r.codigo}|${r.largo ?? ''}x${r.ancho ?? ''}`
+      const previo = previos.get(idAuto)
+
+      let nombre = r.descripcion
+      let precioCalculado = 0
+      let detalle = ''
+      if (r.tipo === 'acero') {
+        const cat = catAcero.get(r.codigo)
+        nombre = cat?.detalle || r.descripcion
+        precioCalculado = Number(cat?.precio_compra) || 0 // precio por barra completa
+        detalle = (r.totalCm || 0) > 0
+          ? `[Acero] ${nombre} — ${Number((r.totalCm || 0).toFixed(1))}cm totales → ${Math.ceil((r.totalCm || 0) / LONGITUD_BARRA_CM - 1e-9)} barra(s) de ${LONGITUD_BARRA_CM}cm`
+          : `[Acero] ${nombre} — ⚠️ sin medidas en Planificación`
+        if ((r.totalCm || 0) > 0 && (r.sinMedida || 0) > 0) detalle += ` (+${r.sinMedida} pza(s) sin medida)`
+      } else if (r.tipo === 'melamina') {
+        const cat = catMel.get(r.codigo)
+        nombre = cat?.detalle || r.descripcion
+        precioCalculado = Number((((r.largo || 0) / 100) * ((r.ancho || 0) / 100) * (Number(cat?.precio_cotizador) || 0)).toFixed(2))
+        detalle = `[Melamina] ${nombre} - Medidas: ${r.largo} x ${r.ancho} cm`
+      } else if (r.tipo === 'accesorio') {
+        const cat = catAcc.get(r.codigo)
+        nombre = cat?.detalle || r.descripcion
+        precioCalculado = Number(cat?.precio_compra) || 0
+        detalle = `[Accesorio] ${nombre}`
+      } else {
+        const cat = catIns.get(r.codigo)
+        nombre = cat?.detalle || r.descripcion
+        precioCalculado = Number(cat?.precio_compra) || 0
+        detalle = `[Insumo] ${nombre}`
+      }
+
+      const stock = previo && !reiniciarStock
+        ? Math.min(Number(previo.stockActual) || 0, r.cantidad)
+        : await stockSugerido(r)
+      const precio = previo ? Number(previo.precioUnitario) : precioCalculado
+      const comprar = Math.max(0, Number((r.cantidad - stock).toFixed(2)))
+
+      nuevasFilas.push({
+        id_fila: idAuto,
+        cod_venta: 0,
+        codigo: r.codigo,
+        detalle,
+        cantidadReq: r.cantidad,
+        stockActual: Number(stock.toFixed(2)),
+        cantidadComprar: comprar,
+        precioUnitario: precio,
+        gastoReal: Number((comprar * precio).toFixed(2)),
+        tipo: 'variante',
+        taller_destino: r.taller,
+        id_planificado: idAuto
+      })
+    }
+    return [...filasManualesYPedidos, ...nuevasFilas]
+  }
+
+  const recalcularDesdePlanificacion = async (reiniciarStock: boolean) => {
+    if (estadoWorkflow !== 'creado') {
+      alert('Solo se puede recalcular en fase de Creación.')
+      return
+    }
+    if (reiniciarStock && !confirm('Esto reemplaza el stock de todas las filas planificadas por lo que hay hoy en el almacén de cada taller. ¿Continuar?')) return
+    setLoading(true)
+    try {
+      const { data } = await supabase
+        .from('lotes_produccion')
+        .select('materiales_planificados')
+        .eq('fecha', fecha)
+        .eq('nombre_lote', nombreLote.trim())
+        .maybeSingle()
+      const planificados = data?.materiales_planificados || materialesPlanificados
+      setMaterialesPlanificados(planificados)
+      const nuevos = await sincronizarDesdePlanificados(planificados, materialesLote, reiniciarStock)
+      setMaterialesLote(nuevos)
+      await persistirLoteEnBD(estadoWorkflow, pedidosSeleccionados, nuevos, planificados)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const cargarDatosLoteYPedidos = async () => {
     setLoading(true)
     try {
@@ -304,74 +505,16 @@ export default function GestorPresupuestosWorkflow() {
       setMaterialesLote(materialesGuardados)
       setMaterialesPlanificados(planificadosGuardados)
 
-      const { data: ventasData, error } = await supabase
-        .from('ventas')
-        .select('id, cod_venta, cod_cliente, fecha_entrega, estado')
-        .eq('fecha_entrega', fecha)
-        .in('estado', [1, 2])
-
-      if (error) throw error
-      if (!ventasData || ventasData.length === 0) {
-        setPedidosPendientes([])
-        setLoading(false)
-        return
+      // Lo planificado aparece directo en la lista de materiales (solo en fase de Creación,
+      // después las filas quedan congeladas con lo que se editó en cada fase).
+      if (estadoActual === 'creado' && (planificadosGuardados.length > 0 || materialesGuardados.some((m: any) => m.id_planificado))) {
+        const materialesSync = await sincronizarDesdePlanificados(planificadosGuardados, materialesGuardados)
+        setMaterialesLote(materialesSync)
+        if (JSON.stringify(materialesSync) !== JSON.stringify(materialesGuardados)) {
+          await persistirLoteEnBD(estadoActual, seleccionados, materialesSync, planificadosGuardados)
+        }
       }
 
-      const clientesIds = [...new Set(ventasData.map(v => v.cod_cliente))]
-      const { data: clientesData } = await supabase.from('clientes').select('id, nombre').in('id', clientesIds)
-      const clientesMap = Object.fromEntries(clientesData?.map(c => [c.id, c.nombre]) || [])
-
-      const codigosVenta = ventasData.map(v => v.cod_venta)
-      const { data: detallesData } = await supabase.from('detalle_venta').select('*').in('cod_venta', codigosVenta)
-      const codigosProd = [...new Set((detallesData || []).map(d => d.cod_producto).filter(Boolean))]
-
-      const { data: prodData } = codigosProd.length > 0
-        ? await supabase.from('productos').select('codigo, nombre').in('codigo', codigosProd)
-        : { data: [] }
-
-      const prodMap = Object.fromEntries(prodData?.map(p => [String(p.codigo), p.nombre]) || [])
-
-      const { data: variantesProdData } = codigosProd.length > 0
-        ? await supabase.from('producto_variantes').select('id, codigo_producto, es_estandar, descripcion, nombre').in('codigo_producto', codigosProd).eq('activo', true)
-        : { data: [] }
-
-      const varMap: Record<string, any[]> = {}
-      const defaultVarSelected: Record<number, number> = {}
-      ;(variantesProdData || []).forEach(v => {
-        if (!varMap[v.codigo_producto]) varMap[v.codigo_producto] = []
-        varMap[v.codigo_producto].push(v)
-      })
-
-      const pedidosProcesados = ventasData.map(v => {
-        const detalles = (detallesData || [])
-          .filter(d => d.cod_venta === v.cod_venta)
-          .map(d => {
-            const vars = varMap[String(d.cod_producto)] || []
-            const estandar = vars.find(val => val.es_estandar) || vars[0]
-            if (estandar && !d.variante_id) {
-              defaultVarSelected[d.id] = estandar.id
-            }
-            return {
-              ...d,
-              producto_nombre: prodMap[String(d.cod_producto)] || d.cod_producto,
-            }
-          })
-        return {
-          id: v.id,
-          cod_venta: v.cod_venta,
-          cliente: clientesMap[v.cod_cliente] || 'Sin cliente',
-          fecha_entrega: v.fecha_entrega,
-          estado: v.estado,
-          taller_destino: talleresDisponibles[0] || '',
-          detalles
-        }
-      })
-
-      setVariantesDisponiblesMap(varMap)
-      setVariantesSeleccionadas(prev => ({ ...defaultVarSelected, ...prev }))
-
-      const seleccionadosIds = seleccionados.map(s => s.cod_venta)
-      setPedidosPendientes(pedidosProcesados.filter(p => !seleccionadosIds.includes(p.cod_venta)))
     } catch (error) {
       console.error(error)
       alert('Error cargando el lote multi-usuario')
@@ -405,151 +548,6 @@ export default function GestorPresupuestosWorkflow() {
     }
   }
 
-  const buscarVariantesAutomaticas = async (det: DetalleVenta, cod_venta: number, tallerDestino: string, varianteIdOverride?: number) => {
-    let varianteId = varianteIdOverride
-    if (!varianteId) {
-      const { data: variantesData } = await supabase
-        .from('producto_variantes')
-        .select('id')
-        .eq('codigo_producto', det.cod_producto)
-        .eq('es_estandar', true)
-        .eq('activo', true)
-        .limit(1)
-
-      if (!variantesData || variantesData.length === 0) return null
-      varianteId = variantesData[0].id
-    }
-
-    const multPedido = det.cantidad || 1
-
-    const [resAceros, resMelaminas, resAccesorios, resInsumos, resUniones] = await Promise.all([
-      supabase.from('variante_acero').select('*, aceros(detalle)').eq('variante_id', varianteId),
-      supabase.from('variante_melamina').select('*, melaminas(detalle, precio_cotizador)').eq('variante_id', varianteId),
-      supabase.from('variante_accesorios').select('*, accesorios(detalle)').eq('variante_id', varianteId),
-      supabase.from('variante_insumos').select('*, insumos(detalle)').eq('variante_id', varianteId),
-      supabase.from('variante_uniones').select('*, uniones(tipo)').eq('variante_id', varianteId),
-    ])
-
-    const materiales: MaterialPresupuesto[] = []
-
-    const { data: sucursalData } = await supabase
-      .from('sucursales')
-      .select('id')
-      .eq('nombre', tallerDestino)
-      .maybeSingle()
-    const sucursalId = sucursalData?.id
-
-    if (resAceros.data) {
-      for (const item of resAceros.data) {
-        const codigo = item.codigo_acero
-        const cantidadPiezas = Number(item.cantidad) || 0
-        const largoCm = Number(item.largo_cm || item.longitud_cm || 0)
-        const longitudTotalMetros = (cantidadPiezas * largoCm * multPedido) / 100
-        
-        const precioTubo = await obtenerPrecioBase(codigo)
-        const precioMetroLineal = Number((precioTubo / 6).toFixed(2))
-        const subtotalEst = Number((longitudTotalMetros * precioMetroLineal).toFixed(2))
-
-        materiales.push({
-          id_fila: Math.random().toString(36).substr(2, 9),
-          cod_venta,
-          codigo,
-          detalle: `[Acero] ${item.aceros?.detalle || item.descripcion || codigo} (${cantidadPiezas} pzas de ${(largoCm / 100).toFixed(2)}m c/u)`,
-          cantidadReq: Number(longitudTotalMetros.toFixed(2)),
-          stockActual: 0,
-          cantidadComprar: Number(longitudTotalMetros.toFixed(2)),
-          precioUnitario: precioMetroLineal,
-          gastoReal: subtotalEst,
-          tipo: 'variante',
-          taller_destino: tallerDestino
-        })
-      }
-    }
-
-    if (resMelaminas.data) {
-      for (const item of resMelaminas.data) {
-        const codigo = item.codigo_melamina
-        const cantidadPiezas = Number(item.cantidad) || 0
-        const reqTotal = cantidadPiezas * multPedido
-        const largo = Number(item.largo_cm || 0)
-        const ancho = Number(item.ancho_cm || 0)
-        const precioCotizador = Number(item.melaminas?.precio_cotizador || 0)
-
-        let stockEnAlmacen = 0
-        if (sucursalId) {
-          const { data: retazos } = await supabase
-            .from('retazos_melaminas')
-            .select('id, cantidad, largo_cm, ancho_cm')
-            .eq('sucursal_id', sucursalId)
-            .eq('codigo_melamina', codigo)
-            .gte('largo_cm', largo)
-            .gte('ancho_cm', ancho)
-            .order('largo_cm', { ascending: true })
-
-          if (retazos) {
-            let acumuladoStock = 0
-            for (const ret of retazos) {
-              if (acumuladoStock < reqTotal) {
-                const tomar = Math.min(ret.cantidad, reqTotal - acumuladoStock)
-                acumuladoStock += tomar
-              }
-            }
-            stockEnAlmacen = acumuladoStock
-          }
-        }
-
-        const cantidadComprar = Math.max(0, reqTotal - stockEnAlmacen)
-        const precioUnitarioMelamina = Number(((largo / 100) * (ancho / 100) * precioCotizador).toFixed(2))
-        const subtotalEst = Number((cantidadComprar * precioUnitarioMelamina).toFixed(2))
-
-        materiales.push({
-          id_fila: Math.random().toString(36).substr(2, 9),
-          cod_venta,
-          codigo,
-          detalle: `[Melamina] ${item.melaminas?.detalle || item.descripcion || codigo} - Medidas: ${largo} x ${ancho} cm`,
-          cantidadReq: reqTotal,
-          stockActual: stockEnAlmacen,
-          cantidadComprar,
-          precioUnitario: precioUnitarioMelamina,
-          gastoReal: subtotalEst,
-          tipo: 'variante',
-          taller_destino: tallerDestino
-        })
-      }
-    }
-
-    const procesarGenericos = async (items: any[], codigoKey: string, descKey: string, tipoPrefix: string) => {
-      for (const item of items) {
-        const codigo = item[codigoKey]
-        const req = Number(item.cantidad) * multPedido
-        const precioUnitario = await obtenerPrecioBase(codigo)
-        const subtotalEst = Number((req * precioUnitario).toFixed(2))
-
-        materiales.push({
-          id_fila: Math.random().toString(36).substr(2, 9),
-          cod_venta,
-          codigo,
-          detalle: `[${tipoPrefix}] ${item[descKey]?.detalle || item[descKey]?.tipo || item.descripcion || codigo}`,
-          cantidadReq: req,
-          stockActual: 0,
-          cantidadComprar: req,
-          precioUnitario,
-          gastoReal: subtotalEst,
-          tipo: 'variante',
-          taller_destino: tallerDestino
-        })
-      }
-    }
-
-    await Promise.all([
-      procesarGenericos(resAccesorios.data || [], 'codigo_accesorio', 'accesorios', 'Accesorio'),
-      procesarGenericos(resInsumos.data || [], 'codigo_insumo', 'insumos', 'Insumo'),
-      procesarGenericos(resUniones.data || [], 'codigo_union', 'uniones', 'Unión'),
-    ])
-
-    return materiales.length > 0 ? materiales : null
-  }
-
   const agregarOConsolidarMateriales = async (nuevosMateriales: MaterialPresupuesto[]) => {
     const actualizada = [...materialesLote]
     for (const nuevo of nuevosMateriales) {
@@ -574,178 +572,8 @@ export default function GestorPresupuestosWorkflow() {
     await persistirLoteEnBD(estadoWorkflow, pedidosSeleccionados, actualizada, materialesPlanificados)
   }
 
-  // INCORPORAR ITEM PLANIFICADO
-  const incorporarItemPlanificadoAlPresupuesto = async (item: any, idTemp: string) => {
-    if (estadoWorkflow !== 'creado') {
-      alert('Solo se pueden incorporar materiales cuando el lote está en fase de Creación.')
-      return
-    }
-    if (item.incorporado) {
-      alert('Este item ya ha sido incorporado al presupuesto anteriormente.')
-      return
-    }
-    const piezas = item.piezas_desglose || []
-    if (piezas.length === 0) {
-      alert('Este item no tiene piezas registradas en Planificación.')
-      return
-    }
-
-    const nuevosMateriales: MaterialPresupuesto[] = []
-
-    for (const p of piezas) {
-      const codigo = p.codigo_melamina || p.codigo_acero || p.codigo_accesorio || p.codigo_insumo || p.codigo_union || p.descripcion || 'SIN-CODIGO'
-      const cantidad = Number(p.cantidad) || 0
-
-      let precioUnitario = Number(p.costo_unitario ?? p.precio_unitario ?? p.precio ?? 0)
-      if (precioUnitario === 0) {
-        precioUnitario = await obtenerPrecioBase(codigo)
-      }
-      
-      const gastoReal = Number((cantidad * precioUnitario).toFixed(2))
-
-      let tituloLimpio = item.titulo || ''
-      const descPieza = p.descripcion || p.tipo || ''
-      if (descPieza && tituloLimpio.includes(descPieza)) {
-        tituloLimpio = tituloLimpio.replace(descPieza, '').replace(/[\s—-]+$/, '').trim()
-      }
-
-      const detalleTexto = `[Planificado] ${tituloLimpio}`
-
-      nuevosMateriales.push({
-        id_fila: Math.random().toString(36).substr(2, 9),
-        cod_venta: 0,
-        codigo,
-        detalle: detalleTexto,
-        cantidadReq: cantidad,
-        stockActual: 0,
-        cantidadComprar: cantidad,
-        precioUnitario,
-        gastoReal,
-        tipo: 'manual',
-        taller_destino: item.taller_destino || tallerAsignacionTemp,
-        id_planificado: idTemp // Enlazamos con el identificador del planificado
-      })
-    }
-
-    // Marcar este item como incorporado en la lista de planificados
-    const nuevosPlanificados = materialesPlanificados.map((mp: any, idx: number) => {
-      const currentId = mp.id_temp || `plan-${idx}`
-      if (currentId === idTemp) {
-        return { ...mp, id_temp: idTemp, incorporado: true }
-      }
-      return { ...mp, id_temp: currentId }
-    })
-
-    setMaterialesPlanificados(nuevosPlanificados)
-    const actualizada = [...materialesLote, ...nuevosMateriales]
-    setMaterialesLote(actualizada)
-    await persistirLoteEnBD(estadoWorkflow, pedidosSeleccionados, actualizada, nuevosPlanificados)
-    alert(`Se incorporaron ${nuevosMateriales.length} piezas de "${item.titulo}" al presupuesto.`)
-  }
-
-  // DESHACER / ELIMINAR INCORPORACIÓN DE UN ITEM PLANIFICADO
-  const deshacerIncorporacionPlanificado = async (idTemp: string) => {
-    if (estadoWorkflow !== 'creado') {
-      alert('Solo se puede deshacer la incorporación cuando el lote está en fase de Creación.')
-      return
-    }
-
-    // Filtrar los materiales del lote removiendo aquellos que tengan el id_planificado correspondiente
-    const materialesRestantes = materialesLote.filter(m => m.id_planificado !== idTemp)
-
-    // Actualizar el estado de planificados marcando incorporado = false
-    const nuevosPlanificados = materialesPlanificados.map((mp: any, idx: number) => {
-      const currentId = mp.id_temp || `plan-${idx}`
-      if (currentId === idTemp) {
-        return { ...mp, id_temp: idTemp, incorporado: false }
-      }
-      return { ...mp, id_temp: currentId }
-    })
-
-    setMaterialesLote(materialesRestantes)
-    setMaterialesPlanificados(nuevosPlanificados)
-    await persistirLoteEnBD(estadoWorkflow, pedidosSeleccionados, materialesRestantes, nuevosPlanificados)
-    alert('Se ha deshecho la incorporación de este item planificado y se removieron sus piezas del presupuesto.')
-  }
-
   const toggleExpandPlanificado = (id_temp: string) => {
     setItemsPlanificadosExpandidos(prev => ({ ...prev, [id_temp]: !prev[id_temp] }))
-  }
-
-  const moverAPresupuesto = async (pedido: Pedido) => {
-    if (estadoWorkflow !== 'creado') {
-      alert('Solo se pueden agregar o quitar pedidos cuando el lote está en fase de Creación.')
-      return
-    }
-    setLoading(true)
-    let materialesAgregados: MaterialPresupuesto[] = []
-    let productosSinVariante: string[] = []
-
-    const detallesConVariante = pedido.detalles.map(d => ({
-      ...d,
-      variante_id: variantesSeleccionadas[d.id]
-    }))
-    const pedidoConTaller: Pedido = { ...pedido, taller_destino: tallerAsignacionTemp, detalles: detallesConVariante }
-
-    for (const det of detallesConVariante) {
-      const componentes = await buscarVariantesAutomaticas(det, pedido.cod_venta, tallerAsignacionTemp, det.variante_id)
-      if (componentes) {
-        materialesAgregados.push(...componentes)
-      } else {
-        productosSinVariante.push(det.producto_nombre || det.cod_producto)
-      }
-    }
-
-    const nuevosSeleccionados = [...pedidosSeleccionados, pedidoConTaller]
-    setPedidosSeleccionados(nuevosSeleccionados)
-    setPedidosPendientes(pedidosPendientes.filter(p => p.cod_venta !== pedido.cod_venta))
-    
-    await agregarOConsolidarMateriales(materialesAgregados)
-
-    if (productosSinVariante.length > 0) {
-      alert(`Aviso: Los productos [${productosSinVariante.join(', ')}] no tienen variante seleccionada y deben registrarse manualmente.`)
-    }
-    setLoading(false)
-  }
-
-  const devolverAPendientes = async (pedido: Pedido) => {
-    if (estadoWorkflow !== 'creado') {
-      alert('Solo se pueden modificar los pedidos del lote en fase de Creación.')
-      return
-    }
-    const nuevosSeleccionados = pedidosSeleccionados.filter(p => p.cod_venta !== pedido.cod_venta)
-    setPedidosPendientes([...pedidosPendientes, pedido])
-    setPedidosSeleccionados(nuevosSeleccionados)
-    await reconstruirLoteDesdePedidos(nuevosSeleccionados)
-  }
-
-  const reconstruirLoteDesdePedidos = async (pedidosRestantes: Pedido[]) => {
-    setLoading(true)
-    let nuevosMateriales: MaterialPresupuesto[] = []
-    for (const ped of pedidosRestantes) {
-      const tallerDestino = ped.taller_destino || talleresDisponibles[0]
-      for (const det of ped.detalles) {
-        const varId = det.variante_id || variantesSeleccionadas[det.id]
-        const componentes = await buscarVariantesAutomaticas(det, ped.cod_venta, tallerDestino, varId)
-        if (componentes) nuevosMateriales.push(...componentes)
-      }
-    }
-    // Mantener los materiales planificados o manuales que no dependan exclusivamente de ventas si es necesario
-    let loteConsolidado: MaterialPresupuesto[] = [...materialesLote.filter(m => m.id_planificado)]
-    for (const nuevo of nuevosMateriales) {
-      const index = loteConsolidado.findIndex(m => m.codigo === nuevo.codigo && m.detalle === nuevo.detalle && m.taller_destino === nuevo.taller_destino && !m.id_planificado)
-      if (index >= 0) {
-        const nuevaReq = Number((loteConsolidado[index].cantidadReq + nuevo.cantidadReq).toFixed(2))
-        loteConsolidado[index].cantidadReq = nuevaReq
-        loteConsolidado[index].cantidadComprar = Math.max(0, Number((nuevaReq - loteConsolidado[index].stockActual).toFixed(2)))
-        loteConsolidado[index].gastoReal = Number((loteConsolidado[index].cantidadComprar * loteConsolidado[index].precioUnitario).toFixed(2))
-      } else {
-        loteConsolidado.push(nuevo)
-      }
-    }
-    setMaterialesLote(loteConsolidado)
-    await persistirLoteEnBD(estadoWorkflow, pedidosRestantes, loteConsolidado, materialesPlanificados)
-    setLoading(false)
   }
 
   const handleSeleccionarItemCatalogo = (codigo: string) => {
@@ -849,9 +677,8 @@ export default function GestorPresupuestosWorkflow() {
     await persistirLoteEnBD(nuevoEstado, pedidosSeleccionados, materialesLote, materialesPlanificados)
   }
 
-  const materialesFiltrados = tallerFiltroActivo === 'TODOS' 
-    ? materialesLote 
-    : materialesLote.filter(m => m.taller_destino === tallerFiltroActivo)
+  // Todo se ve y se totaliza por sucursal: no hay vista global para no mezclar almacenes ni montos
+  const materialesFiltrados = materialesLote.filter(m => m.taller_destino === tallerFiltroActivo)
 
   const exportarAPDF = () => {
     if (materialesFiltrados.length === 0) {
@@ -886,7 +713,7 @@ export default function GestorPresupuestosWorkflow() {
           </style>
         </head>
         <body>
-          <h1>Resumen Consolidado - ${tallerFiltroActivo}</h1>
+          <h1>Lista de Materiales - ${tallerFiltroActivo}</h1>
           <div class="info">
             <p><strong>Lote:</strong> ${nombreLote} | <strong>Fecha:</strong> ${fecha} | <strong>Taller:</strong> ${tallerFiltroActivo}</p>
             <p><strong>Estado:</strong> ${estadoWorkflow.toUpperCase()}</p>
@@ -934,7 +761,31 @@ export default function GestorPresupuestosWorkflow() {
     ventanaPrint.document.close()
   }
 
+  const planificadosTaller = materialesPlanificados
+    .map((item: any, idx: number) => ({ item, idx }))
+    .filter(({ item }: { item: any }) => item.taller_destino === tallerFiltroActivo)
+
   const granTotal = materialesFiltrados.reduce((acc, m) => acc + (Number(m.cantidadComprar) * Number(m.precioUnitario)), 0)
+
+  // Totales por categoría. Las filas de acero que NO vienen de Planificación están en metros
+  // lineales (flujo de pedidos / manual), por eso se convierten a barras dividiendo entre 6.
+  const resumenTotales = [
+    { k: 'acero', label: '🔩 Tubos (barras de 600cm)', prefijo: '[ACERO]' },
+    { k: 'melamina', label: '🪵 Melaminas (piezas)', prefijo: '[MELAMINA]' },
+    { k: 'accesorio', label: '🔧 Accesorios (unid.)', prefijo: '[ACCESORIO]' },
+    { k: 'insumo', label: '🧪 Insumos (unid.)', prefijo: '[INSUMO]' },
+  ].map(c => {
+    const filas = materialesFiltrados.filter(m => (m.detalle || '').toUpperCase().startsWith(c.prefijo))
+    const f = (m: MaterialPresupuesto) => (c.k === 'acero' && !m.id_planificado?.startsWith(PREFIJO_AUTO)) ? 1 / 6 : 1
+    return {
+      ...c,
+      items: filas.length,
+      req: filas.reduce((a, m) => a + Number(m.cantidadReq) * f(m), 0),
+      stock: filas.reduce((a, m) => a + Number(m.stockActual) * f(m), 0),
+      comprar: filas.reduce((a, m) => a + Number(m.cantidadComprar) * f(m), 0),
+      subtotal: filas.reduce((a, m) => a + Number(m.cantidadComprar) * Number(m.precioUnitario), 0),
+    }
+  }).filter(c => c.items > 0)
   const granTotalReal = materialesFiltrados.reduce((acc, m) => acc + Number(m.gastoReal || 0), 0)
 
   return (
@@ -968,26 +819,32 @@ export default function GestorPresupuestosWorkflow() {
             <input type="text" value={nombreLote} onChange={(e) => setNombreLote(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: 'none', width: '220px' }} />
           </div>
 
-          {lotesGuardados.length > 0 && (
-            <div>
-              <label style={{ display: 'block', fontSize: '12px', color: '#C5A059' }}>Abrir lote guardado</label>
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', color: '#C5A059' }}>Abrir lote guardado</label>
+            <div style={{ display: 'flex', gap: '4px', alignItems: 'center', marginTop: '0' }}>
               <select
-                value=""
+                value={String(lotesGuardados.find(l => l.fecha === fecha && l.nombre_lote === nombreLote.trim())?.id ?? '')}
+                onFocus={cargarListaDeLotes}
                 onChange={(e) => {
                   const sel = lotesGuardados.find(l => String(l.id) === e.target.value)
                   if (sel) { setFecha(sel.fecha); setNombreLote(sel.nombre_lote) }
                 }}
                 style={{ padding: '8px', borderRadius: '6px', border: 'none', width: '260px', backgroundColor: 'white', color: '#333' }}
               >
-                <option value="">-- Seleccionar de Supabase --</option>
+                <option value="">{lotesGuardados.length === 0 ? '-- Sin lotes guardados --' : '-- Seleccionar de Supabase --'}</option>
                 {lotesGuardados.map(l => (
-                  <option key={l.id} value={l.id}>
+                  <option key={l.id} value={String(l.id)}>
                     {l.fecha} · {l.nombre_lote} ({l.estado_workflow})
                   </option>
                 ))}
               </select>
+              <button type="button" onClick={cargarListaDeLotes} title="Actualizar lista de lotes"
+                style={{ padding: '6px 8px', borderRadius: '6px', border: 'none', cursor: 'pointer', backgroundColor: '#C5A059', color: '#0B1E36', fontWeight: 'bold' }}>
+                ↻
+              </button>
             </div>
-          )}
+            {errorLotes && <p style={{ margin: '4px 0 0', fontSize: '10px', color: '#ef4444' }}>{errorLotes}</p>}
+          </div>
 
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '12px' }}>
             <span style={{ padding: '6px 10px', borderRadius: '4px', backgroundColor: estadoWorkflow === 'creado' ? '#C5A059' : '#333', color: estadoWorkflow === 'creado' ? '#0B1E36' : 'white', fontWeight: 'bold' }}>1. Creación</span> →
@@ -999,82 +856,12 @@ export default function GestorPresupuestosWorkflow() {
 
         <div style={{ display: 'flex', gap: '25px', alignItems: 'flex-start' }}>
           
-          {/* IZQUIERDA: Pedidos Pendientes con Selector de Taller */}
-          <div style={{ flex: '1', backgroundColor: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
-            <h2 style={{ fontSize: '18px', color: '#0B1E36', borderBottom: '2px solid #C5A059', paddingBottom: '10px' }}>Pedidos para el {fecha}</h2>
-            
-            {estadoWorkflow === 'creado' && (
-              <div style={{ margin: '15px 0', padding: '10px', backgroundColor: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#0B1E36', marginBottom: '5px' }}>Asignar Sucursal / Taller de Destino:</label>
-                <select 
-                  value={tallerAsignacionTemp} 
-                  onChange={(e) => setTallerAsignacionTemp(e.target.value)}
-                  style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '12px', backgroundColor: 'white' }}
-                >
-                  {talleresDisponibles.map(t => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {loading && <p>Cargando datos...</p>}
-            {!loading && pedidosPendientes.length === 0 && <p style={{ fontSize: '14px', color: '#666' }}>No hay pedidos pendientes.</p>}
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-              {pedidosPendientes.map((pedido, idxPend) => (
-                <div key={pedido.cod_venta ?? pedido.id ?? idxPend} style={{ border: '1px solid #eee', borderRadius: '8px', padding: '12px', backgroundColor: '#fafafa' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <strong>#{pedido.cod_venta} - {pedido.cliente}</strong>
-                    {estadoWorkflow === 'creado' && (
-                      <button onClick={() => moverAPresupuesto(pedido)} style={{ backgroundColor: '#C5A059', color: '#0B1E36', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>+ Consolidar</button>
-                    )}
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#555' }}>
-                    {pedido.detalles.map(d => {
-                      const vars = variantesDisponiblesMap[String(d.cod_producto)] || []
-                      return (
-                        <div key={d.id} style={{ margin: '8px 0', padding: '6px', backgroundColor: '#fff', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                            <span>• {d.cantidad}x {d.producto_nombre}</span>
-                          </div>
-                          {estadoWorkflow === 'creado' && vars.length > 0 && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
-                              <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#0B1E36' }}>Variante:</span>
-                              <select
-                                value={variantesSeleccionadas[d.id] || ''}
-                                onChange={(e) => setVariantesSeleccionadas({ ...variantesSeleccionadas, [d.id]: Number(e.target.value) })}
-                                style={{ flex: 1, padding: '4px', fontSize: '11px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: 'white' }}
-                              >
-                                {vars.map(v => (
-                                  <option key={v.id} value={v.id}>
-                                    {v.nombre || v.descripcion || `Variante #${v.id}`} {v.es_estandar ? '(Estándar)' : ''}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
           {/* DERECHA: Gestión de Lote y Lista Centralizada */}
-          <div style={{ flex: '1.7', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div style={{ flex: '1', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '20px' }}>
             
             {/* Pestañas de Filtro por Sucursal / Taller */}
             <div style={{ display: 'flex', gap: '8px', backgroundColor: 'white', padding: '12px', borderRadius: '12px', boxShadow: '0 2px 12px rgba(0,0,0,0.05)', alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#0B1E36', marginRight: '10px' }}>Ver lista de:</span>
-              <button 
-                onClick={() => setTallerFiltroActivo('TODOS')}
-                style={{ padding: '6px 14px', borderRadius: '6px', border: 'none', fontWeight: 'bold', fontSize: '12px', backgroundColor: tallerFiltroActivo === 'TODOS' ? '#0B1E36' : '#e2e8f0', color: tallerFiltroActivo === 'TODOS' ? '#C5A059' : '#333', cursor: 'pointer' }}
-              >
-                🌐 Todos los Talleres (Consolidado Global)
-              </button>
+              <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#0B1E36', marginRight: '10px' }}>Sucursal:</span>
               {talleresDisponibles.map(taller => (
                 <button 
                   key={taller}
@@ -1086,72 +873,51 @@ export default function GestorPresupuestosWorkflow() {
               ))}
             </div>
 
-            {/* Pedidos Seleccionados */}
-            <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
-              <h2 style={{ fontSize: '18px', color: '#0B1E36', borderBottom: '2px solid #C5A059', paddingBottom: '10px' }}>Pedidos Incluidos en el Lote</h2>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {pedidosSeleccionados.length === 0 && <span style={{ fontSize: '13px', fontStyle: 'italic', color: '#999' }}>Ningún pedido seleccionado.</span>}
-                {pedidosSeleccionados.map((p, idxSel) => (
-                  <span key={p.cod_venta ?? p.id ?? idxSel} style={{ backgroundColor: '#0B1E36', color: 'white', padding: '6px 12px', borderRadius: '12px', fontSize: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <strong>#{p.cod_venta}</strong> - {p.cliente} <span style={{ color: '#C5A059', fontSize: '10px' }}>({p.taller_destino})</span>
-                    {estadoWorkflow === 'creado' && (
-                      <button onClick={() => devolverAPendientes(p)} style={{ background: 'none', border: 'none', color: '#C5A059', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
-                    )}
-                  </span>
-                ))}
-              </div>
-            </div>
+            {loading && <p style={{ fontSize: '13px', color: '#666', margin: 0 }}>Cargando datos...</p>}
 
-            {/* Materiales planificados desde la pantalla de Planificación */}
+            {/* Trabajos planificados del día: sus materiales entran solos a la lista */}
             <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
               <h2 style={{ fontSize: '18px', color: '#0B1E36', borderBottom: '2px solid #C5A059', paddingBottom: '10px', marginBottom: '10px' }}>
-                📋 Materiales Planificados ({materialesPlanificados.length})
+                📋 Pedidos Planificados — {tallerFiltroActivo} ({planificadosTaller.length})
               </h2>
               <p style={{ fontSize: '11px', color: '#666', marginBottom: '10px' }}>
-                Piezas armadas desde la pantalla de Planificación para este mismo lote. Puedes incorporarlas al presupuesto y deshacer la acción si hubo algún error.
+                Pedidos planificados para esta sucursal en este lote. Sus materiales ya están en la Lista de Materiales,
+                con tubos, melaminas, accesorios e insumos sumados. Puedes editar cantidades, stock y precios directamente en la tabla.
               </p>
-              {materialesPlanificados.length === 0 && (
-                <p style={{ fontSize: '13px', fontStyle: 'italic', color: '#999' }}>No hay materiales planificados registrados o cargados.</p>
+              {estadoWorkflow === 'creado' && materialesPlanificados.length > 0 && (
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                  <button onClick={() => recalcularDesdePlanificacion(false)} disabled={loading}
+                    style={{ background: '#0B1E36', color: '#C5A059', border: 'none', fontSize: '11px', padding: '6px 10px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+                    🔄 Recalcular desde Planificación
+                  </button>
+                  <button onClick={() => recalcularDesdePlanificacion(true)} disabled={loading}
+                    style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #93c5fd', fontSize: '11px', padding: '6px 10px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+                    📦 Actualizar stock desde almacén
+                  </button>
+                </div>
               )}
-              {materialesPlanificados.map((item: any, idx: number) => {
+              {planificadosTaller.length === 0 && (
+                <p style={{ fontSize: '13px', fontStyle: 'italic', color: '#999' }}>No hay pedidos planificados para esta sucursal en este lote.</p>
+              )}
+              {planificadosTaller.map(({ item, idx }: { item: any, idx: number }) => {
                 const idTemp = item.id_temp || `plan-${idx}`
                 const expandido = itemsPlanificadosExpandidos[idTemp] || false
-                const yaIncorporado = item.incorporado === true
                 return (
-                  <div key={idTemp} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px', marginBottom: '10px', background: yaIncorporado ? '#f0fdf4' : '#f8fafc' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div key={idTemp} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px', marginBottom: '8px', background: '#f8fafc' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
                       <div>
                         <strong style={{ fontSize: '13px' }}>{item.titulo}</strong>
                         <div style={{ fontSize: '11px', color: '#666' }}>
-                          Destino: {item.taller_destino} · {(item.piezas_desglose || []).length} piezas
-                          {yaIncorporado && <span style={{ marginLeft: '8px', color: '#16a34a', fontWeight: 'bold' }}>✓ Incorporado</span>}
+                          {item.cliente_o_destino} · Cant: {item.cantidad ?? 1} · {(item.piezas_desglose || []).filter((p: any) => p.tipo !== 'Unión').length} piezas
+                          <span style={{ marginLeft: '8px', color: '#16a34a', fontWeight: 'bold' }}>✓ En la lista</span>
                         </div>
                       </div>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button
-                          onClick={() => toggleExpandPlanificado(idTemp)}
-                          style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#0B1E36', fontSize: '11px', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                        >
-                          {expandido ? 'Ocultar ▲' : 'Ver piezas ▼'}
-                        </button>
-                        {estadoWorkflow === 'creado' && (
-                          yaIncorporado ? (
-                            <button
-                              onClick={() => deshacerIncorporacionPlanificado(idTemp)}
-                              style={{ background: '#fee2e2', color: '#dc2626', border: '1px solid #f87171', fontSize: '11px', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                            >
-                              ✕ Quitar incorporación
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => incorporarItemPlanificadoAlPresupuesto(item, idTemp)}
-                              style={{ background: '#C5A059', color: '#0B1E36', border: 'none', fontSize: '11px', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                            >
-                              + Incorporar al presupuesto
-                            </button>
-                          )
-                        )}
-                      </div>
+                      <button
+                        onClick={() => toggleExpandPlanificado(idTemp)}
+                        style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#0B1E36', fontSize: '11px', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', flexShrink: 0 }}
+                      >
+                        {expandido ? 'Ocultar ▲' : 'Ver piezas ▼'}
+                      </button>
                     </div>
                     {expandido && (
                       <div style={{ marginTop: '8px', maxHeight: '180px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '4px' }}>
@@ -1160,23 +926,20 @@ export default function GestorPresupuestosWorkflow() {
                             <tr style={{ background: '#e2e8f0', textAlign: 'left' }}>
                               <th style={{ padding: '4px 6px' }}>Tipo</th>
                               <th style={{ padding: '4px 6px' }}>Descripción</th>
+                              <th style={{ padding: '4px 6px' }}>Medida</th>
                               <th style={{ padding: '4px 6px', textAlign: 'center' }}>Cant.</th>
-                              <th style={{ padding: '4px 6px', textAlign: 'right' }}>Costo Unit.</th>
-                              <th style={{ padding: '4px 6px', textAlign: 'right' }}>Subtotal</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {(item.piezas_desglose || []).map((pieza: any, pIdx: number) => {
-                              const cant = Number(pieza.cantidad) || 0
-                              const pUnit = Number(pieza.costo_unitario ?? pieza.precio_unitario ?? pieza.precio ?? 0)
-                              const subtotalPieza = cant * pUnit
+                            {(item.piezas_desglose || []).filter((p: any) => p.tipo !== 'Unión').map((pieza: any, pIdx: number) => {
+                              const medida = pieza.longitud_cm ? `${pieza.longitud_cm} cm`
+                                : (pieza.largo_cm && pieza.ancho_cm) ? `${pieza.largo_cm} x ${pieza.ancho_cm} cm` : '-'
                               return (
                                 <tr key={pIdx} style={{ borderBottom: '1px solid #eee' }}>
                                   <td style={{ padding: '4px 6px', fontWeight: 'bold' }}>{pieza.tipo || '-'}</td>
-                                  <td style={{ padding: '4px 6px' }}>{pieza.descripcion || pieza.codigo_melamina || pieza.codigo_acero || '-'}</td>
-                                  <td style={{ padding: '4px 6px', textAlign: 'center' }}>{cant}</td>
-                                  <td style={{ padding: '4px 6px', textAlign: 'right' }}>{pUnit > 0 ? `Bs. ${pUnit.toFixed(2)}` : 'Auto'}</td>
-                                  <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 'bold' }}>{pUnit > 0 ? `Bs. ${subtotalPieza.toFixed(2)}` : '-'}</td>
+                                  <td style={{ padding: '4px 6px' }}>{pieza.descripcion || pieza.codigo || '-'}</td>
+                                  <td style={{ padding: '4px 6px' }}>{medida}</td>
+                                  <td style={{ padding: '4px 6px', textAlign: 'center' }}>{Number(pieza.cantidad) || 0}</td>
                                 </tr>
                               )
                             })}
@@ -1260,6 +1023,38 @@ export default function GestorPresupuestosWorkflow() {
                   Fase: {estadoWorkflow.toUpperCase()}
                 </span>
               </div>
+
+              {resumenTotales.length > 0 && (
+                <div style={{ marginBottom: '16px', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+                  <div style={{ background: '#0B1E36', color: '#C5A059', fontSize: '12px', fontWeight: 'bold', padding: '6px 10px' }}>
+                    Totales de la sucursal {tallerFiltroActivo}
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', color: '#0B1E36' }}>
+                        <th style={{ padding: '6px 10px', textAlign: 'left' }}>Categoría</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'center' }}>Ítems</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'center' }}>Requerido</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'center', color: '#2563eb' }}>En almacén (-)</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'center', color: '#16a34a' }}>A comprar</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'right' }}>Subtotal (Bs)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {resumenTotales.map(c => (
+                        <tr key={c.k} style={{ borderTop: '1px solid #eee' }}>
+                          <td style={{ padding: '6px 10px', fontWeight: 'bold' }}>{c.label}</td>
+                          <td style={{ padding: '6px 10px', textAlign: 'center' }}>{c.items}</td>
+                          <td style={{ padding: '6px 10px', textAlign: 'center' }}>{Number(c.req.toFixed(2))}</td>
+                          <td style={{ padding: '6px 10px', textAlign: 'center' }}>{Number(c.stock.toFixed(2))}</td>
+                          <td style={{ padding: '6px 10px', textAlign: 'center', fontWeight: 'bold', color: '#16a34a' }}>{Number(c.comprar.toFixed(2))}</td>
+                          <td style={{ padding: '6px 10px', textAlign: 'right' }}>{c.subtotal.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
