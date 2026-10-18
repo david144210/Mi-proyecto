@@ -57,6 +57,8 @@ interface RequerimientoPlanificado {
   sinMedida?: number // acero: piezas sin longitud registrada (lotes viejos)
   largo?: number     // solo melamina
   ancho?: number     // solo melamina
+  cortes?: Map<number, number>  // solo acero: longitud (cm) → cantidad de cortes, tal como están en el JSON
+  usos?: Map<string, number>    // accesorio/insumo: descripción de cada pieza → cantidad, tal como están en el JSON
 }
 
 // Suma TODO lo planificado del lote por taller:
@@ -69,17 +71,21 @@ const consolidarPiezasPlanificadas = (planificados: any[]): RequerimientoPlanifi
 
   for (const item of planificados || []) {
     const taller = item.taller_destino || 'SIN-TALLER'
+    // Items de stock guardados antes: sus piezas eran de 1 mueble, se multiplican por la cantidad del item
+    const multItem = item.tipo_origen === 'stock' && !item.piezas_x_cantidad ? (Number(item.cantidad) || 1) : 1
     for (const p of item.piezas_desglose || []) {
-      const cant = Number(p.cantidad) || 0
+      const cant = (Number(p.cantidad) || 0) * multItem
       if (cant <= 0) continue
 
       if (p.tipo === 'Acero') {
         const codigo = p.codigo_acero || p.codigo || p.descripcion || 'SIN-CODIGO'
         const key = `acero|${taller}|${codigo}`
         const largo = Number(p.longitud_cm ?? p.largo_cm) || 0
-        const g = mapa.get(key) || { tipo: 'acero' as const, taller, codigo, descripcion: p.descripcion || codigo, cantidad: 0, totalCm: 0, sinMedida: 0 }
-        if (largo > 0) g.totalCm = (g.totalCm || 0) + largo * cant
-        else g.sinMedida = (g.sinMedida || 0) + cant
+        const g = mapa.get(key) || { tipo: 'acero' as const, taller, codigo, descripcion: p.descripcion || codigo, cantidad: 0, totalCm: 0, sinMedida: 0, cortes: new Map<number, number>() }
+        if (largo > 0) {
+          g.totalCm = (g.totalCm || 0) + largo * cant
+          g.cortes!.set(largo, (g.cortes!.get(largo) || 0) + cant)
+        } else g.sinMedida = (g.sinMedida || 0) + cant
         mapa.set(key, g)
       } else if (p.tipo === 'Melamina') {
         const codigo = p.codigo_melamina || p.color || p.codigo || p.descripcion || 'SIN-CODIGO'
@@ -93,8 +99,10 @@ const consolidarPiezasPlanificadas = (planificados: any[]): RequerimientoPlanifi
         const tipo = p.tipo === 'Accesorio' ? 'accesorio' as const : 'insumo' as const
         const codigo = (tipo === 'accesorio' ? p.codigo_accesorio : p.codigo_insumo) || p.codigo || p.descripcion || 'SIN-CODIGO'
         const key = `${tipo}|${taller}|${codigo}`
-        const g = mapa.get(key) || { tipo, taller, codigo, descripcion: p.descripcion || codigo, cantidad: 0 }
+        const g = mapa.get(key) || { tipo, taller, codigo, descripcion: p.descripcion || codigo, cantidad: 0, usos: new Map<string, number>() }
         g.cantidad += cant
+        const uso = (p.descripcion || '').trim()
+        if (uso) g.usos!.set(uso, (g.usos!.get(uso) || 0) + cant)
         mapa.set(key, g)
       }
     }
@@ -396,6 +404,14 @@ export default function GestorPresupuestosWorkflow() {
       return Math.min(r.cantidad, Math.max(0, Number(data?.cantidad) || 0))
     }
 
+    // Para accesorios e insumos: en qué piezas se usa cada uno (descripciones del JSON de Planificación)
+    const usosTexto = (r: RequerimientoPlanificado) => {
+      const lista = [...(r.usos?.entries() || [])].filter(([d]) => d && d.toLowerCase() !== r.codigo.toLowerCase())
+      if (lista.length === 0) return ''
+      const visibles = lista.slice(0, 3).map(([d, c]) => `${d} ×${Number(c.toFixed(2))}`).join(', ')
+      return ` — ${visibles}${lista.length > 3 ? ` (+${lista.length - 3} más)` : ''}`
+    }
+
     const nuevasFilas: MaterialPresupuesto[] = []
     for (const r of requeridos) {
       const idAuto = `${PREFIJO_AUTO}${r.tipo}|${r.taller}|${r.codigo}|${r.largo ?? ''}x${r.ancho ?? ''}`
@@ -408,8 +424,12 @@ export default function GestorPresupuestosWorkflow() {
         const cat = catAcero.get(r.codigo)
         nombre = cat?.detalle || r.descripcion
         precioCalculado = Number(cat?.precio_compra) || 0 // precio por barra completa
+        const cortesTxt = [...(r.cortes?.entries() || [])]
+          .sort((a, b) => b[0] - a[0])
+          .map(([largo, cant]) => `${Number(cant.toFixed(2))}×${largo}cm`)
+          .join(' + ')
         detalle = (r.totalCm || 0) > 0
-          ? `[Acero] ${nombre} — ${Number((r.totalCm || 0).toFixed(1))}cm totales → ${Math.ceil((r.totalCm || 0) / LONGITUD_BARRA_CM - 1e-9)} barra(s) de ${LONGITUD_BARRA_CM}cm`
+          ? `[Acero] ${nombre} — ${cortesTxt} = ${Number((r.totalCm || 0).toFixed(1))}cm → ${Math.ceil((r.totalCm || 0) / LONGITUD_BARRA_CM - 1e-9)} barra(s) de ${LONGITUD_BARRA_CM}cm`
           : `[Acero] ${nombre} — ⚠️ sin medidas en Planificación`
         if ((r.totalCm || 0) > 0 && (r.sinMedida || 0) > 0) detalle += ` (+${r.sinMedida} pza(s) sin medida)`
       } else if (r.tipo === 'melamina') {
@@ -421,12 +441,12 @@ export default function GestorPresupuestosWorkflow() {
         const cat = catAcc.get(r.codigo)
         nombre = cat?.detalle || r.descripcion
         precioCalculado = Number(cat?.precio_compra) || 0
-        detalle = `[Accesorio] ${nombre}`
+        detalle = `[Accesorio] ${nombre}${usosTexto(r)}`
       } else {
         const cat = catIns.get(r.codigo)
         nombre = cat?.detalle || r.descripcion
         precioCalculado = Number(cat?.precio_compra) || 0
-        detalle = `[Insumo] ${nombre}`
+        detalle = `[Insumo] ${nombre}${usosTexto(r)}`
       }
 
       const stock = previo && !reiniciarStock

@@ -167,6 +167,8 @@ interface ItemPlanificacion {
   taller_destino: string
   detalles: any[]
   piezas_desglose: PiezaDesglose[]
+  // true = las piezas ya están multiplicadas por la cantidad del item (todo lo que se necesita para el item completo)
+  piezas_x_cantidad?: boolean
 }
 
 interface ItemConfigVenta {
@@ -336,10 +338,19 @@ export default function PlanificacionPage() {
       if (data) {
         setLoteIdActual(data.id)
         setEstadoWorkflowLote(data.estado_workflow || 'creado')
-        const itemsRecuperados = (data.materiales_planificados || []).map((item: any, idx: number) => ({
-          ...item,
-          id_temp: item.id_temp || `rec-${idx}-${Math.random().toString(36).substr(2, 6)}`
-        }))
+        const itemsRecuperados = (data.materiales_planificados || []).map((item: any, idx: number) => {
+          let normalizado = { ...item, id_temp: item.id_temp || `rec-${idx}-${Math.random().toString(36).substr(2, 6)}` }
+          // Items de stock guardados antes: sus piezas eran de 1 mueble aunque se pidieran varios
+          if (normalizado.tipo_origen === 'stock' && !normalizado.piezas_x_cantidad) {
+            const mult = Number(normalizado.cantidad) || 1
+            normalizado = {
+              ...normalizado,
+              piezas_desglose: (normalizado.piezas_desglose || []).map((p: any) => ({ ...p, cantidad: (Number(p.cantidad) || 0) * mult })),
+              piezas_x_cantidad: true
+            }
+          }
+          return normalizado
+        })
         setItemsPlanificados(itemsRecuperados)
       } else {
         setLoteIdActual(null)
@@ -725,6 +736,7 @@ export default function PlanificacionPage() {
     const prod = catalogoProductos.find(p => String(p.codigo) === productoStockCod)
     const variante = variantesProducto.find(v => String(v.id) === varianteIdSeleccionada)
 
+    const cantStock = parseInt(cantidadStock) || 1
     setItemsPlanificados(prev => [...prev, {
       id_temp: Math.random().toString(36).substr(2, 9),
       tipo_origen: 'stock',
@@ -733,8 +745,10 @@ export default function PlanificacionPage() {
       cliente_o_destino: 'Inventario Interno',
       cantidad: parseInt(cantidadStock) || 1,
       taller_destino: tallerSeleccionado,
-      detalles: [{ cod_producto: productoStockCod, variante_id: varianteIdSeleccionada, cantidad: parseInt(cantidadStock) || 1 }],
-      piezas_desglose: [...piezasVarianteActual]
+      detalles: [{ cod_producto: productoStockCod, variante_id: varianteIdSeleccionada, cantidad: cantStock }],
+      // Las piezas de la variante son por 1 mueble: se multiplican por la cantidad a producir
+      piezas_desglose: piezasVarianteActual.map(p => ({ ...p, cantidad: (Number(p.cantidad) || 0) * cantStock })),
+      piezas_x_cantidad: true
     }])
     setProductoStockCod('')
     setVarianteIdSeleccionada('')
