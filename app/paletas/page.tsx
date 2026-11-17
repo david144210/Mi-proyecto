@@ -146,7 +146,6 @@ export default function PaletasAutomaticas() {
     }
   }
 
-  // Carga robusta de archivos locales desde la carpeta public en Base64
   const cargarAssetLocal = async (ruta: string): Promise<string | null> => {
     try {
       const resp = await fetch(ruta)
@@ -174,7 +173,6 @@ export default function PaletasAutomaticas() {
     try {
       const { jsPDF } = await import('jspdf')
 
-      // Cargamos logo y mascota asegurando las rutas exactas
       const [logoBase64, mascotaBase64] = await Promise.all([
         cargarAssetLocal('/logo.jpg'),
         cargarAssetLocal('/mascota.jpg'),
@@ -197,11 +195,9 @@ export default function PaletasAutomaticas() {
       const fecha = new Date().toLocaleDateString('es-BO')
 
       const encabezado = () => {
-        // Fondo de la cabecera corporativa
         doc.setFillColor(14, 19, 38)
         doc.rect(0, 0, W, headerH, 'F')
 
-        // Línea dorada decorativa inferior
         doc.setFillColor(212, 175, 55)
         doc.rect(0, headerH, W, 1.2, 'F')
 
@@ -215,13 +211,11 @@ export default function PaletasAutomaticas() {
           }
         }
 
-        // Título de la sucursal
         doc.setFont('helvetica', 'bold')
         doc.setFontSize(14)
         doc.setTextColor(212, 175, 55)
         doc.text(`Paleta de colores - ${ciudad}`, textoX, 11.5)
 
-        // Nombre de la marca explícito
         doc.setFont('helvetica', 'bold')
         doc.setFontSize(9)
         doc.setTextColor(255, 255, 255)
@@ -232,7 +226,6 @@ export default function PaletasAutomaticas() {
         doc.setTextColor(200, 205, 215)
         doc.text('Catálogo Oficial de Melaminas', textoX, 21.5)
 
-        // Contador y fecha a la derecha
         doc.setFont('helvetica', 'normal')
         doc.setFontSize(8.5)
         doc.setTextColor(255, 255, 255)
@@ -284,10 +277,8 @@ export default function PaletasAutomaticas() {
       for (let p = 1; p <= paginas; p++) {
         doc.setPage(p)
 
-        // Mascota como sello/marca de agua en la esquina inferior derecha
         if (mascotaBase64) {
           try {
-            // Configurar opacidad baja (marca de agua) si el entorno lo soporta, o colocar directamente
             doc.addImage(mascotaBase64, 'JPEG', W - M - 20, H - 25, 20, 20)
           } catch (e) {
             console.error('No se pudo insertar la mascota en el PDF', e)
@@ -546,7 +537,7 @@ export default function PaletasAutomaticas() {
                                       <Download size={12} /> Descargar Imagen
                                     </button>
                                   )}
-                                  {puede_ver_compras && (
+                                  {puedeVerPrivado && (
                                     <div className="text-right">
                                       <span className="text-[9px] text-[#D4AF37] block uppercase font-bold">Cotizador</span>
                                       <span className="text-sm font-extrabold text-[#D4AF37]">
