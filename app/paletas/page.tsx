@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
-import { Loader2, MapPin, Package, Image as ImageIcon, Search, Sparkles, Info, RotateCw, Download } from 'lucide-react'
+import { Loader2, MapPin, Package, Image as ImageIcon, Search, Sparkles, Info, RotateCw, Download, FileText, Check, Ban } from 'lucide-react'
 
 interface Melamina {
   id: number
@@ -11,6 +11,7 @@ interface Melamina {
   precio_compra: number | null
   precio_cotizador: number | null
   foto_url: string | null
+  disponible?: boolean | null
 }
 
 interface Proveedor {
@@ -28,6 +29,8 @@ export default function PaletasAutomaticas() {
   const [busquedaGlobal, setBusquedaGlobal] = useState('')
   
   const [tarjetasVolteadas, setTarjetasVolteadas] = useState<{ [key: number]: boolean }>({})
+  const [generandoPdf, setGenerandoPdf] = useState<string | null>(null)
+  const [cambiandoId, setCambiandoId] = useState<number | null>(null)
 
   const ciudadesGeograficas = ['Cochabamba', 'Santa Cruz', 'El Alto - La Paz']
 
@@ -83,6 +86,226 @@ export default function PaletasAutomaticas() {
       window.URL.revokeObjectURL(blobUrl)
     } catch {
       window.open(url, '_blank')
+    }
+  }
+
+  const estaDisponible = (m: Melamina) => m.disponible !== false
+
+  const toggleDisponible = async (e: React.MouseEvent, mel: Melamina) => {
+    e.stopPropagation()
+    if (cambiandoId === mel.id) return
+    const nuevo = !estaDisponible(mel)
+    setCambiandoId(mel.id)
+    const { data, error } = await supabase
+      .from('melaminas')
+      .update({ disponible: nuevo })
+      .eq('id', mel.id)
+      .select('id')
+    if (error || !data || data.length === 0) {
+      alert('No se pudo cambiar la disponibilidad.')
+    } else {
+      setMelaminas(prev => prev.map(m => (m.id === mel.id ? { ...m, disponible: nuevo } : m)))
+    }
+    setCambiandoId(null)
+  }
+
+  const melaminasDeLaCiudad = (ciudad: string) => {
+    const proveedoresDeCiudad = proveedores
+      .filter(p => p.ciudad?.toLowerCase().trim() === ciudad.toLowerCase().trim())
+      .map(p => p.nombre?.toLowerCase().trim())
+    return melaminas.filter(m => m.proveedor && proveedoresDeCiudad.includes(m.proveedor.toLowerCase().trim()))
+  }
+
+  const cargarImagenCuadrada = async (url: string): Promise<string | null> => {
+    try {
+      const resp = await fetch(url)
+      const blob = await resp.blob()
+      const objUrl = URL.createObjectURL(blob)
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const i = new window.Image()
+        i.onload = () => resolve(i)
+        i.onerror = reject
+        i.src = objUrl
+      })
+      const lado = 400
+      const canvas = document.createElement('canvas')
+      canvas.width = lado
+      canvas.height = lado
+      const ctx = canvas.getContext('2d')
+      if (!ctx) { URL.revokeObjectURL(objUrl); return null }
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, lado, lado)
+      const corte = Math.min(img.width, img.height)
+      const sx = (img.width - corte) / 2
+      const sy = (img.height - corte) / 2
+      ctx.drawImage(img, sx, sy, corte, corte, 0, 0, lado, lado)
+      URL.revokeObjectURL(objUrl)
+      return canvas.toDataURL('image/jpeg', 0.8)
+    } catch {
+      return null
+    }
+  }
+
+  // Carga robusta de archivos locales desde la carpeta public en Base64
+  const cargarAssetLocal = async (ruta: string): Promise<string | null> => {
+    try {
+      const resp = await fetch(ruta)
+      if (!resp.ok) return null
+      const blob = await resp.blob()
+      return await new Promise<string | null>((resolve) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : null)
+        reader.onerror = () => resolve(null)
+        reader.readAsDataURL(blob)
+      })
+    } catch (e) {
+      console.error(`Error cargando asset local (${ruta}):`, e)
+      return null
+    }
+  }
+
+  const descargarPdfCiudad = async (ciudad: string) => {
+    const lista = melaminasDeLaCiudad(ciudad).filter(estaDisponible)
+    if (lista.length === 0) {
+      alert('No hay colores disponibles en esta sucursal para generar el PDF.')
+      return
+    }
+    setGenerandoPdf(ciudad)
+    try {
+      const { jsPDF } = await import('jspdf')
+
+      // Cargamos logo y mascota asegurando las rutas exactas
+      const [logoBase64, mascotaBase64] = await Promise.all([
+        cargarAssetLocal('/logo.jpg'),
+        cargarAssetLocal('/mascota.jpg'),
+      ])
+
+      const imagenes: (string | null)[] = []
+      for (let i = 0; i < lista.length; i += 8) {
+        const lote = await Promise.all(
+          lista.slice(i, i + 8).map(m => (m.foto_url ? cargarImagenCuadrada(m.foto_url) : Promise.resolve(null)))
+        )
+        imagenes.push(...lote)
+      }
+
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const W = 210, H = 297, M = 12, COLS = 4, GAP = 5
+      const cellW = (W - 2 * M - GAP * (COLS - 1)) / COLS
+      const cellH = cellW + 15
+      const headerH = 28
+      const yInicio = headerH + 8
+      const fecha = new Date().toLocaleDateString('es-BO')
+
+      const encabezado = () => {
+        // Fondo de la cabecera corporativa
+        doc.setFillColor(14, 19, 38)
+        doc.rect(0, 0, W, headerH, 'F')
+
+        // Línea dorada decorativa inferior
+        doc.setFillColor(212, 175, 55)
+        doc.rect(0, headerH, W, 1.2, 'F')
+
+        let textoX = M
+        if (logoBase64) {
+          try {
+            doc.addImage(logoBase64, 'JPEG', M, 3, 22, 22)
+            textoX = M + 25
+          } catch (e) {
+            console.error('No se pudo insertar el logo en el PDF', e)
+          }
+        }
+
+        // Título de la sucursal
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(14)
+        doc.setTextColor(212, 175, 55)
+        doc.text(`Paleta de colores - ${ciudad}`, textoX, 11.5)
+
+        // Nombre de la marca explícito
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(9)
+        doc.setTextColor(255, 255, 255)
+        doc.text('Muebless is Better', textoX, 17)
+
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8)
+        doc.setTextColor(200, 205, 215)
+        doc.text('Catálogo Oficial de Melaminas', textoX, 21.5)
+
+        // Contador y fecha a la derecha
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8.5)
+        doc.setTextColor(255, 255, 255)
+        doc.text(`${lista.length} colores | ${fecha}`, W - M, 15, { align: 'right' })
+      }
+
+      encabezado()
+      let y = yInicio
+      let col = 0
+
+      lista.forEach((mel, idx) => {
+        if (col === 0 && y + cellH > H - 24) {
+          doc.addPage()
+          encabezado()
+          y = yInicio
+        }
+        const x = M + col * (cellW + GAP)
+        const img = imagenes[idx]
+
+        if (img) {
+          doc.addImage(img, 'JPEG', x, y, cellW, cellW)
+        } else {
+          doc.setFillColor(243, 244, 246)
+          doc.rect(x, y, cellW, cellW, 'F')
+          doc.setFont('helvetica', 'normal')
+          doc.setFontSize(8)
+          doc.setTextColor(156, 163, 175)
+          doc.text('Sin imagen', x + cellW / 2, y + cellW / 2, { align: 'center' })
+        }
+        doc.setDrawColor(209, 213, 219)
+        doc.rect(x, y, cellW, cellW)
+
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(8.5)
+        doc.setTextColor(0, 31, 63)
+        doc.text(String(mel.codigo_melamina || ''), x, y + cellW + 4.5)
+
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(7)
+        doc.setTextColor(75, 85, 99)
+        const lineas = (doc.splitTextToSize(mel.detalle || 'Color sin nombre', cellW) as string[]).slice(0, 2)
+        doc.text(lineas, x, y + cellW + 8.5)
+
+        col++
+        if (col === COLS) { col = 0; y += cellH + GAP }
+      })
+
+      const paginas = doc.getNumberOfPages()
+      for (let p = 1; p <= paginas; p++) {
+        doc.setPage(p)
+
+        // Mascota como sello/marca de agua en la esquina inferior derecha
+        if (mascotaBase64) {
+          try {
+            // Configurar opacidad baja (marca de agua) si el entorno lo soporta, o colocar directamente
+            doc.addImage(mascotaBase64, 'JPEG', W - M - 20, H - 25, 20, 20)
+          } catch (e) {
+            console.error('No se pudo insertar la mascota en el PDF', e)
+          }
+        }
+
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8)
+        doc.setTextColor(156, 163, 175)
+        doc.text(`Página ${p} de ${paginas}`, W / 2, H - 7, { align: 'center' })
+      }
+
+      doc.save(`Paleta_${ciudad.replace(/[^a-zA-Z0-9]+/g, '_')}.pdf`)
+    } catch (err) {
+      console.error('Error generando PDF:', err)
+      alert('No se pudo generar el PDF. Intenta nuevamente.')
+    } finally {
+      setGenerandoPdf(null)
     }
   }
 
@@ -158,13 +381,11 @@ export default function PaletasAutomaticas() {
 
         <div className="space-y-10">
           {ciudadesGeograficas.map((ciudad) => {
-            const proveedoresDeCiudad = proveedores
-              .filter(p => p.ciudad?.toLowerCase().trim() === ciudad.toLowerCase().trim())
-              .map(p => p.nombre?.toLowerCase().trim())
+            const todasDeCiudad = melaminasDeLaCiudad(ciudad)
+            const agotadosCiudad = todasDeCiudad.filter(m => !estaDisponible(m)).length
 
-            const melaminasDeCiudad = melaminas.filter(m => {
-              const perteneceCiudad = m.proveedor && proveedoresDeCiudad.includes(m.proveedor.toLowerCase().trim())
-              if (!perteneceCiudad) return false
+            const melaminasDeCiudad = todasDeCiudad.filter(m => {
+              if (!puedeVerPrivado && !estaDisponible(m)) return false
 
               if (!busquedaGlobal.trim()) return true
               const query = busquedaGlobal.toLowerCase()
@@ -182,13 +403,25 @@ export default function PaletasAutomaticas() {
                     <div>
                       <h2 className="text-base font-bold text-[#001f3f]">{ciudad}</h2>
                       <p className="text-[11px] text-gray-500 font-medium">
-                        {melaminasDeCiudad.length} {melaminasDeCiudad.length === 1 ? 'color disponible' : 'colores disponibles'}
+                        {melaminasDeCiudad.filter(estaDisponible).length} {melaminasDeCiudad.filter(estaDisponible).length === 1 ? 'color disponible' : 'colores disponibles'}
+                        {puedeVerPrivado && agotadosCiudad > 0 && ` · ${agotadosCiudad} agotado${agotadosCiudad === 1 ? '' : 's'}`}
                       </p>
                     </div>
                   </div>
-                  <span className="text-[11px] font-bold bg-[#001f3f]/5 text-[#001f3f] px-3.5 py-1.5 rounded-xl border border-[#001f3f]/10">
-                    📍 Hub Logístico
-                  </span>
+                  <div className="flex items-center gap-2 flex-wrap justify-end">
+                    <button
+                      onClick={() => descargarPdfCiudad(ciudad)}
+                      disabled={generandoPdf !== null}
+                      title={`Descargar paleta de ${ciudad} en PDF`}
+                      className="text-[11px] font-bold bg-[#D4AF37] text-[#001f3f] px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 hover:bg-opacity-90 transition disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {generandoPdf === ciudad ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />}
+                      {generandoPdf === ciudad ? 'Generando...' : 'Descargar PDF'}
+                    </button>
+                    <span className="text-[11px] font-bold bg-[#001f3f]/5 text-[#001f3f] px-3.5 py-1.5 rounded-xl border border-[#001f3f]/10">
+                      📍 Hub Logístico
+                    </span>
+                  </div>
                 </div>
 
                 <div className="p-6">
@@ -196,6 +429,7 @@ export default function PaletasAutomaticas() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                       {melaminasDeCiudad.map((mel) => {
                         const volteada = tarjetasVolteadas[mel.id] || false
+                        const disp = estaDisponible(mel)
 
                         return (
                           <div 
@@ -207,6 +441,18 @@ export default function PaletasAutomaticas() {
                               {volteada ? <RotateCw size={14} className="rotate-180" /> : <Info size={14} />}
                             </div>
 
+                            {puedeVerPrivado && (
+                              <button
+                                onClick={(e) => toggleDisponible(e, mel)}
+                                disabled={cambiandoId === mel.id}
+                                title={disp ? 'Marcar como agotado' : 'Volver a habilitar este color'}
+                                className={`absolute top-3 left-3 z-10 flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold shadow-sm transition disabled:opacity-60 ${disp ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-red-600 text-white hover:bg-red-700'}`}
+                              >
+                                {cambiandoId === mel.id ? <Loader2 size={12} className="animate-spin" /> : disp ? <Check size={12} /> : <Ban size={12} />}
+                                {disp ? 'Disponible' : 'Agotado'}
+                              </button>
+                            )}
+
                             {!volteada ? (
                               <>
                                 <div className="w-full h-56 bg-gray-100 overflow-hidden relative">
@@ -214,7 +460,7 @@ export default function PaletasAutomaticas() {
                                     <img 
                                       src={mel.foto_url} 
                                       alt={mel.detalle || ''} 
-                                      className="w-full h-full object-cover group-hover:scale-105 transition duration-500" 
+                                      className={`w-full h-full object-cover group-hover:scale-105 transition duration-500 ${disp ? '' : 'grayscale opacity-50'}`} 
                                     />
                                   ) : (
                                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-300 bg-gray-50">
@@ -223,6 +469,11 @@ export default function PaletasAutomaticas() {
                                     </div>
                                   )}
                                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-60"></div>
+                                  {!disp && (
+                                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                      <span className="bg-red-600 text-white text-xs font-extrabold px-4 py-1.5 rounded-lg -rotate-12 tracking-widest shadow-lg">AGOTADO</span>
+                                    </div>
+                                  )}
                                   <span className="absolute bottom-3 left-3 text-[11px] font-mono font-bold bg-[#001f3f] text-[#D4AF37] px-2.5 py-1 rounded-lg uppercase tracking-wider shadow-sm">
                                     {mel.codigo_melamina}
                                   </span>
@@ -295,7 +546,7 @@ export default function PaletasAutomaticas() {
                                       <Download size={12} /> Descargar Imagen
                                     </button>
                                   )}
-                                  {puedeVerPrivado && (
+                                  {puede_ver_compras && (
                                     <div className="text-right">
                                       <span className="text-[9px] text-[#D4AF37] block uppercase font-bold">Cotizador</span>
                                       <span className="text-sm font-extrabold text-[#D4AF37]">
