@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
+import { Loader2, Package, Image as ImageIcon, Search, Sparkles, FileText, Plus, Trash2, Edit3, BookOpen, Download, Images, Upload } from 'lucide-react'
 
 type Producto = {
   codigo: string
@@ -10,6 +11,13 @@ type Producto = {
   precio_minimo: number | null
   precio_tienda: number | null
   foto_url: string | null
+}
+
+type FotoGaleria = {
+  id: number
+  codigo_producto: string
+  foto_url: string
+  orden: number
 }
 
 type Usuario = {
@@ -22,14 +30,17 @@ type Usuario = {
   }
 }
 
-export default function Productos() {
+export default function CatalogoEditorialVendedores() {
   const [usuario, setUsuario] = useState<Usuario | null>(null)
   const [productos, setProductos] = useState<Producto[]>([])
-  const [filtro, setFiltro] = useState('')
+  const [busquedaGlobal, setBusquedaGlobal] = useState('')
   const [loading, setLoading] = useState(true)
   const [esAdmin, setEsAdmin] = useState(false)
+  const [generandoPdfCat, setGenerandoPdfCat] = useState<string | null>(null)
+  const [generandoPdfGeneral, setGenerandoPdfGeneral] = useState(false)
+  const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<string>('TODAS')
 
-  // Modal editar
+  // Modales de administración
   const [showEditModal, setShowEditModal] = useState(false)
   const [editando, setEditando] = useState<Producto | null>(null)
   const [editForm, setEditForm] = useState<Partial<Producto>>({})
@@ -38,27 +49,31 @@ export default function Productos() {
   const [saveMsg, setSaveMsg] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Modal eliminar
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deletingCodigo, setDeletingCodigo] = useState<string | null>(null)
 
-  // Modal nuevo producto
   const [showNuevoModal, setShowNuevoModal] = useState(false)
   const [nuevoForm, setNuevoForm] = useState<Partial<Producto>>({})
   const [nuevoLoading, setNuevoLoading] = useState(false)
   const [nuevoMsg, setNuevoMsg] = useState('')
   const [uploadingFotoNuevo, setUploadingFotoNuevo] = useState(false)
   const fileInputNuevoRef = useRef<HTMLInputElement>(null)
-
-  // Sugerencia de código (MLB-<LETRA><NNN>, ver siguiente_codigo_producto en Supabase)
   const [letraCodigo, setLetraCodigo] = useState('')
   const [sugiriendoCodigo, setSugiriendoCodigo] = useState(false)
 
-  // Verificar sesión
+  // Modal Galería de Fotos
+  const [showGaleriaModal, setShowGaleriaModal] = useState(false)
+  const [productoGaleria, setProductoGaleria] = useState<Producto | null>(null)
+  const [listaFotos, setListaFotos] = useState<FotoGaleria[]>([])
+  const [fotoActivaUrl, setFotoActivaUrl] = useState<string | null>(null)
+  const [subiendoGaleria, setSubiendoGaleria] = useState(false)
+  const fileInputGaleriaRef = useRef<HTMLInputElement>(null)
+
+  // Validación de sesión y permisos
   useEffect(() => {
     const carnetGuardado = localStorage.getItem('carnet')
     if (!carnetGuardado) {
-      window.location.href = '/'
+      window.location.replace('/')
       return
     }
     supabase
@@ -68,34 +83,97 @@ export default function Productos() {
       .eq('estado', true)
       .single()
       .then(({ data }) => {
-        if (!data) { window.location.href = '/'; return }
+        if (!data) { window.location.replace('/'); return }
         setUsuario(data)
-        // Si es admin por rol o tiene permiso en cargo, activar esAdmin
         if (data.cargos?.puede_editar_productos === true) {
           setEsAdmin(true)
         }
+        setLoading(false)
       })
   }, [])
 
-  // Cargar productos
   useEffect(() => {
-    if (!usuario) return
-    cargarProductos()
-  }, [usuario])
+    if (!loading) {
+      cargarProductos()
+    }
+  }, [loading])
 
   const cargarProductos = async () => {
-    setLoading(true)
     const { data } = await supabase
       .from('productos')
       .select('*')
       .order('categoria', { ascending: true })
     setProductos(data || [])
-    setLoading(false)
   }
 
-  // Acceso controlado por cargos.puede_editar_productos (se evalúa al cargar sesión)
+  const categoriasUnicas = Array.from(new Set(productos.map(p => p.categoria || 'SIN CATEGORÍA'))).sort()
 
-  // EDITAR
+  // --- ABRIR GALERÍA DE PRODUCTO ---
+  const abrirGaleria = async (p: Producto) => {
+    setProductoGaleria(p)
+    setFotoActivaUrl(p.foto_url || null)
+    setShowGaleriaModal(true)
+    
+    // Cargar fotos adicionales desde Supabase
+    const { data } = await supabase
+      .from('producto_galeria')
+      .select('*')
+      .eq('codigo_producto', p.codigo)
+      .order('orden', { ascending: true })
+    
+    setListaFotos(data || [])
+  }
+
+  const subirFotoGaleria = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !productoGaleria) return
+    setSubiendoGaleria(true)
+    
+    const ext = file.name.split('.').pop()
+    const timestamp = Date.now()
+    const path = `galeria_${productoGaleria.codigo}_${timestamp}.${ext}`
+
+    const { error: uploadError } = await supabase.storage
+      .from('producto-fotos')
+      .upload(path, file, { upsert: true })
+
+    if (!uploadError) {
+      const { data: urlData } = supabase.storage
+        .from('producto-fotos')
+        .getPublicUrl(path)
+
+      const nuevaUrl = urlData.publicUrl
+
+      // Guardar en tabla producto_galeria
+      const { data: insertedData } = await supabase
+        .from('producto_galeria')
+        .insert({
+          codigo_producto: productoGaleria.codigo,
+          foto_url: nuevaUrl,
+          orden: listaFotos.length + 1
+        })
+        .select()
+
+      if (insertedData) {
+        setListaFotos(prev => [...prev, insertedData[0]])
+        setFotoActivaUrl(nuevaUrl)
+      }
+    } else {
+      alert('Error al subir la imagen')
+    }
+    setSubiendoGaleria(false)
+  }
+
+  const eliminarFotoGaleria = async (id: number, url: string) => {
+    if (!confirm('¿Eliminar esta foto de la galería?')) return
+    await supabase.from('producto_galeria').delete().eq('id', id)
+    setListaFotos(prev => prev.filter(f => f.id !== id))
+    if (fotoActivaUrl === url) {
+      setFotoActivaUrl(productoGaleria?.foto_url || null)
+    }
+  }
+
+  // --- CRUD PRODUCTOS ---
   const abrirEditar = (p: Producto) => {
     if (!esAdmin) return
     setEditando(p)
@@ -110,13 +188,9 @@ export default function Productos() {
     setUploadingFoto(true)
     const ext = file.name.split('.').pop()
     const path = `${editando.codigo}.${ext}`
-    const { error } = await supabase.storage
-      .from('producto-fotos')
-      .upload(path, file, { upsert: true })
+    const { error } = await supabase.storage.from('producto-fotos').upload(path, file, { upsert: true })
     if (!error) {
-      const { data: urlData } = supabase.storage
-        .from('producto-fotos')
-        .getPublicUrl(path)
+      const { data: urlData } = supabase.storage.from('producto-fotos').getPublicUrl(path)
       setEditForm(prev => ({ ...prev, foto_url: urlData.publicUrl }))
     }
     setUploadingFoto(false)
@@ -125,28 +199,27 @@ export default function Productos() {
   const guardarEdicion = async () => {
     if (!editando) return
     setSaveLoading(true)
-    const { error } = await supabase
-      .from('productos')
-      .update({
-        categoria: editForm.categoria,
-        nombre: editForm.nombre,
-        medidas: editForm.medidas,
-        precio_minimo: editForm.precio_minimo,
-        precio_tienda: editForm.precio_tienda,
-        foto_url: editForm.foto_url,
-      })
-      .eq('codigo', editando.codigo)
+    const categoriaMayus = editForm.categoria?.trim() ? editForm.categoria.trim().toUpperCase() : null
+
+    const { error } = await supabase.from('productos').update({
+      categoria: categoriaMayus,
+      nombre: editForm.nombre,
+      medidas: editForm.medidas,
+      precio_minimo: editForm.precio_minimo,
+      precio_tienda: editForm.precio_tienda,
+      foto_url: editForm.foto_url,
+    }).eq('codigo', editando.codigo)
+
     setSaveLoading(false)
     if (!error) {
-      setSaveMsg('✓ Guardado correctamente')
+      setSaveMsg('✓ Actualizado con éxito')
       cargarProductos()
       setTimeout(() => { setShowEditModal(false); setSaveMsg('') }, 1200)
     } else {
-      setSaveMsg('Error al guardar')
+      setSaveMsg('Error al actualizar')
     }
   }
 
-  // ELIMINAR
   const abrirEliminar = (codigo: string) => {
     if (!esAdmin) return
     setDeletingCodigo(codigo)
@@ -161,7 +234,6 @@ export default function Productos() {
     cargarProductos()
   }
 
-  // NUEVO PRODUCTO
   const abrirNuevo = () => {
     if (!esAdmin) return
     setNuevoForm({})
@@ -174,51 +246,44 @@ export default function Productos() {
     const file = e.target.files?.[0]
     if (!file) return
     const codigo = nuevoForm.codigo?.trim()
-    if (!codigo) { setNuevoMsg('Ingresa el código primero para subir la foto'); return }
+    if (!codigo) { setNuevoMsg('Indica el código primero'); return }
     setUploadingFotoNuevo(true)
     const ext = file.name.split('.').pop()
     const path = `${codigo}.${ext}`
-    const { error } = await supabase.storage
-      .from('producto-fotos')
-      .upload(path, file, { upsert: true })
+    const { error } = await supabase.storage.from('producto-fotos').upload(path, file, { upsert: true })
     if (!error) {
-      const { data: urlData } = supabase.storage
-        .from('producto-fotos')
-        .getPublicUrl(path)
+      const { data: urlData } = supabase.storage.from('producto-fotos').getPublicUrl(path)
       setNuevoForm(prev => ({ ...prev, foto_url: urlData.publicUrl }))
     }
     setUploadingFotoNuevo(false)
   }
 
-  // Deriva una letra sugerida a partir de la categoría escrita, mientras el
-  // admin no haya tocado el campo de letra a mano.
   useEffect(() => {
     if (!letraCodigo && nuevoForm.categoria?.trim()) {
       setLetraCodigo(nuevoForm.categoria.trim().charAt(0).toUpperCase())
     }
-  }, [nuevoForm.categoria]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [nuevoForm.categoria])
 
   const sugerirCodigo = async () => {
     const letra = (letraCodigo || nuevoForm.categoria?.charAt(0) || '').toUpperCase().slice(0, 1)
-    if (!letra) { setNuevoMsg('Escribe una categoría o una letra de prefijo primero'); return }
+    if (!letra) { setNuevoMsg('Escribe una categoría primero'); return }
     setSugiriendoCodigo(true)
-    setNuevoMsg('')
-    const { data, error } = await supabase.rpc('siguiente_codigo_producto', { p_letra: letra })
+    const { data } = await supabase.rpc('siguiente_codigo_producto', { p_letra: letra })
     setSugiriendoCodigo(false)
-    if (error || !data) {
-      setNuevoMsg('No se pudo generar el código: ' + (error?.message || 'error desconocido'))
-      return
-    }
-    setNuevoForm(prev => ({ ...prev, codigo: data }))
+    if (data) setNuevoForm(prev => ({ ...prev, codigo: data }))
   }
 
   const guardarNuevo = async () => {
-    if (!nuevoForm.codigo?.trim()) { setNuevoMsg('El código es obligatorio'); return }
-    if (!nuevoForm.nombre?.trim()) { setNuevoMsg('El nombre es obligatorio'); return }
+    if (!nuevoForm.codigo?.trim() || !nuevoForm.nombre?.trim()) {
+      setNuevoMsg('Código y nombre obligatorios')
+      return
+    }
     setNuevoLoading(true)
+    const categoriaMayus = nuevoForm.categoria?.trim() ? nuevoForm.categoria.trim().toUpperCase() : null
+
     const { error } = await supabase.from('productos').insert({
       codigo: nuevoForm.codigo.trim(),
-      categoria: nuevoForm.categoria || null,
+      categoria: categoriaMayus,
       nombre: nuevoForm.nombre.trim(),
       medidas: nuevoForm.medidas || null,
       precio_minimo: nuevoForm.precio_minimo ?? null,
@@ -227,236 +292,669 @@ export default function Productos() {
     })
     setNuevoLoading(false)
     if (!error) {
-      setNuevoMsg('✓ Producto agregado correctamente')
+      setNuevoMsg('✓ Creado correctamente')
       cargarProductos()
       setTimeout(() => { setShowNuevoModal(false); setNuevoMsg('') }, 1200)
     } else {
-      setNuevoMsg(error.message.includes('duplicate') ? 'Ya existe un producto con ese código' : 'Error al guardar')
+      setNuevoMsg('Error al guardar (código duplicado)')
     }
   }
 
-  const productosFiltrados = productos.filter(p =>
-    [p.codigo, p.nombre, p.categoria, p.medidas]
-      .join(' ').toLowerCase().includes(filtro.toLowerCase())
-  )
+  // --- HELPERS PDF ---
+  const cargarImagenCuadrada = async (url: string): Promise<string | null> => {
+    try {
+      const resp = await fetch(url)
+      const blob = await resp.blob()
+      const objUrl = URL.createObjectURL(blob)
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const i = new window.Image()
+        i.onload = () => resolve(i)
+        i.onerror = reject
+        i.src = objUrl
+      })
+      const lado = 400
+      const canvas = document.createElement('canvas')
+      canvas.width = lado; canvas.height = lado
+      const ctx = canvas.getContext('2d')
+      if (!ctx) { URL.revokeObjectURL(objUrl); return null }
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, lado, lado)
+      const corte = Math.min(img.width, img.height)
+      const sx = (img.width - corte) / 2
+      const sy = (img.height - corte) / 2
+      ctx.drawImage(img, sx, sy, corte, corte, 0, 0, lado, lado)
+      URL.revokeObjectURL(objUrl)
+      return canvas.toDataURL('image/jpeg', 0.85)
+    } catch { return null }
+  }
+
+  const cargarAssetLocal = async (ruta: string): Promise<string | null> => {
+    try {
+      const resp = await fetch(ruta)
+      if (!resp.ok) return null
+      const blob = await resp.blob()
+      return await new Promise<string | null>((resolve) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : null)
+        reader.readAsDataURL(blob)
+      })
+    } catch { return null }
+  }
+
+  const descargarPdfCategoria = async (categoria: string) => {
+    const lista = productos.filter(p => (p.categoria || 'SIN CATEGORÍA') === categoria)
+    if (lista.length === 0) return
+
+    setGenerandoPdfCat(categoria)
+    try {
+      const { jsPDF } = await import('jspdf')
+      const [logoBase64, mascotaBase64] = await Promise.all([
+        cargarAssetLocal('/logo.jpg'),
+        cargarAssetLocal('/mascota.jpg'),
+      ])
+
+      const imagenes: (string | null)[] = []
+      for (let i = 0; i < lista.length; i += 6) {
+        const lote = await Promise.all(
+          lista.slice(i, i + 6).map(m => (m.foto_url ? cargarImagenCuadrada(m.foto_url) : Promise.resolve(null)))
+        )
+        imagenes.push(...lote)
+      }
+
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const W = 210, H = 297, M = 12, COLS = 3, GAP = 6
+      const cellW = (W - 2 * M - GAP * (COLS - 1)) / COLS
+      const cellH = cellW + 26
+      const headerH = 28
+      const yInicio = headerH + 10
+      const fecha = new Date().toLocaleDateString('es-BO')
+
+      const encabezado = () => {
+        doc.setFillColor(14, 19, 38)
+        doc.rect(0, 0, W, headerH, 'F')
+        doc.setFillColor(212, 175, 55)
+        doc.rect(0, headerH, W, 1.5, 'F')
+
+        let textoX = M
+        if (logoBase64) {
+          try { doc.addImage(logoBase64, 'JPEG', M, 3, 22, 22); textoX = M + 25 } catch {}
+        }
+
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(13)
+        doc.setTextColor(212, 175, 55)
+        doc.text(`Capítulo: ${categoria}`, textoX, 11)
+
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(8.5)
+        doc.setTextColor(255, 255, 255)
+        doc.text('Muebless is Better · Uso Exclusivo Vendedores', textoX, 16.5)
+
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(7.5)
+        doc.setTextColor(180, 190, 210)
+        doc.text('Tarifario y Especificaciones 2026', textoX, 21)
+
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8)
+        doc.setTextColor(255, 255, 255)
+        doc.text(`${lista.length} modelos | ${fecha}`, W - M, 14, { align: 'right' })
+      }
+
+      encabezado()
+      let y = yInicio
+      let col = 0
+
+      lista.forEach((prod, idx) => {
+        if (col === 0 && y + cellH > H - 24) {
+          doc.addPage()
+          encabezado()
+          y = yInicio
+        }
+        const x = M + col * (cellW + GAP)
+        const img = imagenes[idx]
+
+        if (img) {
+          doc.addImage(img, 'JPEG', x, y, cellW, cellW)
+        } else {
+          doc.setFillColor(240, 242, 245)
+          doc.rect(x, y, cellW, cellW, 'F')
+          doc.setFont('helvetica', 'normal')
+          doc.setFontSize(8)
+          doc.setTextColor(150, 150, 150)
+          doc.text('Sin imagen', x + cellW / 2, y + cellW / 2, { align: 'center' })
+        }
+        doc.setDrawColor(210, 215, 220)
+        doc.rect(x, y, cellW, cellW)
+
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(8.5)
+        doc.setTextColor(14, 19, 38)
+        doc.text(String(prod.codigo || ''), x, y + cellW + 4.5)
+
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(7.5)
+        doc.setTextColor(40, 50, 70)
+        const nom = (doc.splitTextToSize(prod.nombre || 'Modelo', cellW) as string[]).slice(0, 1)
+        doc.text(nom, x, y + cellW + 8.5)
+
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(7)
+        doc.setTextColor(100, 110, 130)
+        const pMin = prod.precio_minimo != null ? `Min: Bs.${prod.precio_minimo.toLocaleString()}` : 'Min: —'
+        const pTda = prod.precio_tienda != null ? `Tda: Bs.${prod.precio_tienda.toLocaleString()}` : 'Tda: —'
+        doc.text(`${pMin} | ${pTda}`, x, y + cellW + 12.5)
+
+        col++
+        if (col === COLS) { col = 0; y += cellH + GAP }
+      })
+
+      const paginas = doc.getNumberOfPages()
+      for (let p = 1; p <= paginas; p++) {
+        doc.setPage(p)
+        if (mascotaBase64) {
+          try { doc.addImage(mascotaBase64, 'JPEG', W - M - 16, H - 22, 16, 16) } catch {}
+        }
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(7.5)
+        doc.setTextColor(140, 150, 170)
+        doc.text(`Página ${p} de ${paginas}`, W / 2, H - 7, { align: 'center' })
+      }
+
+      doc.save(`Catalogo_${categoria.replace(/[^a-zA-Z0-9]+/g, '_')}.pdf`)
+    } catch (e) {
+      console.error(e)
+      alert('Error al exportar PDF')
+    } finally {
+      setGenerandoPdfCat(null)
+    }
+  }
+
+  const descargarPdfGeneral = async () => {
+    if (productos.length === 0) return
+    setGenerandoPdfGeneral(true)
+    try {
+      const { jsPDF } = await import('jspdf')
+      const [logoBase64, mascotaBase64] = await Promise.all([
+        cargarAssetLocal('/logo.jpg'),
+        cargarAssetLocal('/mascota.jpg'),
+      ])
+
+      const imagenes: (string | null)[] = []
+      for (let i = 0; i < productos.length; i += 6) {
+        const lote = await Promise.all(
+          productos.slice(i, i + 6).map(m => (m.foto_url ? cargarImagenCuadrada(m.foto_url) : Promise.resolve(null)))
+        )
+        imagenes.push(...lote)
+      }
+
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const W = 210, H = 297, M = 12, COLS = 3, GAP = 6
+      const cellW = (W - 2 * M - GAP * (COLS - 1)) / COLS
+      const cellH = cellW + 26
+      const headerH = 28
+      const yInicio = headerH + 10
+      const fecha = new Date().toLocaleDateString('es-BO')
+
+      const encabezadoGeneral = (sub: string) => {
+        doc.setFillColor(14, 19, 38)
+        doc.rect(0, 0, W, headerH, 'F')
+        doc.setFillColor(212, 175, 55)
+        doc.rect(0, headerH, W, 1.5, 'F')
+
+        let textoX = M
+        if (logoBase64) {
+          try { doc.addImage(logoBase64, 'JPEG', M, 3, 22, 22); textoX = M + 25 } catch {}
+        }
+
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(13)
+        doc.setTextColor(212, 175, 55)
+        doc.text(sub, textoX, 11)
+
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(8.5)
+        doc.setTextColor(255, 255, 255)
+        doc.text('Muebless is Better · Dossier General de Vendedores', textoX, 16.5)
+
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(7.5)
+        doc.setTextColor(180, 190, 210)
+        doc.text(`Total Modelos: ${productos.length} | ${fecha}`, W - M, 14, { align: 'right' })
+      }
+
+      encabezadoGeneral('Catálogo Maestro General')
+      let y = yInicio
+      let col = 0
+
+      productos.forEach((prod, idx) => {
+        if (col === 0 && y + cellH > H - 24) {
+          doc.addPage()
+          encabezadoGeneral('Catálogo Maestro General (Cont.)')
+          y = yInicio
+        }
+        const x = M + col * (cellW + GAP)
+        const img = imagenes[idx]
+
+        if (img) {
+          doc.addImage(img, 'JPEG', x, y, cellW, cellW)
+        } else {
+          doc.setFillColor(240, 242, 245)
+          doc.rect(x, y, cellW, cellW, 'F')
+          doc.setFont('helvetica', 'normal')
+          doc.setFontSize(8)
+          doc.setTextColor(150, 150, 150)
+          doc.text('Sin imagen', x + cellW / 2, y + cellW / 2, { align: 'center' })
+        }
+        doc.setDrawColor(210, 215, 220)
+        doc.rect(x, y, cellW, cellW)
+
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(8.5)
+        doc.setTextColor(14, 19, 38)
+        doc.text(String(prod.codigo || ''), x, y + cellW + 4.5)
+
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(7.5)
+        doc.setTextColor(40, 50, 70)
+        const nom = (doc.splitTextToSize(prod.nombre || 'Modelo', cellW) as string[]).slice(0, 1)
+        doc.text(nom, x, y + cellW + 8.5)
+
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(7)
+        doc.setTextColor(100, 110, 130)
+        const pMin = prod.precio_minimo != null ? `Min: Bs.${prod.precio_minimo.toLocaleString()}` : 'Min: —'
+        const pTda = prod.precio_tienda != null ? `Tda: Bs.${prod.precio_tienda.toLocaleString()}` : 'Tda: —'
+        doc.text(`${pMin} | ${pTda}`, x, y + cellW + 12.5)
+
+        col++
+        if (col === COLS) { col = 0; y += cellH + GAP }
+      })
+
+      const paginas = doc.getNumberOfPages()
+      for (let p = 1; p <= paginas; p++) {
+        doc.setPage(p)
+        if (mascotaBase64) {
+          try { doc.addImage(mascotaBase64, 'JPEG', W - M - 16, H - 22, 16, 16) } catch {}
+        }
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(7.5)
+        doc.setTextColor(140, 150, 170)
+        doc.text(`Página ${p} de ${paginas}`, W / 2, H - 7, { align: 'center' })
+      }
+
+      doc.save('Catalogo_General_Completo_Vendedores.pdf')
+    } catch (e) {
+      console.error(e)
+      alert('Error al generar el catálogo general')
+    } finally {
+      setGenerandoPdfGeneral(false)
+    }
+  }
 
   const fmt = (n: number | null) => n != null ? `Bs. ${n.toLocaleString()}` : '—'
 
-  if (!usuario) return (
-    <div style={{ minHeight: '100vh', background: '#0f1117', color: '#FFD700', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter, sans-serif' }}>
-      Verificando sesión...
+  if (loading || !usuario) return (
+    <div className="flex h-screen items-center justify-center bg-[#070b14]">
+      <div className="flex flex-col items-center gap-3">
+        <Loader2 className="animate-spin text-[#D4AF37]" size={42} />
+        <p className="text-[#D4AF37] font-bold text-xs uppercase tracking-widest">Cargando Módulo Interno de Vendedores...</p>
+      </div>
     </div>
   )
 
+  const categoriasFiltradas = categoriasUnicas.filter(cat => {
+    if (categoriaSeleccionada !== 'TODAS' && cat !== categoriaSeleccionada) return false
+    return true
+  })
+
   return (
-    <div style={{ minHeight: '100vh', background: '#0f1117', color: 'white', fontFamily: 'Inter, sans-serif', paddingBottom: '60px' }}>
-
-      <style>{`
-        * { box-sizing: border-box; }
-        .prod-card { background: #161726; border: 1px solid rgba(255,215,0,0.15); border-radius: 16px; overflow: hidden; display: flex; flex-direction: column; transition: border-color .15s, transform .15s; }
-        .prod-card:hover { border-color: rgba(255,215,0,0.45); }
-        .prod-foto { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; background: #0d0d1f; display: block; }
-        .prod-foto-placeholder { width: 100%; aspect-ratio: 1 / 1; background: #0d0d1f; display: flex; align-items: center; justify-content: center; font-size: 30px; color: #333; }
-        .badge-cat { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 10.5px; font-weight: 700; background: rgba(255,215,0,0.1); color: #FFD700; border: 1px solid rgba(255,215,0,0.25); }
-        .btn { border: none; border-radius: 8px; padding: 8px 14px; font-size: 12px; cursor: pointer; font-weight: 600; transition: opacity .15s; }
-        .btn:hover { opacity: .85; }
-        .btn-gold { background: linear-gradient(135deg, #FFD700, #FFA500); color: #0a0a1a; }
-        .btn-edit { background: rgba(255,255,255,0.08); color: white; border: 1px solid rgba(255,255,255,0.15); }
-        .btn-del { background: rgba(255,107,107,0.1); color: #ff6b6b; border: 1px solid rgba(255,107,107,0.3); }
-        .form-label { font-size: 12px; color: #ccc; margin-bottom: 5px; display: block; }
-        .form-input { width: 100%; padding: 12px 16px; border-radius: 10px; border: 1px solid rgba(255,215,0,0.3); font-size: 14px; outline: none; background: #0d0d1f; color: white; box-sizing: border-box; }
-        .form-input:focus { border-color: #FFD700; }
-        .form-row { margin-bottom: 16px; }
-        .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: flex; align-items: center; justify-content: center; z-index: 2000; padding: 20px; }
-        .modal { background: #161726; border: 1px solid rgba(255,215,0,0.2); border-radius: 16px; padding: 32px; width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        .prod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 18px; }
-        @media (max-width: 600px) {
-          .top-bar { flex-direction: column; gap: 12px; align-items: flex-start !important; }
-          .modal { padding: 20px; }
-        }
-      `}</style>
-
-      {/* NAVBAR — mismo lenguaje visual que /registro y /comprar */}
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 40px', background: '#161726', borderBottom: '1px solid rgba(255,215,0,0.2)', flexWrap: 'wrap', gap: '10px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <img src="/logo.jpg" alt="Logo" style={{ width: '35px', height: '35px', borderRadius: '8px' }} />
-          <span style={{ fontWeight: '800', color: '#FFD700', fontSize: '16px' }}>Muebles is Better</span>
+    <div className="min-h-screen bg-[#070b14] text-white" style={{ fontFamily: 'Arial, sans-serif' }}>
+      
+      {/* ── NAVBAR ── */}
+      <nav className="flex justify-between items-center px-6 md:px-12 py-4 bg-[#0a0f1d] sticky top-0 z-50 border-b border-[#D4AF37]/30 shadow-2xl">
+        <div className="flex items-center gap-3">
+          <img src="/logo.jpg" alt="Logo" className="w-9 h-9 rounded-lg border border-[#D4AF37]/50 object-cover" />
+          <div>
+            <span className="font-bold text-base text-white block">Muebless is Better</span>
+            <span className="text-[9px] text-[#D4AF37] tracking-widest uppercase font-bold">Panel Interno · Solo Vendedores</span>
+          </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+        
+        <div className="flex items-center gap-3">
           {esAdmin && (
-            <span style={{ background: 'rgba(8,126,11,0.15)', color: '#4caf50', border: '1px solid rgba(76,175,80,0.4)', padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '700' }}>
-              EDICIÓN ACTIVA
+            <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-3 py-1 rounded-full text-[10px] font-bold">
+              Modo Edición Activo
             </span>
           )}
-          <span style={{ color: '#aaa', fontSize: '13px' }}>{usuario.nombre}</span>
-          <a href="/sistema" style={{ color: '#ccc', textDecoration: 'none', fontSize: '14px' }}>← Sistema</a>
+          <a href="/sistema" className="text-gray-300 hover:text-[#D4AF37] text-xs font-bold transition">
+            ← Volver al Sistema
+          </a>
+        </div>
+      </nav>
+
+      {/* ── PORTADA / CABECERA ── */}
+      <header className="relative bg-gradient-to-b from-[#0a0f1d] to-[#0e1628] border-b border-[#D4AF37]/20 py-14 px-6 text-center">
+        <div className="max-w-4xl mx-auto space-y-4">
+          <div className="inline-flex items-center gap-2 bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[#D4AF37] px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest">
+            <Sparkles size={13} /> Tarifario Interno 2026
+          </div>
+          <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight text-white">
+            Catálogo Comercial de <span className="text-[#D4AF37]">Vendedores</span>
+          </h1>
+          <p className="text-gray-300 text-sm max-w-lg mx-auto font-light leading-relaxed">
+            Haz clic en la foto de cualquier producto para abrir su <strong>galería fotográfica detallada</strong>.
+          </p>
+
+          <div className="pt-2 flex justify-center">
+            <button
+              onClick={descargarPdfGeneral}
+              disabled={generandoPdfGeneral}
+              className="bg-[#D4AF37] text-[#070b14] font-extrabold text-xs md:text-sm px-6 py-3.5 rounded-2xl shadow-xl hover:bg-opacity-90 transition flex items-center gap-2.5 disabled:opacity-60"
+            >
+              {generandoPdfGeneral ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+              {generandoPdfGeneral ? 'Generando Catálogo General...' : '📥 Descargar Catálogo General Completo (PDF)'}
+            </button>
+          </div>
+
+          <div className="max-w-xl mx-auto pt-4 flex gap-2">
+            <div className="relative w-full">
+              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400">
+                <Search size={16} />
+              </div>
+              <input 
+                type="text" 
+                placeholder="Buscar por código, nombre o categoría..." 
+                value={busquedaGlobal}
+                onChange={(e) => setBusquedaGlobal(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 bg-[#131b31] border border-[#D4AF37]/30 rounded-xl text-xs text-white placeholder-gray-400 focus:outline-none focus:border-[#D4AF37]"
+              />
+            </div>
+            {esAdmin && (
+              <button 
+                onClick={abrirNuevo}
+                className="bg-[#D4AF37] text-[#070b14] px-5 py-3 rounded-xl font-bold text-xs hover:bg-opacity-90 transition shrink-0 flex items-center gap-1.5"
+              >
+                <Plus size={15} /> Nuevo
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap justify-center gap-2 pt-4">
+            <button
+              onClick={() => setCategoriaSeleccionada('TODAS')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition ${categoriaSeleccionada === 'TODAS' ? 'bg-[#D4AF37] text-[#070b14]' : 'bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'}`}
+            >
+              📚 Todas ({productos.length})
+            </button>
+            {categoriasUnicas.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setCategoriaSeleccionada(cat)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition ${categoriaSeleccionada === cat ? 'bg-[#D4AF37] text-[#070b14]' : 'bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'}`}
+              >
+                {cat} ({productos.filter(p => (p.categoria || 'SIN CATEGORÍA') === cat).length})
+              </button>
+            ))}
+          </div>
+
         </div>
       </header>
 
-      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '28px 20px' }}>
+      {/* ── CUERPO DE CAPÍTULOS ── */}
+      <main className="max-w-7xl mx-auto px-4 md:px-8 py-12 space-y-16">
+        
+        {categoriasFiltradas.map(cat => {
+          const prodsCat = productos.filter(p => {
+            const coincideCat = (p.categoria || 'SIN CATEGORÍA') === cat
+            if (!busquedaGlobal.trim()) return coincideCat
+            const q = busquedaGlobal.toLowerCase()
+            return coincideCat && [p.codigo, p.nombre, p.categoria, p.medidas].join(' ').toLowerCase().includes(q)
+          })
 
-        {/* BARRA TOP */}
-        <div className="top-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', gap: '12px' }}>
-          <div>
-            <h1 style={{ fontSize: '22px', fontWeight: '700', color: '#FFD700', margin: 0 }}>Catálogo de Productos</h1>
-            <p style={{ fontSize: '13px', color: '#888', marginTop: '4px' }}>{productosFiltrados.length} productos encontrados</p>
-          </div>
-          {esAdmin && (
-            <button className="btn btn-gold" style={{ padding: '10px 20px', fontSize: '13px' }} onClick={abrirNuevo}>
-              + Agregar Producto
-            </button>
-          )}
-        </div>
+          if (prodsCat.length === 0) return null
 
-        {/* BUSCADOR */}
-        <div style={{ marginBottom: '24px' }}>
-          <input
-            className="form-input"
-            placeholder="🔍 Buscar por nombre, código, categoría..."
-            value={filtro}
-            onChange={e => setFiltro(e.target.value)}
-            style={{ maxWidth: '420px' }}
-          />
-        </div>
-
-        {/* GRILLA DE PRODUCTOS */}
-        {loading ? (
-          <div style={{ padding: '60px', textAlign: 'center', color: '#888' }}>Cargando productos...</div>
-        ) : productosFiltrados.length === 0 ? (
-          <div style={{ padding: '60px', textAlign: 'center', color: '#555', background: '#161726', borderRadius: '16px', border: '1px solid rgba(255,215,0,0.1)' }}>
-            Sin resultados
-          </div>
-        ) : (
-          <div className="prod-grid">
-            {productosFiltrados.map(p => (
-              <div className="prod-card" key={p.codigo}>
-                {p.foto_url
-                  ? <img src={p.foto_url} alt={p.nombre || ''} className="prod-foto" />
-                  : <div className="prod-foto-placeholder">📦</div>
-                }
-                <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
-                  <span style={{ fontFamily: 'monospace', fontWeight: '700', color: '#FFD700', fontSize: '11px' }}>{p.codigo}</span>
-                  <span style={{ fontWeight: '600', fontSize: '14px', lineHeight: '1.3' }}>{p.nombre || '—'}</span>
-                  {p.categoria && <span className="badge-cat" style={{ width: 'fit-content' }}>{p.categoria}</span>}
-                  {p.medidas && <span style={{ fontSize: '12px', color: '#888' }}>📐 {p.medidas}</span>}
-
-                  <div style={{ marginTop: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                    <span style={{ fontSize: '11px', color: '#888' }}>
-                      {p.precio_minimo != null ? `mín. ${fmt(p.precio_minimo)}` : ''}
-                    </span>
-                    <span style={{ fontWeight: '700', color: '#FFD700', fontSize: '15px' }}>{fmt(p.precio_tienda)}</span>
+          return (
+            <section key={cat} className="space-y-6">
+              
+              <div className="bg-gradient-to-r from-[#0e1628] to-[#131b31] border-l-4 border-[#D4AF37] p-6 md:p-8 rounded-2xl shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                  <div className="flex items-center gap-2 text-[#D4AF37] text-[10px] font-bold uppercase tracking-widest mb-1">
+                    <BookOpen size={13} /> Capítulo de Colección
                   </div>
-
-                  {esAdmin && (
-                    <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
-                      <button className="btn btn-edit" style={{ flex: 1 }} onClick={() => abrirEditar(p)}>Editar</button>
-                      <button className="btn btn-del" style={{ flex: 1 }} onClick={() => abrirEliminar(p.codigo)}>Eliminar</button>
-                    </div>
-                  )}
+                  <h2 className="text-2xl md:text-3xl font-extrabold text-white uppercase">
+                    {cat}
+                  </h2>
+                  <p className="text-gray-400 text-xs mt-1">
+                    Exhibición de mobiliario certificado fabricado en acero y melamina.
+                  </p>
                 </div>
+
+                <button
+                  onClick={() => descargarPdfCategoria(cat)}
+                  disabled={generandoPdfCat === cat}
+                  className="bg-[#D4AF37] text-[#070b14] font-bold text-xs px-5 py-2.5 rounded-xl shadow-md hover:bg-opacity-90 transition flex items-center gap-2 disabled:opacity-60"
+                >
+                  {generandoPdfCat === cat ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+                  {generandoPdfCat === cat ? 'Generando PDF...' : `Descargar PDF de ${cat}`}
+                </button>
               </div>
-            ))}
-          </div>
-        )}
 
-        {!esAdmin && (
-          <p style={{ textAlign: 'center', color: '#555', fontSize: '12px', marginTop: '20px' }}>
-            Solo administradores o usuarios con permiso pueden editar productos
-          </p>
-        )}
-      </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {prodsCat.map(p => (
+                  <div 
+                    key={p.codigo}
+                    className="group bg-[#0e1628] border border-white/10 hover:border-[#D4AF37]/50 rounded-2xl overflow-hidden shadow-lg transition-all duration-300 flex flex-col justify-between"
+                  >
+                    <div>
+                      {/* FOTO CON CLIC PARA ABRIR GALERÍA */}
+                      <div 
+                        onClick={() => abrirGaleria(p)}
+                        className="w-full h-64 bg-[#070b14] relative overflow-hidden cursor-pointer group/img"
+                        title="Haz clic para ver galería de fotos"
+                      >
+                        {p.foto_url ? (
+                          <img 
+                            src={p.foto_url} 
+                            alt={p.nombre || ''} 
+                            className="w-full h-full object-cover group-hover/img:scale-105 transition duration-500" 
+                          />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center text-gray-600">
+                            <ImageIcon size={36} />
+                            <span className="text-[10px] mt-1 text-gray-500">Sin fotografía</span>
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition flex items-center justify-center gap-2 text-white font-bold text-xs backdrop-blur-xs">
+                          <Images size={20} className="text-[#D4AF37]" /> Ver Galería de Fotos
+                        </div>
+                        <span className="absolute top-3 left-3 text-[10px] font-mono font-bold bg-[#070b14]/90 text-[#D4AF37] px-2.5 py-1 rounded-lg border border-[#D4AF37]/30 shadow-md uppercase">
+                          {p.codigo}
+                        </span>
+                      </div>
 
-      {/* ── MODAL: EDITAR PRODUCTO ── */}
-      {showEditModal && editando && (
-        <div className="modal-bg" onClick={() => setShowEditModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                      <div className="p-5 space-y-2">
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-[#D4AF37] block">
+                          Estructura de Acero y Melamina
+                        </span>
+                        <h3 className="text-sm font-bold text-white leading-snug">
+                          {p.nombre || 'Modelo sin nombre'}
+                        </h3>
+                        {p.medidas && (
+                          <p className="text-[11px] text-gray-400 font-mono">
+                            📐 {p.medidas}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="p-5 pt-0">
+                      <div className="bg-[#070b14] p-3 rounded-xl border border-white/5 space-y-2 mb-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-gray-400 uppercase font-bold">Precio Mínimo:</span>
+                          <span className="text-xs font-bold text-gray-200">{fmt(p.precio_minimo)}</span>
+                        </div>
+                        <div className="flex items-center justify-between border-t border-white/5 pt-1.5">
+                          <span className="text-[10px] text-[#D4AF37] uppercase font-bold">Precio Tienda:</span>
+                          <span className="text-sm font-extrabold text-[#D4AF37]">{fmt(p.precio_tienda)}</span>
+                        </div>
+                      </div>
+
+                      {esAdmin && (
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => abrirEditar(p)}
+                            className="flex-1 bg-white/5 hover:bg-[#D4AF37] hover:text-[#070b14] text-gray-300 font-bold text-[11px] py-2 rounded-xl transition flex items-center justify-center gap-1 border border-white/10"
+                          >
+                            <Edit3 size={13} /> Editar
+                          </button>
+                          <button 
+                            onClick={() => abrirEliminar(p.codigo)}
+                            className="flex-1 bg-red-500/10 hover:bg-red-600 text-red-400 hover:text-white font-bold text-[11px] py-2 rounded-xl transition flex items-center justify-center gap-1 border border-red-500/20"
+                          >
+                            <Trash2 size={13} /> Eliminar
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                  </div>
+                ))}
+              </div>
+
+            </section>
+          )
+        })}
+
+      </main>
+
+      {/* ── MODAL: GALERÍA DE FOTOS POR PRODUCTO ── */}
+      {showGaleriaModal && productoGaleria && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowGaleriaModal(false)}>
+          <div className="bg-[#0e1628] border border-[#D4AF37]/40 rounded-3xl p-6 md:p-8 w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-2xl text-white" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-4">
               <div>
-                <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#FFD700', margin: 0 }}>Editar Producto</h2>
-                <p style={{ fontSize: '12px', color: '#888', marginTop: '4px', fontFamily: 'monospace' }}>{editando.codigo}</p>
+                <span className="text-[10px] font-mono font-bold text-[#D4AF37] uppercase bg-[#D4AF37]/10 px-2 py-1 rounded-md border border-[#D4AF37]/30">
+                  {productoGaleria.codigo}
+                </span>
+                <h3 className="text-lg font-extrabold text-white mt-1">{productoGaleria.nombre}</h3>
               </div>
-              <button onClick={() => setShowEditModal(false)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#888' }}>✕</button>
+              <button onClick={() => setShowGaleriaModal(false)} className="text-gray-400 hover:text-white font-bold text-xl px-2">✕</button>
             </div>
 
-            {/* FOTO */}
-            <div className="form-row">
-              <label className="form-label">Foto del producto</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                {editForm.foto_url
-                  ? <img src={editForm.foto_url} alt="" style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '10px', border: '1px solid rgba(255,215,0,0.3)' }} />
-                  : <div style={{ width: '80px', height: '80px', background: '#0d0d1f', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', color: '#333' }}>📦</div>
-                }
+            {/* FOTO PRINCIPAL AMPLIADA */}
+            <div className="w-full h-80 bg-[#070b14] rounded-2xl overflow-hidden border border-white/10 relative mb-4">
+              {fotoActivaUrl ? (
+                <img src={fotoActivaUrl} alt="" className="w-full h-full object-contain" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-gray-500">Sin imagen seleccionada</div>
+              )}
+            </div>
+
+            {/* BOTÓN PARA SUBIR NUEVA FOTO A LA GALERÍA */}
+            <div className="flex justify-between items-center mb-4">
+              <span className="text-xs font-bold text-gray-300 uppercase">Colección de Fotografías ({listaFotos.length + (productoGaleria.foto_url ? 1 : 0)})</span>
+              {esAdmin && (
                 <div>
-                  <button className="btn btn-edit" style={{ marginBottom: '6px', display: 'block' }}
-                    onClick={() => fileInputRef.current?.click()}>
-                    {uploadingFoto ? 'Subiendo...' : editForm.foto_url ? 'Cambiar foto' : 'Subir foto'}
+                  <button
+                    onClick={() => fileInputGaleriaRef.current?.click()}
+                    disabled={subiendoGaleria}
+                    className="bg-[#D4AF37] text-[#070b14] px-4 py-2 rounded-xl font-bold text-xs hover:bg-opacity-90 transition flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {subiendoGaleria ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                    {subiendoGaleria ? 'Subiendo...' : 'Agregar Foto a la Galería'}
                   </button>
-                  {editForm.foto_url && (
-                    <button className="btn btn-del" style={{ fontSize: '11px' }}
-                      onClick={() => setEditForm(prev => ({ ...prev, foto_url: null }))}>
-                      Quitar foto
+                  <input ref={fileInputGaleriaRef} type="file" accept="image/*" className="hidden" onChange={subirFotoGaleria} />
+                </div>
+              )}
+            </div>
+
+            {/* TIRA DE MINIATURAS DE LA GALERÍA */}
+            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin">
+              {/* Foto Principal Original */}
+              {productoGaleria.foto_url && (
+                <div 
+                  onClick={() => setFotoActivaUrl(productoGaleria.foto_url)}
+                  className={`w-20 h-20 rounded-xl overflow-hidden border-2 cursor-pointer shrink-0 relative ${fotoActivaUrl === productoGaleria.foto_url ? 'border-[#D4AF37]' : 'border-white/20 opacity-70'}`}
+                >
+                  <img src={productoGaleria.foto_url} alt="" className="w-full h-full object-cover" />
+                  <span className="absolute bottom-0 inset-x-0 bg-black/70 text-[8px] text-center text-white font-bold py-0.5">Principal</span>
+                </div>
+              )}
+
+              {/* Fotos Adicionales */}
+              {listaFotos.map(foto => (
+                <div 
+                  key={foto.id}
+                  onClick={() => setFotoActivaUrl(foto.foto_url)}
+                  className={`w-20 h-20 rounded-xl overflow-hidden border-2 cursor-pointer shrink-0 relative group/thumb ${fotoActivaUrl === foto.foto_url ? 'border-[#D4AF37]' : 'border-white/20 opacity-70'}`}
+                >
+                  <img src={foto.foto_url} alt="" className="w-full h-full object-cover" />
+                  {esAdmin && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); eliminarFotoGaleria(foto.id, foto.foto_url); }}
+                      className="absolute top-1 right-1 bg-red-600 text-white rounded-md p-1 opacity-0 group-hover/thumb:opacity-100 transition shadow-md"
+                      title="Eliminar foto"
+                    >
+                      <Trash2 size={12} />
                     </button>
                   )}
-                  <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFotoUpload} />
                 </div>
-              </div>
+              ))}
             </div>
 
-            {/* CAMPOS */}
-            {[
-              { key: 'categoria', label: 'Categoría' },
-              { key: 'nombre', label: 'Nombre' },
-              { key: 'medidas', label: 'Medidas' },
-            ].map(({ key, label }) => (
-              <div className="form-row" key={key}>
-                <label className="form-label">{label}</label>
-                <input className="form-input" value={(editForm as any)[key] || ''} onChange={e => setEditForm(prev => ({ ...prev, [key]: e.target.value }))} />
-              </div>
-            ))}
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <div className="form-row">
-                <label className="form-label">Precio mínimo (Bs.)</label>
-                <input className="form-input" type="number" value={editForm.precio_minimo ?? ''} onChange={e => setEditForm(prev => ({ ...prev, precio_minimo: e.target.value ? Number(e.target.value) : null }))} />
-              </div>
-              <div className="form-row">
-                <label className="form-label">Precio tienda (Bs.)</label>
-                <input className="form-input" type="number" value={editForm.precio_tienda ?? ''} onChange={e => setEditForm(prev => ({ ...prev, precio_tienda: e.target.value ? Number(e.target.value) : null }))} />
-              </div>
-            </div>
-
-            {saveMsg && (
-              <p style={{ color: saveMsg.startsWith('✓') ? '#4caf50' : '#ff6b6b', fontSize: '13px', marginBottom: '12px', textAlign: 'center', fontWeight: '600' }}>{saveMsg}</p>
-            )}
-
-            <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
-              <button className="btn" style={{ flex: 1, background: 'rgba(255,255,255,0.06)', color: '#ccc', padding: '12px' }}
-                onClick={() => setShowEditModal(false)}>Cancelar</button>
-              <button className="btn btn-gold" style={{ flex: 1, padding: '12px', fontSize: '14px', opacity: saveLoading || uploadingFoto ? .6 : 1 }}
-                onClick={guardarEdicion} disabled={saveLoading || uploadingFoto}>
-                {saveLoading ? 'Guardando...' : 'Guardar cambios'}
-              </button>
-            </div>
           </div>
         </div>
       )}
 
-      {/* ── MODAL: CONFIRMAR ELIMINAR ── */}
-      {showDeleteModal && (
-        <div className="modal-bg" onClick={() => setShowDeleteModal(false)}>
-          <div className="modal" style={{ maxWidth: '380px' }} onClick={e => e.stopPropagation()}>
-            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-              <div style={{ fontSize: '44px', marginBottom: '12px' }}>⚠️</div>
-              <h2 style={{ fontSize: '18px', fontWeight: '700', color: 'white' }}>¿Eliminar producto?</h2>
-              <p style={{ fontSize: '13px', color: '#888', marginTop: '8px' }}>
-                Esta acción no se puede deshacer. El producto <strong style={{ fontFamily: 'monospace', color: '#FFD700' }}>{deletingCodigo}</strong> será eliminado permanentemente.
-              </p>
-            </div>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button className="btn" style={{ flex: 1, background: 'rgba(255,255,255,0.06)', color: '#ccc', padding: '12px' }}
-                onClick={() => setShowDeleteModal(false)}>Cancelar</button>
-              <button className="btn" style={{ flex: 1, background: '#ff6b6b', color: '#0a0a1a', padding: '12px', fontSize: '14px', fontWeight: 700 }}
-                onClick={confirmarEliminar}>Eliminar</button>
+      {/* ── MODAL: EDITAR PRODUCTO ── */}
+      {showEditModal && editando && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center z-50 p-4" onClick={() => setShowEditModal(false)}>
+          <div className="bg-[#0e1628] border border-[#D4AF37]/30 rounded-2xl p-6 w-full max-w-md shadow-2xl text-white" onClick={e => e.stopPropagation()}>
+            <h3 className="text-base font-bold text-[#D4AF37] mb-4">Editar Producto ({editando.codigo})</h3>
+            
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-gray-400 font-bold uppercase mb-1">Fotografía Principal</label>
+                <div className="flex items-center gap-3">
+                  {editForm.foto_url ? <img src={editForm.foto_url} alt="" className="w-12 h-12 object-cover rounded-lg" /> : <div className="w-12 h-12 bg-black rounded-lg"></div>}
+                  <button onClick={() => fileInputRef.current?.click()} className="bg-[#D4AF37] text-[#070b14] px-3 py-1.5 rounded-lg font-bold">Cambiar foto</button>
+                  <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFotoUpload} />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-gray-400 font-bold uppercase mb-1">Categoría (En MAYÚSCULAS)</label>
+                <input type="text" value={editForm.categoria || ''} onChange={e => setEditForm(prev => ({ ...prev, categoria: e.target.value.toUpperCase() }))} className="w-full px-3 py-2 bg-[#070b14] border border-white/20 rounded-lg text-white uppercase" />
+              </div>
+
+              <div>
+                <label className="block text-gray-400 font-bold uppercase mb-1">Nombre</label>
+                <input type="text" value={editForm.nombre || ''} onChange={e => setEditForm(prev => ({ ...prev, nombre: e.target.value }))} className="w-full px-3 py-2 bg-[#070b14] border border-white/20 rounded-lg text-white" />
+              </div>
+
+              <div>
+                <label className="block text-gray-400 font-bold uppercase mb-1">Medidas</label>
+                <input type="text" value={editForm.medidas || ''} onChange={e => setEditForm(prev => ({ ...prev, medidas: e.target.value }))} className="w-full px-3 py-2 bg-[#070b14] border border-white/20 rounded-lg text-white" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-gray-400 font-bold uppercase mb-1">Precio Mínimo</label>
+                  <input type="number" value={editForm.precio_minimo ?? ''} onChange={e => setEditForm(prev => ({ ...prev, precio_minimo: e.target.value ? Number(e.target.value) : null }))} className="w-full px-3 py-2 bg-[#070b14] border border-white/20 rounded-lg text-white" />
+                </div>
+                <div>
+                  <label className="block text-gray-400 font-bold uppercase mb-1">Precio Tienda</label>
+                  <input type="number" value={editForm.precio_tienda ?? ''} onChange={e => setEditForm(prev => ({ ...prev, precio_tienda: e.target.value ? Number(e.target.value) : null }))} className="w-full px-3 py-2 bg-[#070b14] border border-white/20 rounded-lg text-white" />
+                </div>
+              </div>
+
+              {saveMsg && <p className="text-center font-bold text-emerald-400">{saveMsg}</p>}
+
+              <div className="flex gap-2 pt-3">
+                <button onClick={() => setShowEditModal(false)} className="flex-1 bg-white/10 py-2.5 rounded-lg font-bold">Cancelar</button>
+                <button onClick={guardarEdicion} disabled={saveLoading} className="flex-1 bg-[#D4AF37] text-[#070b14] py-2.5 rounded-lg font-bold">Guardar</button>
+              </div>
             </div>
           </div>
         </div>
@@ -464,105 +962,76 @@ export default function Productos() {
 
       {/* ── MODAL: NUEVO PRODUCTO ── */}
       {showNuevoModal && (
-        <div className="modal-bg" onClick={() => setShowNuevoModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center z-50 p-4" onClick={() => setShowNuevoModal(false)}>
+          <div className="bg-[#0e1628] border border-[#D4AF37]/30 rounded-2xl p-6 w-full max-w-md shadow-2xl text-white" onClick={e => e.stopPropagation()}>
+            <h3 className="text-base font-bold text-[#D4AF37] mb-4">Nuevo Producto al Catálogo</h3>
+            
+            <div className="space-y-3 text-xs">
               <div>
-                <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#FFD700', margin: 0 }}>Nuevo Producto</h2>
-                <p style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>Completa los campos y guarda</p>
+                <label className="block text-gray-400 font-bold uppercase mb-1">Categoría (En MAYÚSCULAS)</label>
+                <input type="text" placeholder="Ej: ESCRITORIOS" value={nuevoForm.categoria || ''} onChange={e => setNuevoForm(prev => ({ ...prev, categoria: e.target.value.toUpperCase() }))} className="w-full px-3 py-2 bg-[#070b14] border border-white/20 rounded-lg text-white uppercase" />
               </div>
-              <button onClick={() => setShowNuevoModal(false)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#888' }}>✕</button>
-            </div>
 
-            {/* CATEGORÍA primero, así ya está lista para sugerir la letra del código */}
-            <div className="form-row">
-              <label className="form-label">Categoría</label>
-              <input className="form-input" placeholder="Ej: Mesas, Escritorios..." value={nuevoForm.categoria || ''}
-                onChange={e => setNuevoForm(prev => ({ ...prev, categoria: e.target.value }))} />
-            </div>
-
-            {/* CÓDIGO — obligatorio, con sugerencia automática sin duplicados */}
-            <div className="form-row">
-              <label className="form-label">Código <span style={{ color: '#ff6b6b' }}>*</span></label>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <input className="form-input" style={{ width: '54px', textAlign: 'center', flex: '0 0 54px', textTransform: 'uppercase' }}
-                  maxLength={1} placeholder="M"
-                  value={letraCodigo}
-                  onChange={e => setLetraCodigo(e.target.value.toUpperCase().slice(0, 1))} />
-                <input className="form-input" placeholder="MLB-M001" value={nuevoForm.codigo || ''}
-                  onChange={e => setNuevoForm(prev => ({ ...prev, codigo: e.target.value }))} />
-                <button type="button" className="btn btn-gold" style={{ whiteSpace: 'nowrap', flex: '0 0 auto' }}
-                  onClick={sugerirCodigo} disabled={sugiriendoCodigo}>
-                  {sugiriendoCodigo ? '...' : '✨ Sugerir'}
-                </button>
-              </div>
-              <p style={{ fontSize: '11px', color: '#666', marginTop: '6px' }}>
-                La letra es el prefijo (M de Mesas, E de Escritorios...). "Sugerir" genera el siguiente número disponible para esa letra — nunca repite uno ya usado.
-              </p>
-            </div>
-
-            {/* FOTO */}
-            <div className="form-row">
-              <label className="form-label">Foto del producto</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                {nuevoForm.foto_url
-                  ? <img src={nuevoForm.foto_url} alt="" style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '10px', border: '1px solid rgba(255,215,0,0.3)' }} />
-                  : <div style={{ width: '80px', height: '80px', background: '#0d0d1f', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', color: '#333' }}>📦</div>
-                }
-                <div>
-                  <button className="btn btn-edit" style={{ marginBottom: '6px', display: 'block' }}
-                    onClick={() => fileInputNuevoRef.current?.click()}>
-                    {uploadingFotoNuevo ? 'Subiendo...' : nuevoForm.foto_url ? 'Cambiar foto' : 'Subir foto'}
-                  </button>
-                  {nuevoForm.foto_url && (
-                    <button className="btn btn-del" style={{ fontSize: '11px' }}
-                      onClick={() => setNuevoForm(prev => ({ ...prev, foto_url: undefined }))}>
-                      Quitar foto
-                    </button>
-                  )}
-                  <input ref={fileInputNuevoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFotoNuevoUpload} />
+              <div>
+                <label className="block text-gray-400 font-bold uppercase mb-1">Código *</label>
+                <div className="flex gap-2">
+                  <input type="text" maxLength={1} placeholder="E" value={letraCodigo} onChange={e => setLetraCodigo(e.target.value.toUpperCase())} className="w-14 text-center font-mono bg-[#070b14] border border-white/20 rounded-lg text-white uppercase" />
+                  <input type="text" placeholder="MLB-E001" value={nuevoForm.codigo || ''} onChange={e => setNuevoForm(prev => ({ ...prev, codigo: e.target.value }))} className="flex-1 font-mono bg-[#070b14] border border-white/20 rounded-lg text-white px-3" />
+                  <button type="button" onClick={sugerirCodigo} className="bg-[#D4AF37] text-[#070b14] px-3 py-2 rounded-lg font-bold">Sugerir</button>
                 </div>
               </div>
-              <p style={{ fontSize: '11px', color: '#666', marginTop: '6px' }}>Ingresa el código antes de subir la foto</p>
+
+              <div>
+                <label className="block text-gray-400 font-bold uppercase mb-1">Fotografía Principal</label>
+                <div className="flex items-center gap-3">
+                  {nuevoForm.foto_url ? <img src={nuevoForm.foto_url} alt="" className="w-12 h-12 object-cover rounded-lg" /> : <div className="w-12 h-12 bg-black rounded-lg"></div>}
+                  <button onClick={() => fileInputNuevoRef.current?.click()} className="bg-[#D4AF37] text-[#070b14] px-3 py-1.5 rounded-lg font-bold">Subir foto</button>
+                  <input ref={fileInputNuevoRef} type="file" accept="image/*" className="hidden" onChange={handleFotoNuevoUpload} />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-gray-400 font-bold uppercase mb-1">Nombre *</label>
+                <input type="text" value={nuevoForm.nombre || ''} onChange={e => setNuevoForm(prev => ({ ...prev, nombre: e.target.value }))} className="w-full px-3 py-2 bg-[#070b14] border border-white/20 rounded-lg text-white" />
+              </div>
+
+              <div>
+                <label className="block text-gray-400 font-bold uppercase mb-1">Medidas</label>
+                <input type="text" placeholder="120x60x75 cm" value={nuevoForm.medidas || ''} onChange={e => setNuevoForm(prev => ({ ...prev, medidas: e.target.value }))} className="w-full px-3 py-2 bg-[#070b14] border border-white/20 rounded-lg text-white" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-gray-400 font-bold uppercase mb-1">Precio Mínimo</label>
+                  <input type="number" value={nuevoForm.precio_minimo ?? ''} onChange={e => setNuevoForm(prev => ({ ...prev, precio_minimo: e.target.value ? Number(e.target.value) : null }))} className="w-full px-3 py-2 bg-[#070b14] border border-white/20 rounded-lg text-white" />
+                </div>
+                <div>
+                  <label className="block text-gray-400 font-bold uppercase mb-1">Precio Tienda</label>
+                  <input type="number" value={nuevoForm.precio_tienda ?? ''} onChange={e => setNuevoForm(prev => ({ ...prev, precio_tienda: e.target.value ? Number(e.target.value) : null }))} className="w-full px-3 py-2 bg-[#070b14] border border-white/20 rounded-lg text-white" />
+                </div>
+              </div>
+
+              {nuevoMsg && <p className="text-center font-bold text-emerald-400">{nuevoMsg}</p>}
+
+              <div className="flex gap-2 pt-3">
+                <button onClick={() => setShowNuevoModal(false)} className="flex-1 bg-white/10 py-2.5 rounded-lg font-bold">Cancelar</button>
+                <button onClick={guardarNuevo} disabled={nuevoLoading} className="flex-1 bg-[#D4AF37] text-[#070b14] py-2.5 rounded-lg font-bold">Crear</button>
+              </div>
             </div>
+          </div>
+        </div>
+      )}
 
-            {/* CAMPOS TEXTO */}
-            {[
-              { key: 'nombre', label: 'Nombre', req: true },
-              { key: 'medidas', label: 'Medidas', req: false },
-            ].map(({ key, label, req }) => (
-              <div className="form-row" key={key}>
-                <label className="form-label">{label} {req && <span style={{ color: '#ff6b6b' }}>*</span>}</label>
-                <input className="form-input" value={(nuevoForm as any)[key] || ''}
-                  onChange={e => setNuevoForm(prev => ({ ...prev, [key]: e.target.value }))} />
-              </div>
-            ))}
-
-            {/* PRECIOS */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <div className="form-row">
-                <label className="form-label">Precio mínimo (Bs.)</label>
-                <input className="form-input" type="number" value={nuevoForm.precio_minimo ?? ''}
-                  onChange={e => setNuevoForm(prev => ({ ...prev, precio_minimo: e.target.value ? Number(e.target.value) : null }))} />
-              </div>
-              <div className="form-row">
-                <label className="form-label">Precio tienda (Bs.)</label>
-                <input className="form-input" type="number" value={nuevoForm.precio_tienda ?? ''}
-                  onChange={e => setNuevoForm(prev => ({ ...prev, precio_tienda: e.target.value ? Number(e.target.value) : null }))} />
-              </div>
-            </div>
-
-            {nuevoMsg && (
-              <p style={{ color: nuevoMsg.startsWith('✓') ? '#4caf50' : '#ff6b6b', fontSize: '13px', marginBottom: '12px', textAlign: 'center', fontWeight: '600' }}>{nuevoMsg}</p>
-            )}
-
-            <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
-              <button className="btn" style={{ flex: 1, background: 'rgba(255,255,255,0.06)', color: '#ccc', padding: '12px' }}
-                onClick={() => setShowNuevoModal(false)}>Cancelar</button>
-              <button className="btn btn-gold" style={{ flex: 1, padding: '12px', fontSize: '14px', opacity: nuevoLoading || uploadingFotoNuevo ? .6 : 1 }}
-                onClick={guardarNuevo} disabled={nuevoLoading || uploadingFotoNuevo}>
-                {nuevoLoading ? 'Guardando...' : 'Agregar producto'}
-              </button>
+      {/* ── MODAL: ELIMINAR ── */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center z-50 p-4" onClick={() => setShowDeleteModal(false)}>
+          <div className="bg-[#0e1628] border border-red-500/30 rounded-2xl p-6 w-full max-w-sm text-center shadow-2xl text-white" onClick={e => e.stopPropagation()}>
+            <p className="text-xl mb-2">⚠️</p>
+            <h3 className="text-sm font-bold text-white mb-2">¿Eliminar producto?</h3>
+            <p className="text-xs text-gray-400 mb-5 font-mono text-[#D4AF37]">{deletingCodigo}</p>
+            <div className="flex gap-2">
+              <button onClick={() => setShowDeleteModal(false)} className="flex-1 bg-white/10 py-2 rounded-xl text-xs font-bold">Cancelar</button>
+              <button onClick={confirmarEliminar} className="flex-1 bg-red-600 py-2 rounded-xl text-xs font-bold">Eliminar</button>
             </div>
           </div>
         </div>
