@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase'
 interface PiezaAcero {
   id: number
   material: string
+  catalogo_id?: number
   longitud: number
   cantidad: number
   precio_unitario: number
@@ -14,6 +15,7 @@ interface PiezaAcero {
 interface PiezaMelamina {
   id: number
   material: string
+  catalogo_id?: number
   largo: number
   ancho: number
   cantidad: number
@@ -24,6 +26,7 @@ interface PiezaMelamina {
 interface PiezaAccesorio {
   id: number
   material: string
+  catalogo_id?: number
   cantidad: number
   precio_unitario: number
   subtotal: number
@@ -32,6 +35,7 @@ interface PiezaAccesorio {
 interface PiezaUnion {
   id: number
   label: string
+  catalogo_id?: number
   tipo: string
   cantidad: number
   precio_unitario: number
@@ -54,6 +58,73 @@ interface ProductoCatalogo {
   medidas: string
   precio_minimo: number
   precio_tienda: number
+}
+
+type ClaveCfg = 'pct_admin' | 'pct_mano_obra' | 'pct_marginal' | 'pct_neto' | 'pct_facturado'
+
+// Valores por defecto (se sobreescriben con lo guardado en Supabase: tabla configuracion_cotizador)
+const CONFIG_DEFAULT: Record<ClaveCfg, number> = {
+  pct_admin: 10,
+  pct_mano_obra: 15,
+  pct_marginal: 11,
+  pct_neto: 11,
+  pct_facturado: 16,
+}
+
+const CAMPOS_CFG: { k: ClaveCfg; titulo: string; ayuda: string }[] = [
+  { k: 'pct_admin', titulo: 'Costo administrativo (%)', ayuda: 'Sobre el costo de materiales' },
+  { k: 'pct_mano_obra', titulo: 'Mano de obra (%)', ayuda: 'Sobre el costo de materiales' },
+  { k: 'pct_marginal', titulo: 'Utilidad → Marginal (%)', ayuda: 'Sobre el costo total' },
+  { k: 'pct_neto', titulo: 'Ventas y marketing → Neto (%)', ayuda: 'Sobre el precio marginal' },
+  { k: 'pct_facturado', titulo: 'Factura → Facturado (%)', ayuda: 'Sobre el precio marginal' },
+]
+
+// Select de material para filas de tabla. Si la pieza viene de una plantilla/diseñador y
+// no coincide con el catálogo, se muestra su nombre actual como opción para no perderlo.
+function MaterialSelect({ catalogoId, nombreActual, lista, nombreDe, etiqueta, onChange }: {
+  catalogoId?: number
+  nombreActual: string
+  lista: any[]
+  nombreDe: (x: any) => string
+  etiqueta: (x: any) => string
+  onChange: (id: string) => void
+}) {
+  const porId = catalogoId !== undefined ? lista.find(x => String(x.id) === String(catalogoId)) : undefined
+  const encontrado = porId || lista.find(x => nombreDe(x) === nombreActual)
+  const valor = encontrado ? String(encontrado.id) : '__actual__'
+  return (
+    <select
+      value={valor}
+      onChange={(e) => { if (e.target.value !== '__actual__') onChange(e.target.value) }}
+      style={{ width: '100%', minWidth: '170px', padding: '6px 8px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '13px', backgroundColor: 'white' }}
+    >
+      {!encontrado && <option value="__actual__">{nombreActual}</option>}
+      {lista.map(x => <option key={x.id} value={String(x.id)}>{etiqueta(x)}</option>)}
+    </select>
+  )
+}
+
+// Input numérico editable dentro de una tabla (permite borrar y escribir decimales sin saltos)
+function CeldaNumero({ valor, onChange }: { valor: number; onChange: (v: number) => void }) {
+  const [texto, setTexto] = useState(String(valor))
+  useEffect(() => {
+    if ((parseFloat(texto) || 0) !== valor) setTexto(String(valor))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [valor])
+  return (
+    <input
+      type="number"
+      min="0"
+      step="any"
+      value={texto}
+      onChange={(e) => {
+        setTexto(e.target.value)
+        const n = parseFloat(e.target.value)
+        onChange(isNaN(n) || n < 0 ? 0 : n)
+      }}
+      style={{ width: '80px', padding: '6px 8px', textAlign: 'center', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
+    />
+  )
 }
 
 export default function Cotizador() {
@@ -94,6 +165,21 @@ export default function Cotizador() {
 
   // Colores
   const [colorSelId, setColorSelId] = useState('')
+
+  // Porcentajes de cálculo (como texto para poder editarlos; los edita el administrador)
+  const [cfg, setCfg] = useState<Record<ClaveCfg, string>>({
+    pct_admin: String(CONFIG_DEFAULT.pct_admin),
+    pct_mano_obra: String(CONFIG_DEFAULT.pct_mano_obra),
+    pct_marginal: String(CONFIG_DEFAULT.pct_marginal),
+    pct_neto: String(CONFIG_DEFAULT.pct_neto),
+    pct_facturado: String(CONFIG_DEFAULT.pct_facturado),
+  })
+  const [guardandoConfig, setGuardandoConfig] = useState(false)
+
+  // Código de autorización (lo define el administrador) para GUARDAR cotizaciones/plantillas
+  const [codigoGuardar, setCodigoGuardar] = useState('')
+  const [nuevoCodigoEdicion, setNuevoCodigoEdicion] = useState('')
+  const [guardandoCodigo, setGuardandoCodigo] = useState(false)
 
   // ── Guardar / buscar / editar cotizaciones ──────────────────────────────────
   const [panelGuardar, setPanelGuardar] = useState(false)
@@ -148,12 +234,23 @@ export default function Cotizador() {
       supabase.from('accesorios').select('*').order('detalle'),
       supabase.from('colores').select('*').order('detalle'),
       supabase.from('uniones').select('*').order('codigo_union'),
-    ]).then(([a, m, ac, co, uni]) => {
+      supabase.from('configuracion_cotizador').select('*').eq('id', 1).maybeSingle(),
+    ]).then(([a, m, ac, co, uni, conf]) => {
       setAceros(a.data || [])
       setMelaminas(m.data || [])
       setAccesorios(ac.data || [])
       setColores(co.data || [])
       setUniones(uni.data || [])
+      if (conf?.data) {
+        const d: any = conf.data
+        setCfg({
+          pct_admin: String(d.pct_admin ?? CONFIG_DEFAULT.pct_admin),
+          pct_mano_obra: String(d.pct_mano_obra ?? CONFIG_DEFAULT.pct_mano_obra),
+          pct_marginal: String(d.pct_marginal ?? CONFIG_DEFAULT.pct_marginal),
+          pct_neto: String(d.pct_neto ?? CONFIG_DEFAULT.pct_neto),
+          pct_facturado: String(d.pct_facturado ?? CONFIG_DEFAULT.pct_facturado),
+        })
+      }
       setLoading(false)
     })
   }, [])
@@ -164,7 +261,12 @@ export default function Cotizador() {
   const colorSel = colores.find(c => String(c.id) === colorSelId)
   const unionSel = uniones.find(u => String(u.id) === unionSelId)
 
-  const COSTOS_ADMINISTRATIVOS = 166
+  const pctNum = (v: string) => { const n = parseFloat(v); return isNaN(n) || n < 0 ? 0 : n }
+  const pctAdmin = pctNum(cfg.pct_admin)
+  const pctManoObra = pctNum(cfg.pct_mano_obra)
+  const pctMarginal = pctNum(cfg.pct_marginal)
+  const pctNeto = pctNum(cfg.pct_neto)
+  const pctFacturado = pctNum(cfg.pct_facturado)
 
   const longitudTotalAcero = piezasAcero.reduce((acc, p) => acc + p.longitud * p.cantidad, 0)
 
@@ -201,7 +303,7 @@ export default function Cotizador() {
     const cant = parseFloat(cantAcero)
     if (isNaN(lon) || isNaN(cant) || lon <= 0 || cant <= 0) return
     const subtotal = calcSubtotalAcero(lon, cant, aceroSel.precio_cotizador)
-    setPiezasAcero([...piezasAcero, { id: nextIdAcero, material: aceroSel.detalle, longitud: lon, cantidad: cant, precio_unitario: aceroSel.precio_cotizador, subtotal }])
+    setPiezasAcero([...piezasAcero, { id: nextIdAcero, material: aceroSel.detalle, catalogo_id: aceroSel.id, longitud: lon, cantidad: cant, precio_unitario: aceroSel.precio_cotizador, subtotal }])
     setNextIdAcero(nextIdAcero + 1)
     setLongitud('')
     setCantAcero('')
@@ -214,7 +316,7 @@ export default function Cotizador() {
     const cant = parseFloat(cantMelamina)
     if (isNaN(lar) || isNaN(anc) || isNaN(cant) || lar <= 0 || anc <= 0 || cant <= 0) return
     const subtotal = calcSubtotalMelamina(lar, anc, cant, melaminaSel.precio_cotizador)
-    setPiezasMelamina([...piezasMelamina, { id: nextIdMelamina, material: melaminaSel.detalle, largo: lar, ancho: anc, cantidad: cant, precio_unitario: melaminaSel.precio_cotizador, subtotal }])
+    setPiezasMelamina([...piezasMelamina, { id: nextIdMelamina, material: melaminaSel.detalle, catalogo_id: melaminaSel.id, largo: lar, ancho: anc, cantidad: cant, precio_unitario: melaminaSel.precio_cotizador, subtotal }])
     setNextIdMelamina(nextIdMelamina + 1)
     setLargo('')
     setAncho('')
@@ -226,7 +328,7 @@ export default function Cotizador() {
     const cant = parseFloat(cantAccesorio)
     if (isNaN(cant) || cant <= 0) return
     const subtotal = calcSubtotalAccesorio(cant, accesorioSel.precio_cotizador)
-    setPiezasAccesorio([...piezasAccesorio, { id: nextIdAccesorio, material: accesorioSel.detalle, cantidad: cant, precio_unitario: accesorioSel.precio_cotizador, subtotal }])
+    setPiezasAccesorio([...piezasAccesorio, { id: nextIdAccesorio, material: accesorioSel.detalle, catalogo_id: accesorioSel.id, cantidad: cant, precio_unitario: accesorioSel.precio_cotizador, subtotal }])
     setNextIdAccesorio(nextIdAccesorio + 1)
     setCantAccesorio('')
     setAccesorioSelId('')
@@ -240,6 +342,7 @@ export default function Cotizador() {
     setPiezasUnion([...piezasUnion, {
       id: nextIdUnion,
       label: `${unionSel.codigo_union} — ${unionSel.tipo}`,
+      catalogo_id: unionSel.id,
       tipo: unionSel.tipo,
       cantidad: cant,
       precio_unitario: unionSel.precio,
@@ -255,12 +358,15 @@ export default function Cotizador() {
   const totalAccesorio = piezasAccesorio.reduce((acc, p) => acc + p.subtotal, 0)
   const totalUnion = piezasUnion.reduce((acc, p) => acc + p.subtotal, 0)
   const totalColor = calcSubtotalColor()
-  const totalGeneral = totalAcero + totalMelamina + totalAccesorio + totalUnion + totalUnionRectaAuto + totalColor + COSTOS_ADMINISTRATIVOS
+  const costoMateriales = totalAcero + totalMelamina + totalAccesorio + totalUnion + totalUnionRectaAuto + totalColor
+  const costoAdministrativo = costoMateriales * (pctAdmin / 100)
+  const costoManoObra = costoMateriales * (pctManoObra / 100)
+  const totalGeneral = costoMateriales + costoAdministrativo + costoManoObra
 
   // Precios de venta
-  const precioMarginal = totalGeneral * 1.11
-  const precioNeto = precioMarginal * 1.11
-  const precioFacturado = precioMarginal * 1.16
+  const precioMarginal = totalGeneral * (1 + pctMarginal / 100)
+  const precioNeto = precioMarginal * (1 + pctNeto / 100)
+  const precioFacturado = precioMarginal * (1 + pctFacturado / 100)
 
   const puedeVerPrecioMinimo =
     usuario?.cargos?.puede_ver_precio_minimo === true ||
@@ -269,7 +375,11 @@ export default function Cotizador() {
     usuario?.cargos?.es_admin === 1
 
   const esJerarquia = puedeVerPrecioMinimo
-  
+
+  const esAdmin =
+    usuario?.cargos?.es_admin === true ||
+    usuario?.cargos?.es_admin === 1
+
   const inputStyle = {
     padding: '10px 14px',
     borderRadius: '8px',
@@ -339,7 +449,10 @@ export default function Cotizador() {
     },
     totales: {
       totalAcero, totalMelamina, totalAccesorio, totalUnion, totalUnionRectaAuto, totalColor,
-      costosAdministrativos: COSTOS_ADMINISTRATIVOS,
+      costosMateriales: costoMateriales,
+      costosAdministrativos: costoAdministrativo,
+      costoManoObra,
+      ...(esAdmin ? { porcentajes: { admin: pctAdmin, manoObra: pctManoObra, marginal: pctMarginal, neto: pctNeto, facturado: pctFacturado } } : {}),
       totalGeneral, precioMarginal, precioNeto, precioFacturado,
     },
   })
@@ -365,6 +478,7 @@ export default function Cotizador() {
   // ── Guardar / cargar cotizaciones del vendedor ──────────────────────────────
   const guardarCotizacion = async () => {
     if (!hayPiezas) return alert('Agrega al menos una pieza antes de guardar')
+    if (!(await verificarCodigo(codigoGuardar))) return
     setGuardandoCot(true)
     try {
       const payload = serializarEstado()
@@ -445,7 +559,7 @@ export default function Cotizador() {
       const subtotal = calcSubtotalMelamina(p.largo, p.ancho, p.cantidad, mat.precio_cotizador)
       const pieza = {
         id: nid,
-        material: `${mat.detalle} — ${p.pieza}${p.canteado?.cmPorPieza > 0 ? ` · tapacanto ${p.canteado.cmPorPieza} cm` : ''}`,
+        material: `${mat.detalle} — ${p.pieza}`,
         largo: p.largo,
         ancho: p.ancho,
         cantidad: p.cantidad,
@@ -487,15 +601,18 @@ export default function Cotizador() {
   }
 
   const abrirPlantilla = async (p: ProductoCatalogo) => {
+    if (!esJerarquia && hayPiezas && !window.confirm('Se reemplazarán las piezas actuales por la plantilla. ¿Continuar?')) return
     handleLimpiarTodo()
     setCotizacionId(null)
     setClienteNombre('')
-    setProductoActivo(p)
-    setModoPlantilla(true)
+    // Admin / jerarquía: editan la plantilla. Usuarios normales: solo la cargan como base de su cotización.
+    setProductoActivo(esJerarquia ? p : null)
+    setModoPlantilla(esJerarquia)
     setPanelPlantillas(false)
     try {
       const { data } = await supabase.from('producto_plantillas').select('*').eq('producto_codigo', p.codigo).maybeSingle()
       if (data) restaurarEstado(data.piezas)
+      else if (!esJerarquia) alert('Este producto aún no tiene plantilla cargada')
     } catch (e) {
       console.error(e)
     }
@@ -504,6 +621,10 @@ export default function Cotizador() {
   const guardarPlantilla = async () => {
     if (!productoActivo) return
     if (!hayPiezas) return alert('Agrega al menos una pieza antes de guardar la plantilla')
+    if (!esAdmin) {
+      const c = window.prompt('Código de autorización del administrador:')
+      if (c === null || !(await verificarCodigo(c))) return
+    }
     setGuardandoPlantilla(true)
     try {
       const payload = serializarEstado()
@@ -554,6 +675,105 @@ export default function Cotizador() {
     handleLimpiarTodo()
   }
 
+  // ── Edición de piezas ya agregadas (recalcula el subtotal) ──────────────────
+  const actualizarAcero = (id: number, cambios: Partial<PiezaAcero>) =>
+    setPiezasAcero(prev => prev.map(p => {
+      if (p.id !== id) return p
+      const n = { ...p, ...cambios }
+      return { ...n, subtotal: calcSubtotalAcero(n.longitud, n.cantidad, n.precio_unitario) }
+    }))
+
+  const actualizarMelamina = (id: number, cambios: Partial<PiezaMelamina>) =>
+    setPiezasMelamina(prev => prev.map(p => {
+      if (p.id !== id) return p
+      const n = { ...p, ...cambios }
+      return { ...n, subtotal: calcSubtotalMelamina(n.largo, n.ancho, n.cantidad, n.precio_unitario) }
+    }))
+
+  const actualizarAccesorio = (id: number, cambios: Partial<PiezaAccesorio>) =>
+    setPiezasAccesorio(prev => prev.map(p => {
+      if (p.id !== id) return p
+      const n = { ...p, ...cambios }
+      return { ...n, subtotal: calcSubtotalAccesorio(n.cantidad, n.precio_unitario) }
+    }))
+
+  const actualizarUnion = (id: number, cambios: Partial<PiezaUnion>) =>
+    setPiezasUnion(prev => prev.map(p => {
+      if (p.id !== id) return p
+      const n = { ...p, ...cambios }
+      return { ...n, subtotal: calcSubtotalUnion(n.cantidad, n.precio_unitario) }
+    }))
+
+  const cambiarMaterialAcero = (id: number, catId: string) => {
+    const a = aceros.find(x => String(x.id) === catId)
+    if (a) actualizarAcero(id, { material: a.detalle, catalogo_id: a.id, precio_unitario: a.precio_cotizador })
+  }
+  const cambiarMaterialMelamina = (id: number, catId: string) => {
+    const m = melaminas.find(x => String(x.id) === catId)
+    if (m) actualizarMelamina(id, { material: m.detalle, catalogo_id: m.id, precio_unitario: m.precio_cotizador })
+  }
+  const cambiarMaterialAccesorio = (id: number, catId: string) => {
+    const a = accesorios.find(x => String(x.id) === catId)
+    if (a) actualizarAccesorio(id, { material: a.detalle, catalogo_id: a.id, precio_unitario: a.precio_cotizador })
+  }
+  const cambiarUnion = (id: number, catId: string) => {
+    const u = uniones.find(x => String(x.id) === catId)
+    if (u) actualizarUnion(id, { label: `${u.codigo_union} — ${u.tipo}`, tipo: u.tipo, catalogo_id: u.id, precio_unitario: u.precio })
+  }
+
+  // ── Porcentajes de cálculo (solo administrador) ─────────────────────────────
+  const guardarConfiguracion = async () => {
+    if (!esAdmin) return
+    setGuardandoConfig(true)
+    try {
+      const { error } = await supabase.from('configuracion_cotizador').upsert({
+        id: 1,
+        pct_admin: pctAdmin,
+        pct_mano_obra: pctManoObra,
+        pct_marginal: pctMarginal,
+        pct_neto: pctNeto,
+        pct_facturado: pctFacturado,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' })
+      if (error) throw error
+      alert('Porcentajes guardados para todos los usuarios')
+    } catch (e: any) {
+      alert('Error al guardar porcentajes: ' + e.message)
+    } finally {
+      setGuardandoConfig(false)
+    }
+  }
+
+  // ── Código de autorización para guardar ─────────────────────────────────────
+  const verificarCodigo = async (codigo: string): Promise<boolean> => {
+    if (esAdmin) return true
+    if (!codigo.trim()) { alert('Ingresa el código de autorización del administrador'); return false }
+    try {
+      const { data, error } = await supabase.rpc('verificar_codigo_edicion', { p_codigo: codigo.trim() })
+      if (error) throw error
+      if (data !== true) { alert('Código incorrecto'); return false }
+      return true
+    } catch (e: any) {
+      alert('No se pudo verificar el código: ' + e.message)
+      return false
+    }
+  }
+
+  const guardarCodigoEdicion = async () => {
+    if (!esAdmin || !nuevoCodigoEdicion.trim()) return
+    setGuardandoCodigo(true)
+    try {
+      const { error } = await supabase.rpc('cambiar_codigo_edicion', { p_codigo: nuevoCodigoEdicion.trim() })
+      if (error) throw error
+      setNuevoCodigoEdicion('')
+      alert('Código de edición actualizado')
+    } catch (e: any) {
+      alert('Error al guardar el código: ' + e.message)
+    } finally {
+      setGuardandoCodigo(false)
+    }
+  }
+
   if (!usuario && !loading) return null
 
   return (
@@ -602,7 +822,7 @@ export default function Cotizador() {
           >
             💾 Mis Cotizaciones
           </button>
-          {esJerarquia && (
+          {(
             <button
               onClick={() => setPanelPlantillas(true)}
               style={{ padding: '8px 14px', backgroundColor: '#333', color: '#f5c842', border: '1px solid #555', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
@@ -705,9 +925,11 @@ export default function Cotizador() {
                     <tbody>
                       {piezasAcero.map((p, i) => (
                         <tr key={p.id}>
-                          <td style={tdStyle(i)}>{p.material}</td>
-                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.longitud}</td>
-                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.cantidad}</td>
+                          <td style={tdStyle(i)}>
+                            <MaterialSelect catalogoId={p.catalogo_id} nombreActual={p.material} lista={aceros} nombreDe={(x) => x.detalle} etiqueta={(a) => esJerarquia ? `${a.detalle} — Bs. ${Number(a.precio_cotizador).toFixed(2)}/barra` : a.detalle} onChange={(id) => cambiarMaterialAcero(p.id, id)} />
+                          </td>
+                          <td style={{ ...tdStyle(i), textAlign: 'center' }}><CeldaNumero valor={p.longitud} onChange={(v) => actualizarAcero(p.id, { longitud: v })} /></td>
+                          <td style={{ ...tdStyle(i), textAlign: 'center' }}><CeldaNumero valor={p.cantidad} onChange={(v) => actualizarAcero(p.id, { cantidad: v })} /></td>
                           {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'center' }}>Bs. {Number(p.precio_unitario).toFixed(2)}</td>}
                           {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>Bs. {p.subtotal.toFixed(2)}</td>}
                           <td style={{ ...tdStyle(i), textAlign: 'center' }}>
@@ -794,10 +1016,12 @@ export default function Cotizador() {
                     <tbody>
                       {piezasMelamina.map((p, i) => (
                         <tr key={p.id}>
-                          <td style={tdStyle(i)}>{p.material}</td>
-                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.largo}</td>
-                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.ancho}</td>
-                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.cantidad}</td>
+                          <td style={tdStyle(i)}>
+                            <MaterialSelect catalogoId={p.catalogo_id} nombreActual={p.material} lista={melaminas} nombreDe={(x) => x.detalle} etiqueta={(m) => esJerarquia ? `${m.detalle} — Bs. ${Number(m.precio_cotizador).toFixed(2)}/m²` : m.detalle} onChange={(id) => cambiarMaterialMelamina(p.id, id)} />
+                          </td>
+                          <td style={{ ...tdStyle(i), textAlign: 'center' }}><CeldaNumero valor={p.largo} onChange={(v) => actualizarMelamina(p.id, { largo: v })} /></td>
+                          <td style={{ ...tdStyle(i), textAlign: 'center' }}><CeldaNumero valor={p.ancho} onChange={(v) => actualizarMelamina(p.id, { ancho: v })} /></td>
+                          <td style={{ ...tdStyle(i), textAlign: 'center' }}><CeldaNumero valor={p.cantidad} onChange={(v) => actualizarMelamina(p.id, { cantidad: v })} /></td>
                           {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'center' }}>Bs. {Number(p.precio_unitario).toFixed(2)}</td>}
                           {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>Bs. {p.subtotal.toFixed(2)}</td>}
                           <td style={{ ...tdStyle(i), textAlign: 'center' }}>
@@ -874,8 +1098,10 @@ export default function Cotizador() {
                     <tbody>
                       {piezasAccesorio.map((p, i) => (
                         <tr key={p.id}>
-                          <td style={tdStyle(i)}>{p.material}</td>
-                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.cantidad}</td>
+                          <td style={tdStyle(i)}>
+                            <MaterialSelect catalogoId={p.catalogo_id} nombreActual={p.material} lista={accesorios} nombreDe={(x) => x.detalle} etiqueta={(a) => `${a.detalle}${a.medidas ? ` (${a.medidas})` : ''}${esJerarquia ? ` — Bs. ${Number(a.precio_cotizador).toFixed(2)}/u` : ''}`} onChange={(id) => cambiarMaterialAccesorio(p.id, id)} />
+                          </td>
+                          <td style={{ ...tdStyle(i), textAlign: 'center' }}><CeldaNumero valor={p.cantidad} onChange={(v) => actualizarAccesorio(p.id, { cantidad: v })} /></td>
                           {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'center' }}>Bs. {Number(p.precio_unitario).toFixed(2)}</td>}
                           {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>Bs. {p.subtotal.toFixed(2)}</td>}
                           <td style={{ ...tdStyle(i), textAlign: 'center' }}>
@@ -968,8 +1194,10 @@ export default function Cotizador() {
                     <tbody>
                       {piezasUnion.map((p, i) => (
                         <tr key={p.id}>
-                          <td style={tdStyle(i)}>{p.label}</td>
-                          <td style={{ ...tdStyle(i), textAlign: 'center' }}>{p.cantidad}</td>
+                          <td style={tdStyle(i)}>
+                            <MaterialSelect catalogoId={p.catalogo_id} nombreActual={p.label} lista={uniones.filter(u => u.tipo !== 'R')} nombreDe={(u) => `${u.codigo_union} — ${u.tipo}`} etiqueta={(u) => esJerarquia ? `${u.codigo_union} — ${u.tipo} — Bs. ${Number(u.precio).toFixed(2)}/u` : `${u.codigo_union} — ${u.tipo}`} onChange={(id) => cambiarUnion(p.id, id)} />
+                          </td>
+                          <td style={{ ...tdStyle(i), textAlign: 'center' }}><CeldaNumero valor={p.cantidad} onChange={(v) => actualizarUnion(p.id, { cantidad: v })} /></td>
                           {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'center' }}>Bs. {Number(p.precio_unitario).toFixed(2)}</td>}
                           {esJerarquia && <td style={{ ...tdStyle(i), textAlign: 'right', fontWeight: 'bold', color: '#087e0b' }}>Bs. {p.subtotal.toFixed(2)}</td>}
                           <td style={{ ...tdStyle(i), textAlign: 'center' }}>
@@ -1041,6 +1269,62 @@ export default function Cotizador() {
               )}
             </div>
 
+            {/* ===== PORCENTAJES DE CÁLCULO — solo administrador ===== */}
+            {esAdmin && (
+              <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', marginBottom: '24px', border: '1px solid #f5c842' }}>
+                <h2 style={{ margin: '0 0 4px 0', fontSize: '20px' }}>⚙️ Porcentajes de cálculo</h2>
+                <p style={{ color: '#888', fontSize: '13px', margin: '0 0 20px 0' }}>
+                  Solo visible para administradores. Costo total = materiales + costo administrativo + mano de obra. Los cambios se reflejan al instante aquí; presiona «Guardar porcentajes» para aplicarlos a todos los usuarios.
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '14px', marginBottom: '18px' }}>
+                  {CAMPOS_CFG.map(({ k, titulo, ayuda }) => (
+                    <div key={k}>
+                      <label style={labelStyle}>{titulo}</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={cfg[k]}
+                        onChange={(e) => setCfg({ ...cfg, [k]: e.target.value })}
+                        style={inputStyle}
+                      />
+                      <span style={{ fontSize: '11px', color: '#aaa' }}>{ayuda}</span>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={guardarConfiguracion}
+                  disabled={guardandoConfig}
+                  style={{ padding: '10px 22px', backgroundColor: '#f5c842', color: '#1a1a2e', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}
+                >
+                  {guardandoConfig ? 'Guardando...' : '💾 Guardar porcentajes'}
+                </button>
+
+                <div style={{ borderTop: '1px solid #eee', marginTop: '24px', paddingTop: '20px' }}>
+                  <h3 style={{ margin: '0 0 4px 0', fontSize: '16px' }}>🔑 Código de autorización para guardar</h3>
+                  <p style={{ color: '#888', fontSize: '12px', margin: '0 0 12px 0' }}>
+                    Los usuarios sin permiso de administrador pueden ver y modificar las piezas, pero necesitan este código para guardar la cotización o la plantilla. Entrégalo solo a quien corresponda; tú (administrador) no lo necesitas.
+                  </p>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' as const }}>
+                    <input
+                      type="text"
+                      placeholder="Nuevo código"
+                      value={nuevoCodigoEdicion}
+                      onChange={(e) => setNuevoCodigoEdicion(e.target.value)}
+                      style={{ ...inputStyle, maxWidth: '240px' }}
+                    />
+                    <button
+                      onClick={guardarCodigoEdicion}
+                      disabled={guardandoCodigo || !nuevoCodigoEdicion.trim()}
+                      style={{ padding: '10px 20px', backgroundColor: !nuevoCodigoEdicion.trim() ? '#ccc' : '#222', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}
+                    >
+                      {guardandoCodigo ? 'Guardando...' : 'Guardar código'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* RESUMEN TOTAL */}
             {(piezasAcero.length > 0 || piezasMelamina.length > 0 || piezasAccesorio.length > 0 || piezasUnion.length > 0 || colorSel) && (
               <>
@@ -1085,8 +1369,12 @@ export default function Cotizador() {
                         </div>
                       )}
                       <div>
-                        <p style={{ margin: 0, color: '#aaa', fontSize: '11px' }}>Costos Adm.</p>
-                        <p style={{ margin: '2px 0 0 0', color: '#a3c47d', fontSize: '15px', fontWeight: 'bold' }}>Bs. {COSTOS_ADMINISTRATIVOS.toFixed(2)}</p>
+                        <p style={{ margin: 0, color: '#aaa', fontSize: '11px' }}>Costos Adm.{esAdmin ? ` (${pctAdmin}%)` : ''}</p>
+                        <p style={{ margin: '2px 0 0 0', color: '#a3c47d', fontSize: '15px', fontWeight: 'bold' }}>Bs. {costoAdministrativo.toFixed(2)}</p>
+                      </div>
+                      <div>
+                        <p style={{ margin: 0, color: '#aaa', fontSize: '11px' }}>Mano de obra{esAdmin ? ` (${pctManoObra}%)` : ''}</p>
+                        <p style={{ margin: '2px 0 0 0', color: '#a3c47d', fontSize: '15px', fontWeight: 'bold' }}>Bs. {costoManoObra.toFixed(2)}</p>
                       </div>
                       <div style={{ borderLeft: '1px solid #444', paddingLeft: '24px' }}>
                         <p style={{ margin: 0, color: '#aaa', fontSize: '11px' }}>Costo Total</p>
@@ -1145,8 +1433,8 @@ export default function Cotizador() {
                     <div style={{ backgroundColor: '#0f3460', padding: '24px 28px', borderRight: '1px solid rgba(255,255,255,0.08)' }}>
                       <p style={{ margin: '0 0 4px 0', color: '#7eb8d4', fontSize: '12px', fontWeight: 'bold', letterSpacing: '0.5px' }}>PRECIO MARGINAL</p>
                       <p style={{ margin: '0 0 6px 0', color: 'white', fontSize: '28px', fontWeight: 'bold' }}>Bs. {precioMarginal.toFixed(2)}</p>
-                      {esJerarquia && (
-                        <p style={{ margin: 0, color: '#7eb8d4', fontSize: '11px' }}>Costo × 1.11 (utilidad 11%)</p>
+                      {esAdmin && (
+                        <p style={{ margin: 0, color: '#7eb8d4', fontSize: '11px' }}>{`Costo × ${(1 + pctMarginal / 100).toFixed(2)} (utilidad ${pctMarginal}%)`}</p>
                       )}
                     </div>
 
@@ -1154,8 +1442,8 @@ export default function Cotizador() {
                     <div style={{ backgroundColor: '#16213e', padding: '24px 28px', borderRight: '1px solid rgba(255,255,255,0.08)' }}>
                       <p style={{ margin: '0 0 4px 0', color: '#a3c47d', fontSize: '12px', fontWeight: 'bold', letterSpacing: '0.5px' }}>PRECIO NETO</p>
                       <p style={{ margin: '0 0 6px 0', color: 'white', fontSize: '28px', fontWeight: 'bold' }}>Bs. {precioNeto.toFixed(2)}</p>
-                      {esJerarquia && (
-                        <p style={{ margin: 0, color: '#a3c47d', fontSize: '11px' }}>Marginal × 1.11 (ventas y marketing)</p>
+                      {esAdmin && (
+                        <p style={{ margin: 0, color: '#a3c47d', fontSize: '11px' }}>{`Marginal × ${(1 + pctNeto / 100).toFixed(2)} (ventas y marketing ${pctNeto}%)`}</p>
                       )}
                     </div>
 
@@ -1163,8 +1451,8 @@ export default function Cotizador() {
                     <div style={{ backgroundColor: '#1a1a2e', padding: '24px 28px' }}>
                       <p style={{ margin: '0 0 4px 0', color: '#f5c842', fontSize: '12px', fontWeight: 'bold', letterSpacing: '0.5px' }}>PRECIO FACTURADO</p>
                       <p style={{ margin: '0 0 6px 0', color: 'white', fontSize: '28px', fontWeight: 'bold' }}>Bs. {precioFacturado.toFixed(2)}</p>
-                      {esJerarquia && (
-                        <p style={{ margin: 0, color: '#f5c842', fontSize: '11px' }}>Marginal × 1.16 (con factura)</p>
+                      {esAdmin && (
+                        <p style={{ margin: 0, color: '#f5c842', fontSize: '11px' }}>{`Marginal × ${(1 + pctFacturado / 100).toFixed(2)} (con factura ${pctFacturado}%)`}</p>
                       )}
                     </div>
 
@@ -1191,9 +1479,21 @@ export default function Cotizador() {
               onChange={(e) => setClienteNombre(e.target.value)}
               style={inputStyle}
             />
+            {!esAdmin && (
+              <div style={{ marginTop: '16px' }}>
+                <label style={labelStyle}>🔑 Código de autorización (lo entrega el administrador)</label>
+                <input
+                  type="password"
+                  placeholder="Código"
+                  value={codigoGuardar}
+                  onChange={(e) => setCodigoGuardar(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+            )}
             <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
               <button onClick={() => setPanelGuardar(false)} style={{ flex: 1, padding: '12px', backgroundColor: '#f0f0f0', color: '#555', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>Cancelar</button>
-              <button onClick={guardarCotizacion} disabled={guardandoCot} style={{ flex: 1, padding: '12px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>
+              <button onClick={guardarCotizacion} disabled={guardandoCot || (!esAdmin && !codigoGuardar.trim())} style={{ flex: 1, padding: '12px', backgroundColor: '#087e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>
                 {guardandoCot ? 'Guardando...' : 'Guardar'}
               </button>
             </div>
@@ -1270,7 +1570,6 @@ export default function Cotizador() {
                     <th style={{ padding: '8px 10px', textAlign: 'center' }}>Cant.</th>
                     <th style={{ padding: '8px 10px', textAlign: 'center' }}>Largo</th>
                     <th style={{ padding: '8px 10px', textAlign: 'center' }}>Ancho</th>
-                    <th style={{ padding: '8px 10px', textAlign: 'center' }}>Tapacanto (cm)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1280,7 +1579,6 @@ export default function Cotizador() {
                       <td style={{ padding: '6px 10px', borderTop: '1px solid #f0f0f0', textAlign: 'center' }}>{p.cantidad}</td>
                       <td style={{ padding: '6px 10px', borderTop: '1px solid #f0f0f0', textAlign: 'center' }}>{p.largo.toFixed(1)}</td>
                       <td style={{ padding: '6px 10px', borderTop: '1px solid #f0f0f0', textAlign: 'center' }}>{p.ancho.toFixed(1)}</td>
-                      <td style={{ padding: '6px 10px', borderTop: '1px solid #f0f0f0', textAlign: 'center' }}>{p.canteado?.cmPorPieza > 0 ? p.canteado.cmPorPieza : '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1304,7 +1602,7 @@ export default function Cotizador() {
               <h2 style={{ margin: 0, fontSize: '18px' }}>📦 Plantillas de Producto</h2>
               <button onClick={() => setPanelPlantillas(false)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#999' }}>✕</button>
             </div>
-            <p style={{ color: '#888', fontSize: '12px', margin: '0 0 12px 0' }}>Busca un producto por código o nombre para cargar (o crear) su despiece.</p>
+            <p style={{ color: '#888', fontSize: '12px', margin: '0 0 12px 0' }}>{esJerarquia ? 'Busca un producto por código o nombre para cargar (o crear) su despiece.' : 'Busca un producto por código o nombre para cargar su despiece como base de tu cotización.'}</p>
             <div style={{ display: 'flex', gap: '8px' }}>
               <input
                 type="text"
@@ -1335,7 +1633,7 @@ export default function Cotizador() {
                         <strong style={{ fontSize: '14px', color: '#222' }}>{p.codigo} — {p.nombre}</strong>
                         <span style={{ fontSize: '11px', color: '#999' }}>{p.categoria}</span>
                       </div>
-                      <span style={{ fontSize: '12px', color: '#666' }}>{p.medidas} · Bs. {Number(p.precio_minimo).toFixed(2)} min / Bs. {Number(p.precio_tienda).toFixed(2)} tienda</span>
+                      <span style={{ fontSize: '12px', color: '#666' }}>{p.medidas}{esJerarquia ? ` · Bs. ${Number(p.precio_minimo).toFixed(2)} min / Bs. ${Number(p.precio_tienda).toFixed(2)} tienda` : ''}</span>
                     </button>
                   ))}
                 </div>
